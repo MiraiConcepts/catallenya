@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly Restic Forget
+After=network-online.target
+OnSuccess=restic.forget.success.ntfy.service
+OnFailure=restic.forget.failure.ntfy.service
+
+[Service]
+Type=oneshot
+User=root
+Environment="RCLONE_CONFIG=/zpool/catallenya-sev/rclone/.rclone.conf"
+ExecStart=/zpool/catallenya-sev/restic/forget/restic.forget.sh

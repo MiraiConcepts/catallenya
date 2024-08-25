@@ -1,0 +1,8 @@
+[Unit]
+Description=Success Ntfy Alert for Monthly Restic Check
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/zpool/catallenya-sev/restic/check/ntfy/restic.check.success.ntfy.sh

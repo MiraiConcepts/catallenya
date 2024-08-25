@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly Restic Forget Timer
+
+[Timer]
+OnCalendar=Mon *-*-* 12:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
