@@ -34,6 +34,10 @@
 
 !restic/snapshots
 !restic/snapshots/restic.snapshots.sh
+
+!restic/unlock
+!restic/unlock/restic.unlock.sh
+
 !restic/restic.conf
 
 !sanoid

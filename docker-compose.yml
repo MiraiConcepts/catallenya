@@ -290,7 +290,7 @@ services:
       - flame.url=${ISAIAH_URL}
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
-
+  
 secrets:
   password:
     file: flame/token.json
