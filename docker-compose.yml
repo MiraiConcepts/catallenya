@@ -125,7 +125,6 @@ services:
       - flame.name=Immich
       - flame.url=${IMMICH_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
 
   immich-machine-learning:
     container_name: immich_machine_learning
