@@ -12,7 +12,6 @@ services:
       - ${GHOST_REVERSE_PROXY_PORT}:${GHOST_REVERSE_PROXY_PORT}
       - ${GHOST_REVERSE_PROXY_CADDY_PORT}:${GHOST_REVERSE_PROXY_CADDY_PORT}
       - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
-      - ${MEMOS_REVERSE_PROXY_PORT}:${MEMOS_REVERSE_PROXY_PORT}
       - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
       - ${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
       - ${RADICALE_REVERSE_PROXY_PORT}:${RADICALE_REVERSE_PROXY_PORT}
@@ -114,7 +113,7 @@ services:
     env_file:
       - .env
     ports:
-     - 2283:3001
+      - 2283:2283
     volumes:
       - ${IMMICH_VOLUME}:/usr/src/app/upload
     depends_on:
@@ -148,26 +147,6 @@ services:
       POSTGRES_DB: ${DB_DATABASE_NAME}
     volumes:
       - ${DB_VOLUME}:/var/lib/postgresql/data
-
-  pgbackups:
-    container_name: pgbackups
-    image: prodrigestivill/postgres-backup-local:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    environment:
-      POSTGRES_HOST: ${DB_HOSTNAME}
-      POSTGRES_DB: ${DB_DATABASE_NAME}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      SCHEDULE: ${PG_BACKUPS_SCHEDULE}
-    volumes:
-      - ${PG_BACKUPS_VOLUME}:/backups
-      - ${DB_VOLUME}:/var/lib/postgresql/data
-    depends_on:
-      - database
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
 
   tailscale:
     # This needs to be set to 'catallenya' as the certificates generated are associated with this name.
@@ -245,21 +224,6 @@ services:
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
   
-  memos:
-    container_name: memos
-    image: neosmemo/memos:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    volumes:
-      - ${MEMOS_VOLUME}:/var/opt/memos
-    labels:
-      - flame.type=application
-      - flame.name=Memos
-      - flame.url=${MEMOS_URL}
-      - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-
   cloudflared:
     container_name: cloudflared
     image: cloudflare/cloudflared

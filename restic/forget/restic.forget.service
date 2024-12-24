@@ -1,5 +1,5 @@
 [Unit]
-Description=Monthly Restic Forget
+Description=Weekly Restic Forget
 After=network-online.target
 OnSuccess=restic.forget.success.ntfy.service
 OnFailure=restic.forget.failure.ntfy.service
