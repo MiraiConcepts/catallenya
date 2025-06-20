@@ -7,5 +7,5 @@ OnFailure=restic.backup.failure.ntfy.service
 [Service]
 Type=oneshot
 User=root
-Environment="RCLONE_CONFIG=/zpool/catallenya-sev/rclone/.rclone.conf"
-ExecStart=/zpool/catallenya-sev/restic/backup/restic.backup.sh
+Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
+ExecStart=/zpool/catallenya/restic/backup/restic.backup.sh

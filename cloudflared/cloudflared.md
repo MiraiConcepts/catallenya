@@ -17,5 +17,5 @@ cloudflared tunnel login
 ```
 # Generate credential file for target tunnel
 ```
-cloudflared tunnel token --cred-file ./cloudflared/token.json catallenya-sev
+cloudflared tunnel token --cred-file ./cloudflared/token.json catallenya-tunnel
 ```

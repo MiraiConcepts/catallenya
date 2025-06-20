@@ -6,4 +6,4 @@ curl -H "Tags: mending_heart" \
      -H "Title: Restic Backup Failure" \
      -H "Priority: high" \
      -d "$service_status" \
-     "https://catallenya-sev.kamori-mulley.ts.net:3000/restic"
+     "https://catallenya.kamori-mulley.ts.net:3000/restic"

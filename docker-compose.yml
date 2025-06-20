@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     networks:
       - caddy-internal
+    depends_on:
+      - tailscale
     # We need to explicitly indicate the env file so that we can populate the variables in the Caddyfile as well.
     env_file:
       - .env
@@ -229,7 +231,7 @@ services:
     restart: unless-stopped
     networks:
       - caddy-internal
-    command: tunnel -credentials-file /run/secrets/cloudflared-token run catallenya-sev
+    command: tunnel -credentials-file /run/secrets/cloudflared-token run catallenya-tunnel
     secrets:
       - cloudflared-token
     labels:
