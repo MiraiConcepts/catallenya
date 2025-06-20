@@ -1,4 +1,4 @@
-# catallenya-sev
+# catallenya
 A project aimed at retaining personal data sovereignty, by replacing third-party services with self-hosted solutions for photo management, cloud storage, calendar and contact sync and blogging. Offers deep integration with scheduled backups, encryption and status notifications.
 
 ### Blog

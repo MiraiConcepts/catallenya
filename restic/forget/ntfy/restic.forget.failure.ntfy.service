@@ -5,4 +5,4 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/zpool/catallenya-sev/restic/forget/ntfy/restic.forget.failure.ntfy.sh
+ExecStart=/zpool/catallenya/restic/forget/ntfy/restic.forget.failure.ntfy.sh
