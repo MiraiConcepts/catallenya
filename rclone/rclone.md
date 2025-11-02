@@ -1,6 +1,6 @@
 # Configuration file is stored at (modify .bashrc to source):
 ```
-/zpool/catallenya/.rclone.conf
+/zpool/catallenya/rclone/.rclone.conf
 ```
 # Access restic snapshots:
 ```
