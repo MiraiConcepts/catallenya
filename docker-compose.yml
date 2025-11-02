@@ -11,18 +11,55 @@ services:
     env_file:
       - .env
     ports:
-      - ${GHOST_REVERSE_PROXY_PORT}:${GHOST_REVERSE_PROXY_PORT}
+      # - ${GHOST_REVERSE_PROXY_PORT}:${GHOST_REVERSE_PROXY_PORT}
       - ${GHOST_REVERSE_PROXY_CADDY_PORT}:${GHOST_REVERSE_PROXY_CADDY_PORT}
       - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
       - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
       - ${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
       - ${RADICALE_REVERSE_PROXY_PORT}:${RADICALE_REVERSE_PROXY_PORT}
       - ${NTFY_REVERSE_PROXY_PORT}:${NTFY_REVERSE_PROXY_PORT}
+      # - ${REMARK_REVERSE_PROXY_PORT}:${REMARK_REVERSE_PROXY_PORT}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock
     labels:
       - com.centurylinklabs.watchtower.enable=true
+
+  # remark:
+  #   container_name: remark42
+  #   image: ghcr.io/umputun/remark42:latest
+  #   restart: unless-stopped
+  #   networks:
+  #     - caddy-internal
+
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "5"
+
+  #   # uncomment to expose directly (no proxy)
+  #   #ports:
+  #   #  - "80:8080"
+  #   #  - "443:8443"
+
+  #   # uncomment to expose to reverse proxy running on the same host but not in docker
+  #   #ports:
+  #   #  - "127.0.0.1:8080:8080"
+
+  #   environment:
+  #     - REMARK_URL=https://catallenya.com
+  #     - SECRET=1234567890
+  #     - DEBUG=true
+  #     - AUTH_ANON=true
+  #     - SITE=catallenya
+  #     - ANON_VOTE=true
+  #     # Enable it only for the initial comment import or for manual backups.
+  #     # Do not leave the server running with the ADMIN_PASSWD set if you don't have an intention
+  #     # to keep creating backups manually!
+  #     - ADMIN_PASSWD=password
+  #   volumes:
+  #     - ${REMARK_VOLUME}:/srv/var
 
   flame:
     container_name: flame

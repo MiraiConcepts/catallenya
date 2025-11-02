@@ -14,28 +14,32 @@
     reverse_proxy radicale:5232
 }
 
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$GHOST_REVERSE_PROXY_CADDY_PORT} {
-    reverse_proxy ghost:2368
-}
+# {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$GHOST_REVERSE_PROXY_CADDY_PORT} {
+#     reverse_proxy ghost:2368
+# }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$NTFY_REVERSE_PROXY_PORT} {
     reverse_proxy ntfy:80
 }
+
+# {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$REMARK_REVERSE_PROXY_PORT} {
+#     reverse_proxy remark:8080
+# }
 
 # We configure our own reverse proxy for Ghost. Since we are handling the SSL termination,
 # we set headers to coerce Ghost to trust the connection.
 # See: 
 # https://caddy.community/t/solve-infinite-301-loop-then-502-with-ghost-and-caddy/7226
 # https://ghost.org/docs/faq/proxying-https-infinite-loops/
-:{$GHOST_REVERSE_PROXY_PORT} {
-    reverse_proxy ghost:2368 {
-      header_up Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+#:{$GHOST_REVERSE_PROXY_PORT} {
+#    reverse_proxy ghost:2368 {
+#      header_up Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 
       # this one is done automatically for you by Caddy
       # header_up Host {host}
 
-      header_up X-Forwarded-Proto "https"
-      header_up X-Forwarded-For {remote}
-      header_up X-Real-IP {remote}
-    }
-}
+#      header_up X-Forwarded-Proto "https"
+#      header_up X-Forwarded-For {remote}
+#      header_up X-Real-IP {remote}
+#    }
+#}
