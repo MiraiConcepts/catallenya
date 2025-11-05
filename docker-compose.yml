@@ -324,7 +324,6 @@ services:
       - ${MEMOS_VOLUME}:/var/opt/memos
     environment:
       - MEMOS_MODE=prod
-      - aws_access_key_id = "9MUXTEEjNb0cxwYwLxDTiknGWrQw5FXGriyN3r6T7Fw="
     labels:
       - flame.type=application
       - flame.name=memos
