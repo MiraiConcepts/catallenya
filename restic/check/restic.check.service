@@ -1,5 +1,5 @@
 [Unit]
-Description=Monthly Restic Check
+Description=Yearly Restic Check
 After=network-online.target
 OnSuccess=restic.check.success.ntfy.service
 OnFailure=restic.check.failure.ntfy.service

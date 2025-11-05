@@ -1,8 +1,8 @@
 [Unit]
-Description=Weekly Restic Forget Timer
+Description=Monthly Restic Forget Timer
 
 [Timer]
-OnCalendar=Mon *-*-* 12:00:00
+OnCalendar=*-*-01 12:00:00
 Persistent=true
 
 [Install]
