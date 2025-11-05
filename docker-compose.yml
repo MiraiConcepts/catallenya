@@ -70,7 +70,7 @@ services:
       - flame.name=archivebox
       - flame.url=${ARCHIVEBOX_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
+    # No Watchtower pull as we use a local Dockerfile instead of a registry reference.
 
   archivebox_scheduler:
     container_name: archivebox_scheduler
