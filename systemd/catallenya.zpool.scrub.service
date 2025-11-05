@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly ZFS Pool Scrub
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=zpool scrub zpool

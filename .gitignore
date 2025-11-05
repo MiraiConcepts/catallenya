@@ -43,6 +43,9 @@
 !sanoid
 !sanoid/*
 
+!systemd
+!systemd/*
+
 !zpool
 !zpool/*
 
