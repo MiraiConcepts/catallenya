@@ -45,3 +45,7 @@
 
 !zpool
 !zpool/*
+
+!.github
+!.github/workflows
+!.github/workflows/*
