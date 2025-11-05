@@ -49,3 +49,5 @@
 !.github
 !.github/workflows
 !.github/workflows/*
+
+!archivebox.Dockerfile
