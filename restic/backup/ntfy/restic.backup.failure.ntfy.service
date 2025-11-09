@@ -1,8 +1,0 @@
-[Unit]
-Description=Failure Ntfy Alert for Daily Restic Backup
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=/zpool/catallenya/restic/backup/ntfy/restic.backup.failure.ntfy.sh
