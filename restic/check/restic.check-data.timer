@@ -1,0 +1,11 @@
+[Unit]
+Description=Restic Check Data Timer
+
+[Timer]
+Unit=restic.check@data.service
+OnCalendar=*-05-01 00:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

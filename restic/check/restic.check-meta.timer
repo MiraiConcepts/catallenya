@@ -1,0 +1,11 @@
+[Unit]
+Description=Restic Check Meta Timer
+
+[Timer]
+Unit=restic.check@meta.service
+OnCalendar=quarterly  
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

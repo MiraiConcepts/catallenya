@@ -1,14 +1,14 @@
 [Unit]
-Description=Restic Forget
+Description=Restic Check %i
 Requires=network-online.target
-OnSuccess=system-ntfy@restic.forget.service
-OnFailure=system-ntfy@restic.forget.service
+OnSuccess=system-ntfy@restic.check@%i.service
+OnFailure=system-ntfy@restic.check@%i.service
 
 [Service]
 Type=oneshot
 User=carrein
 Group=carrein
 Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
-ExecStart=/zpool/catallenya/restic/forget/restic.forget.sh
+ExecStart=/zpool/catallenya/restic/check/restic.check.sh %i
 StandardOutput=journal
 StandardError=journal
