@@ -1,8 +1,0 @@
-[Unit]
-Description=Failure Ntfy Alert for Monthly Restic Check
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=/zpool/catallenya/restic/check/ntfy/restic.check.failure.ntfy.sh

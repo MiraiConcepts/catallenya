@@ -1,8 +1,0 @@
-[Unit]
-Description=Success Ntfy Alert for Weekly Restic Forget
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=/zpool/catallenya/restic/forget/ntfy/restic.forget.success.ntfy.sh
