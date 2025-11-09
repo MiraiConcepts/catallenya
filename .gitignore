@@ -1,56 +1,49 @@
+# Ignore everything by default
 *
 
+# Except these root files
 !README.md
 !.gitignore
 !docker-compose.yml
 
+# Except these folders (include everything inside)
 !caddy/
-!caddy/Caddyfile
-
 !cloudflared/
-!cloudflared/cloudflared.md
-
 !rclone/
-!rclone/rclone.md
+!restic/
+!sanoid/
+!systemd/
+!zpool/
+!.github/
 
-!restic
-!restic/backup
-!restic/backup/*
-!restic/backup/ntfy
-!restic/backup/ntfy/*
-
-!restic/check
-!restic/check/*
-!restic/check/ntfy
-!restic/check/ntfy/*
-
-!restic/forget
-!restic/forget/*
-!restic/forget/ntfy
-!restic/forget/ntfy/*
-
-!restic/restore
-!restic/restore/restic.restore.sh
-
-!restic/snapshots
-!restic/snapshots/restic.snapshots.sh
-
-!restic/unlock
-!restic/unlock/restic.unlock.sh
-
+# Explicit includes inside restic folder
+!restic/backup/
+!restic/backup/**
+!restic/check/
+!restic/check/**
+!restic/forget/
+!restic/forget/**
+!restic/misc/
+!restic/misc/restic.restore.sh
+!restic/misc/restic.snapshots.sh
+!restic/misc/restic.unlock.sh
+!restic/misc/restic.locks.sh
 !restic/restic.conf
 
-!sanoid
-!sanoid/*
+# Explicit includes inside .github workflows
+!.github/workflows/
+!.github/workflows/**
 
-!systemd
-!systemd/*
+# Explicit includes inside caddy and cloudflared subfolders
+!caddy/Caddyfile
+!cloudflared/cloudflared.md
 
-!zpool
-!zpool/*
-
-!.github
-!.github/workflows
-!.github/workflows/*
-
-!archivebox.Dockerfile
+# Include notification subfolders in restic
+!restic/backup/ntfy/
+!restic/backup/ntfy/**
+!restic/check-meta/ntfy/
+!restic/check-meta/ntfy/**
+!restic/check-data/ntfy/
+!restic/check-data/ntfy/**
+!restic/forget/ntfy/
+!restic/forget/ntfy/**
