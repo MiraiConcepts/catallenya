@@ -5,16 +5,22 @@
 !README.md
 !.gitignore
 !docker-compose.yml
+!archivebox.Dockerfile
 
 # Except these folders (include everything inside)
+!audit/
 !caddy/
 !cloudflared/
 !rclone/
+!ntfy/
 !restic/
 !sanoid/
 !systemd/
 !zpool/
 !.github/
+
+# Explicit exclude audit logs
+!audit/audit.sh
 
 # Explicit includes inside restic folder
 !restic/backup/
@@ -32,18 +38,15 @@
 
 # Explicit includes inside .github workflows
 !.github/workflows/
-!.github/workflows/**
+!.github/workflows/**``
 
 # Explicit includes inside caddy and cloudflared subfolders
 !caddy/Caddyfile
 !cloudflared/cloudflared.md
 
-# Include notification subfolders in restic
-!restic/backup/ntfy/
-!restic/backup/ntfy/**
-!restic/check-meta/ntfy/
-!restic/check-meta/ntfy/**
-!restic/check-data/ntfy/
-!restic/check-data/ntfy/**
-!restic/forget/ntfy/
-!restic/forget/ntfy/**
+# Explicit includes notification scripts
+!ntfy/**
+!ntfy/.env
+
+# Explicit includes systemd services
+!systemd/**

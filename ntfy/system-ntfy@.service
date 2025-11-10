@@ -1,0 +1,9 @@
+[Unit]
+Description=Ntfy Alert for %i
+Requires=network-online.target
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+ExecStart=/zpool/catallenya/ntfy/system-ntfy.sh %i

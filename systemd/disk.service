@@ -1,0 +1,6 @@
+[Unit]
+Description=Disk Space Monitor
+
+[Service]
+Type=oneshot
+ExecStart=/zpool/catallenya/ntfy/disk-ntfy.sh
