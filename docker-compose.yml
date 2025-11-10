@@ -1,4 +1,58 @@
 services:
+  # Infrastructure & Networking
+  tailscale:
+    # This needs to be set to 'catallenya' as the certificates generated are associated with this name.
+    hostname: catallenya
+    container_name: tailscaled
+    image: tailscale/tailscale:latest
+    restart: unless-stopped
+    network_mode: host
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - ./tailscale/data:/var/lib
+      # Adds volume for the tailscaled.sock so its present on the host system where caddy communicates with tailscale. See: https://github.com/tailscale/tailscale/issues/6849.
+      - ./tailscale/tmp:/tmp
+    environment:
+      # Persist the state in host and survives container reboot. See: https://github.com/tailscale/tailscale/issues/4913#issuecomment-1186402307.
+      - TS_STATE_DIR=/var/lib/tailscale
+      # Use TS_AUTH_KEY on initial boot. This key will be persisted in var/lib/tailscale and can be removed on subsequent runs.
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  cloudflared:
+    container_name: cloudflared
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    command: tunnel --credentials-file /run/secrets/cloudflared-secret run catallenya-tunnel
+    secrets:
+      - cloudflared-secret
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
   caddy:
     container_name: caddy
     image: caddy:latest
@@ -20,89 +74,107 @@ services:
       - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
       - ${ISAIAH_REVERSE_PROXY_PORT}:${ISAIAH_REVERSE_PROXY_PORT}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
-      - ./tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - caddy-data:/data  # Persistent volume for certificates.
+      - caddy-config:/config  # Persistent volume for config cache.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
-  isaiah:
-    container_name: isaiah
-    image: mosswill/isaiah:latest
+  # Databases & Cache
+  redis:
+    container_name: redis
+    image: redis:alpine
     restart: unless-stopped
     networks:
       - caddy-internal
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: redis-server --save "" --appendonly "no"
+    tmpfs:
+      - /var/lib/redis
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  database:
+    container_name: immich_postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    secrets:
+      - postgres-secret
     environment:
-      - SERVER_PORT=80
-      - AUTHENTICATION_ENABLED=False
+      POSTGRES_HOST: ${DB_HOSTNAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-secret
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+    volumes:
+      - ${DB_VOLUME}:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Applications
+  ghost:
+    container_name: ghost
+    image: ghost:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    environment:
+      - database__client=sqlite3
+      - database__connection__filename=/var/lib/ghost/content/data/ghost.db
+      - url=${PUBLIC_URL}
+    volumes:
+      - ${GHOST_VOLUME}:/var/lib/ghost/content
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     labels:
       - flame.type=application
-      - flame.name=isaiah
-      - flame.url=${ISAIAH_URL}
+      - flame.name=ghost
+      - flame.url=${GHOST_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-
-  archivebox:
-    container_name: archivebox
-    build:
-      context: .
-      dockerfile: archivebox.Dockerfile  # Custom Dockerfile for ArchiveBox.
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    volumes:
-      - ${ARCHIVEBOX_VOLUME}:/data
-    environment:
-      - ALLOWED_HOSTS=catallenya.kamori-mulley.ts.net
-      - PUBLIC_INDEX=False            # Disable public listing.
-      - PUBLIC_SNAPSHOTS=False        # Disable public snapshot access.
-      - PUBLIC_ADD_VIEW=True          # Enable anonymous link submissions.
-      - SEARCH_BACKEND_ENGINE=sonic   # Search backend (uses Sonic container below).
-      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-      - SAVE_ARCHIVE_DOT_ORG=False    # Don’t submit to archive.org.
-      - MAX_MEDIA_SIZE=5000m          # Allow up to 5 GB media (YouTube videos, etc.).
-      - TIMEOUT=120                   # Allow slow pages up to 120s.
-      - CHECK_SSL_VALIDITY=False
-    labels:
-      - flame.type=application
-      - flame.name=archivebox
-      - flame.url=${ARCHIVEBOX_URL}
-      - flame.icon=custom
-    # No Watchtower pull as we use a local Dockerfile instead of a registry reference.
-
-  archivebox_scheduler:
-    container_name: archivebox_scheduler
-    image: archivebox/archivebox:latest
-    restart: unless-stopped
-    command: schedule --foreground --update --every=day
-    volumes:
-      - ${ARCHIVEBOX_VOLUME}:/data
-    networks:
-      - caddy-internal
-    environment:
-      - SEARCH_BACKEND_ENGINE=sonic
-      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-      - TIMEOUT=120
-    depends_on:
-      - archivebox
-      - archivebox_sonic
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-
-  archivebox_sonic:
-    container_name: archivebox_sonic
-    image: archivebox/sonic:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    environment:
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-    volumes:
-      - ${SONIC_VOLUME}:/var/lib/sonic/store
-    labels:
       - com.centurylinklabs.watchtower.enable=true
 
   flame:
@@ -113,11 +185,19 @@ services:
       - caddy-internal
     volumes:
       - ${FLAME_VOLUME}:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     secrets:
       - password 
     environment:
-      - PASSWORD_FILE=/run/secrets/password 
+      - PASSWORD_FILE=/run/secrets/password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -132,29 +212,23 @@ services:
       - PGID=1000
     volumes:
       - ${SYNCTHING_VOLUME}:/var/syncthing
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     labels:
       - flame.type=application
       - flame.name=syncthing
       - flame.url=${SYNCTHING_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-
-  redis:
-    container_name: redis
-    image: redis:alpine
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    command: redis-server --save "" --appendonly "no"
-    tmpfs:
-      - /var/lib/redis
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETGID
-      - SETUID
-      - DAC_OVERRIDE
-    labels:
       - com.centurylinklabs.watchtower.enable=true
 
   radicale:
@@ -177,6 +251,10 @@ services:
     volumes:
       - ${RADICALE_DATE_VOLUME}:/data
       - ${RADICALE_CONFIG_VOLUME}:/config:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     labels:
       - flame.type=application
       - flame.name=radicale
@@ -194,9 +272,25 @@ services:
       - .env
     volumes:
       - ${IMMICH_VOLUME}:/usr/src/app/upload
+    secrets:
+      - postgres-secret
+    environment:
+      DB_PASSWORD_FILE: /run/secrets/postgres-secret
     depends_on:
       - redis
       - database
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     labels:
       - flame.type=application
       - flame.name=immich
@@ -211,78 +305,18 @@ services:
       - caddy-internal
     volumes:
       - model-cache:/cache
-
-  database:
-    container_name: immich_postgres
-    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    environment:
-      POSTGRES_HOST: ${DB_HOSTNAME}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_DATABASE_NAME}
-    volumes:
-      - ${DB_VOLUME}:/var/lib/postgresql/data
-
-  tailscale:
-    # This needs to be set to 'catallenya' as the certificates generated are associated with this name.
-    hostname: catallenya
-    container_name: tailscaled
-    image: tailscale/tailscale:latest
-    restart: unless-stopped
-    network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    volumes:
-      - /dev/net/tun:/dev/net/tun
-      - ./tailscale/data:/var/lib
-      # Adds volume for the tailscaled.sock so its present on the host system where caddy communicates with tailscale. See: https://github.com/tailscale/tailscale/issues/6849.
-      - ./tailscale/tmp:/tmp
-    environment:
-      # Persist the state in host and survives container reboot. See: https://github.com/tailscale/tailscale/issues/4913#issuecomment-1186402307.
-      - TS_STATE_DIR=/var/lib/tailscale
-      # Use TS_AUTH_KEY on initial boot. This key will be persisted in var/lib/tailscale and can be removed on subsequent runs.
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
-
-  watchtower:
-    container_name: watchtower
-    image: containrrr/watchtower:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr
-      - WATCHTOWER_NOTIFICATION_URL=${NTFY_PROTOCOL_URL}/${WATCHTOWER_NTFY_TOPIC}
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_REMOVE_VOLUMES=true
-      - WATCHTOWER_POLL_INTERVAL=3600
-      - com.centurylinklabs.watchtower.enable=true
-
-  ghost:
-    container_name: ghost
-    image: ghost:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    environment:
-      - database__client=sqlite3
-      - database__connection__filename=/var/lib/ghost/content/data/ghost.db
-      - url=${PUBLIC_URL}
-    volumes:
-      - ${GHOST_VOLUME}:/var/lib/ghost/content
-    labels:
-      - flame.type=application
-      - flame.name=ghost
-      - flame.url=${GHOST_URL}
-      - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   ntfy:
     container_name: ntfy
@@ -295,23 +329,23 @@ services:
     volumes:
       - ntfy-cache:/var/cache/ntfy
       - ntfy:/etc/ntfy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     labels:
       - flame.type=application
       - flame.name=ntfy
       - flame.url=${NTFY_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-  
-  cloudflared:
-    container_name: cloudflared
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    networks:
-      - caddy-internal
-    command: tunnel -credentials-file /run/secrets/cloudflared-secret run catallenya-tunnel
-    secrets:
-      - cloudflared-secret
-    labels:
       - com.centurylinklabs.watchtower.enable=true
 
   memos:
@@ -324,6 +358,18 @@ services:
       - ${MEMOS_VOLUME}:/var/opt/memos
     environment:
       - MEMOS_MODE=prod
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     labels:
       - flame.type=application
       - flame.name=memos
@@ -331,18 +377,178 @@ services:
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
+  archivebox:
+    container_name: archivebox
+    build:
+      context: .
+      dockerfile: archivebox.Dockerfile  # Custom Dockerfile for ArchiveBox.
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    volumes:
+      - ${ARCHIVEBOX_VOLUME}:/data
+    environment:
+      - ALLOWED_HOSTS=catallenya.kamori-mulley.ts.net
+      - PUBLIC_INDEX=False            # Disable public listing.
+      - PUBLIC_SNAPSHOTS=False        # Disable public snapshot access.
+      - PUBLIC_ADD_VIEW=True          # Enable anonymous link submissions.
+      - SEARCH_BACKEND_ENGINE=sonic   # Search backend (uses Sonic container below).
+      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
+      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
+      - SAVE_ARCHIVE_DOT_ORG=False    # Don't submit to archive.org.
+      - MAX_MEDIA_SIZE=5000m          # Allow up to 5 GB media (YouTube videos, etc.).
+      - TIMEOUT=120                   # Allow slow pages up to 120s.
+      - CHECK_SSL_VALIDITY=False
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    labels:
+      - flame.type=application
+      - flame.name=archivebox
+      - flame.url=${ARCHIVEBOX_URL}
+      - flame.icon=custom
+    # No Watchtower pull as we use a local Dockerfile instead of a registry reference.
+
+  archivebox_scheduler:
+    container_name: archivebox_scheduler
+    image: archivebox/archivebox:latest
+    restart: unless-stopped
+    command: schedule --foreground --update --every=day
+    volumes:
+      - ${ARCHIVEBOX_VOLUME}:/data
+    networks:
+      - caddy-internal
+    environment:
+      - SEARCH_BACKEND_ENGINE=sonic
+      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
+      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
+      - TIMEOUT=120
+    secrets:
+      - sonic-secret
+    depends_on:
+      - archivebox
+      - archivebox_sonic
+    # No security_opt as cron needs privilege transitions.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  archivebox_sonic:
+    container_name: archivebox_sonic
+    image: archivebox/sonic:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    environment:
+      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
+    secrets:
+      - sonic-secret
+    volumes:
+      - ${SONIC_VOLUME}:/var/lib/sonic/store
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  # Utilities & Monitoring
+  isaiah:
+    container_name: isaiah
+    image: mosswill/isaiah:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - SERVER_PORT=80
+      - AUTHENTICATION_ENABLED=False
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      - flame.type=application
+      - flame.name=isaiah
+      - flame.url=${ISAIAH_URL}
+      - flame.icon=custom
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATION_URL=${NTFY_PROTOCOL_URL}/${WATCHTOWER_NTFY_TOPIC}
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_REMOVE_VOLUMES=true
+      - WATCHTOWER_POLL_INTERVAL=3600
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
 secrets:
   password:   # Flame hardcodes the password field.
-    file: flame/token.json
+    file: flame/password.txt
   cloudflared-secret:
     file: cloudflared/token.json
   sonic-secret:
-    file: archivebox/token.json
+    file: archivebox/password.txt
+  postgres-secret:
+    file: postgres/password.txt
 
 volumes:
   model-cache:
   ntfy:
   ntfy-cache:
+  caddy-data:
+  caddy-config:
 
 networks:
   caddy-internal:

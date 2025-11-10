@@ -1,0 +1,9 @@
+[Unit]
+Description=ZFS Pool Scrub
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=zpool scrub zpool
+StandardOutput=journal
+StandardError=journal
