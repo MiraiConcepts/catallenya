@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   # Infrastructure & Networking
   tailscale:
@@ -15,19 +17,13 @@ services:
       - NET_BIND_SERVICE
     volumes:
       - /dev/net/tun:/dev/net/tun
-      - ./tailscale/data:/var/lib
-      # Adds volume for the tailscaled.sock so its present on the host system where caddy communicates with tailscale. See: https://github.com/tailscale/tailscale/issues/6849.
-      - ./tailscale/tmp:/tmp
+      - /zpool/catallenya/tailscale/data:/var/lib/tailscale
+      - /zpool/catallenya/tailscale/run:/var/run/tailscale
+    command: ["--socket=/var/run/tailscale/tailscaled.sock","--statedir=/var/lib/tailscale","--tun=userspace-networking"]
     environment:
-      # Persist the state in host and survives container reboot. See: https://github.com/tailscale/tailscale/issues/4913#issuecomment-1186402307.
       - TS_STATE_DIR=/var/lib/tailscale
-      # Use TS_AUTH_KEY on initial boot. This key will be persisted in var/lib/tailscale and can be removed on subsequent runs.
     security_opt:
       - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 512M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -40,16 +36,16 @@ services:
     command: tunnel --credentials-file /run/secrets/cloudflared-secret run catallenya-tunnel
     secrets:
       - cloudflared-secret
+    environment:
+      - TUNNEL_ORIGIN_CERT=/etc/cloudflared/cert.pem
+    volumes:
+      - /zpool/catallenya/cloudflared/cert.pem:/etc/cloudflared/cert.pem:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-    deploy:
-      resources:
-        limits:
-          memory: 256M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -73,21 +69,18 @@ services:
       - ${MEMOS_REVERSE_PROXY_PORT}:${MEMOS_REVERSE_PROXY_PORT}
       - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
       - ${ISAIAH_REVERSE_PROXY_PORT}:${ISAIAH_REVERSE_PROXY_PORT}
+      - ${CATALLENYA_BLOG_REVERSE_PROXY_PORT}:${CATALLENYA_BLOG_REVERSE_PROXY_PORT}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
-      - caddy-data:/data  # Persistent volume for certificates.
-      - caddy-config:/config  # Persistent volume for config cache.
+      - /zpool/catallenya/tailscale/run/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - caddy-data:/data
+      - caddy-config:/config
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-    deploy:
-      resources:
-        limits:
-          memory: 256M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -109,16 +102,12 @@ services:
       - SETGID
       - SETUID
       - DAC_OVERRIDE
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
   database:
     container_name: immich_postgres
-    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
     restart: unless-stopped
     networks:
       - caddy-internal
@@ -140,10 +129,6 @@ services:
       - SETUID
       - SETGID
       - DAC_OVERRIDE
-    deploy:
-      resources:
-        limits:
-          memory: 2G
 
   # Applications
   ghost:
@@ -166,10 +151,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 512M
     labels:
       - flame.type=application
       - flame.name=ghost
@@ -184,20 +165,16 @@ services:
     networks:
       - caddy-internal
     volumes:
-      - ${FLAME_VOLUME}:/app/data
+      - flame-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     secrets:
-      - password 
+      - password
     environment:
       - PASSWORD_FILE=/run/secrets/password
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 512M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -220,10 +197,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 2G
     labels:
       - flame.type=application
       - flame.name=syncthing
@@ -251,10 +224,6 @@ services:
     volumes:
       - ${RADICALE_DATE_VOLUME}:/data
       - ${RADICALE_CONFIG_VOLUME}:/config:ro
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     labels:
       - flame.type=application
       - flame.name=radicale
@@ -268,6 +237,8 @@ services:
     restart: unless-stopped
     networks:
       - caddy-internal
+    ports:
+      - "2283:2283"
     env_file:
       - .env
     volumes:
@@ -287,10 +258,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 1G
     labels:
       - flame.type=application
       - flame.name=immich
@@ -313,10 +280,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 2G
 
   ntfy:
     container_name: ntfy
@@ -337,10 +300,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 256M
     labels:
       - flame.type=application
       - flame.name=ntfy
@@ -366,10 +325,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 512M
     labels:
       - flame.type=application
       - flame.name=memos
@@ -381,7 +336,7 @@ services:
     container_name: archivebox
     build:
       context: .
-      dockerfile: archivebox.Dockerfile  # Custom Dockerfile for ArchiveBox.
+      dockerfile: archivebox.Dockerfile
     restart: unless-stopped
     networks:
       - caddy-internal
@@ -389,15 +344,15 @@ services:
       - ${ARCHIVEBOX_VOLUME}:/data
     environment:
       - ALLOWED_HOSTS=catallenya.kamori-mulley.ts.net
-      - PUBLIC_INDEX=False            # Disable public listing.
-      - PUBLIC_SNAPSHOTS=False        # Disable public snapshot access.
-      - PUBLIC_ADD_VIEW=True          # Enable anonymous link submissions.
-      - SEARCH_BACKEND_ENGINE=sonic   # Search backend (uses Sonic container below).
+      - PUBLIC_INDEX=False
+      - PUBLIC_SNAPSHOTS=False
+      - PUBLIC_ADD_VIEW=True
+      - SEARCH_BACKEND_ENGINE=sonic
       - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
       - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-      - SAVE_ARCHIVE_DOT_ORG=False    # Don't submit to archive.org.
-      - MAX_MEDIA_SIZE=5000m          # Allow up to 5 GB media (YouTube videos, etc.).
-      - TIMEOUT=120                   # Allow slow pages up to 120s.
+      - SAVE_ARCHIVE_DOT_ORG=False
+      - MAX_MEDIA_SIZE=5000m
+      - TIMEOUT=120
       - CHECK_SSL_VALIDITY=False
     security_opt:
       - no-new-privileges:true
@@ -408,16 +363,11 @@ services:
       - SETUID
       - SETGID
       - DAC_OVERRIDE
-    deploy:
-      resources:
-        limits:
-          memory: 1G
     labels:
       - flame.type=application
       - flame.name=archivebox
       - flame.url=${ARCHIVEBOX_URL}
       - flame.icon=custom
-    # No Watchtower pull as we use a local Dockerfile instead of a registry reference.
 
   archivebox_scheduler:
     container_name: archivebox_scheduler
@@ -438,7 +388,6 @@ services:
     depends_on:
       - archivebox
       - archivebox_sonic
-    # No security_opt as cron needs privilege transitions.
     cap_drop:
       - ALL
     cap_add:
@@ -446,10 +395,6 @@ services:
       - SETUID
       - SETGID
       - DAC_OVERRIDE
-    deploy:
-      resources:
-        limits:
-          memory: 256M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -473,10 +418,6 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -496,10 +437,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     labels:
       - flame.type=application
       - flame.name=isaiah
@@ -515,6 +452,7 @@ services:
       - caddy-internal
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ~/.docker/config.json:/config.json:ro
     environment:
       - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
@@ -522,19 +460,29 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_REMOVE_VOLUMES=true
       - WATCHTOWER_POLL_INTERVAL=3600
+      - DOCKER_CONFIG=/
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
+  catallenya-blog:
+    container_name: catallenya-blog
+    image: ghcr.io/carrein/catallenya-blog:latest
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    labels:
+      - flame.type=application
+      - flame.name=catallenya-blog
+      - flame.url=${CATALLENYA_BLOG_URL}
+      - flame.icon=custom
+      - com.centurylinklabs.watchtower.enable=true
+
 secrets:
-  password:   # Flame hardcodes the password field.
+  password:
     file: flame/password.txt
   cloudflared-secret:
     file: cloudflared/token.json
@@ -549,7 +497,7 @@ volumes:
   ntfy-cache:
   caddy-data:
   caddy-config:
-
+  flame-data:
 networks:
   caddy-internal:
     external: false
