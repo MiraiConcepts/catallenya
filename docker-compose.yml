@@ -1,12 +1,11 @@
 services:
-  # Infrastructure & Networking
   tailscale:
     # This needs to be set to 'catallenya' as the certificates generated are associated with this name.
     hostname: catallenya
     container_name: tailscaled
     image: tailscale/tailscale:latest
     restart: unless-stopped
-    user: "1000:1000"
+    user: "1000:1000" # Run as host user UID:GID so we can read/write files created by container on shared volumes.
     network_mode: host
     env_file:
       - .env
@@ -25,8 +24,6 @@ services:
       # Persist the state in host and survives container reboot. See: https://github.com/tailscale/tailscale/issues/4913#issuecomment-1186402307.
       - TS_STATE_DIR=/var/lib/tailscale
       # Use TS_AUTH_KEY on initial boot. This key will be persisted in var/lib/tailscale and can be removed on subsequent runs.
-    security_opt:
-      - no-new-privileges:true
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -39,12 +36,6 @@ services:
     command: tunnel --credentials-file /run/secrets/cloudflared-secret run catallenya-tunnel
     secrets:
       - cloudflared-secret
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -73,33 +64,57 @@ services:
       - ${ZPOOL_VOLUME}/tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
       - caddy-data:/data # Persistent volume for certificates.
       - caddy-config:/config # Persistent volume for config cache.
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
-  # Databases & Cache
-  redis:
-    container_name: immich-redis
-    image: redis:alpine
+  immich-server:
+    container_name: immich-server
+    image: ghcr.io/immich-app/immich-server:release
+    restart: unless-stopped
+    user: "1000:1000"
+    networks:
+      - caddy-internal
+    ports:
+    - "2283:2283" # Allow expose immich server over localhost directly when on same wi-fi network.
+    env_file:
+      - .env
+    volumes:
+      - ${IMMICH_VOLUME}:/usr/src/app/upload
+      - /etc/localtime:/etc/localtime:ro
+    secrets:
+      - postgres-secret
+    environment:
+      DB_PASSWORD_FILE: /run/secrets/postgres-secret
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      disable: false
+    labels:
+      - flame.type=application
+      - flame.name=immich
+      - flame.url=${IMMICH_URL}
+      - flame.icon=custom
+
+  immich-machine-learning:
+    container_name: immich-machine-learning
+    image: ghcr.io/immich-app/immich-machine-learning:release
     restart: unless-stopped
     networks:
       - caddy-internal
-    command: redis-server --save "" --appendonly "no"
-    tmpfs:
-      - /var/lib/redis
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETGID
-      - SETUID
-      - DAC_OVERRIDE
+    volumes:
+      - model-cache:/cache
+    healthcheck:
+      disable: false
+  
+  redis:
+    container_name: immich-redis
+    image: docker.io/valkey/valkey:8@sha256:81db6d39e1bba3b3ff32bd3a1b19a6d69690f94a3954ec131277b9a26b95b3aa
+    restart: unless-stopped
+    networks:
+      - caddy-internal
+    healthcheck:
+      test: redis-cli ping || exit 1
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -116,19 +131,11 @@ services:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres-secret
       POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
     volumes:
       - ${DB_VOLUME}:/var/lib/postgresql/data
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - DAC_OVERRIDE
+    shm_size: 128mb
 
-  # Applications
   ghost:
     container_name: ghost
     image: ghost:latest
@@ -141,14 +148,6 @@ services:
       - url=${PUBLIC_URL}
     volumes:
       - ${GHOST_VOLUME}:/var/lib/ghost/content
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
     labels:
       - flame.type=application
       - flame.name=ghost
@@ -183,14 +182,6 @@ services:
       - PGID=1000
     volumes:
       - ${SYNCTHING_VOLUME}:/var/syncthing
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
     labels:
       - flame.type=application
       - flame.name=syncthing
@@ -215,6 +206,11 @@ services:
       - SETGID
       - CHOWN
       - KILL
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 50
     volumes:
       - ${RADICALE_DATE_VOLUME}:/data
       - ${RADICALE_CONFIG_VOLUME}:/config:ro
@@ -225,58 +221,6 @@ services:
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
-  immich-server:
-    container_name: immich-server
-    image: ghcr.io/immich-app/immich-server:release
-    restart: unless-stopped
-    user: "1000:1000"
-    networks:
-      - caddy-internal
-    ports:
-    - "2283:2283" # Allow expose immich server over localhost directly when on same wi-fi network.
-    env_file:
-      - .env
-    volumes:
-      - ${IMMICH_VOLUME}:/usr/src/app/upload
-    secrets:
-      - postgres-secret
-    environment:
-      DB_PASSWORD_FILE: /run/secrets/postgres-secret
-    depends_on:
-      - redis
-      - postgres
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-    labels:
-      - flame.type=application
-      - flame.name=immich
-      - flame.url=${IMMICH_URL}
-      - flame.icon=custom
-
-  immich-machine-learning:
-    container_name: immich-machine-learning
-    image: ghcr.io/immich-app/immich-machine-learning:release
-    restart: unless-stopped
-    user: "1000:1000"
-    networks:
-      - caddy-internal
-    volumes:
-      - model-cache:/cache
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-
   ntfy:
     container_name: ntfy
     image: binwiederhier/ntfy
@@ -285,17 +229,11 @@ services:
       - caddy-internal
     command:
       - serve
+    environment:
+      - TZ=Asia/Singapore
     volumes:
       - ntfy-cache:/var/cache/ntfy
       - ntfy:/etc/ntfy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
     labels:
       - flame.type=application
       - flame.name=ntfy
@@ -342,15 +280,6 @@ services:
       - MAX_MEDIA_SIZE=5000m # Allow up to 5 GB media (YouTube videos, etc.).
       - TIMEOUT=120 # Allow slow pages up to 120s.
       - CHECK_SSL_VALIDITY=False
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - DAC_OVERRIDE
     labels:
       - flame.type=application
       - flame.name=archivebox
@@ -377,14 +306,6 @@ services:
     depends_on:
       - archivebox
       - archivebox_sonic
-    # No security_opt as cron needs privilege transitions.
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - DAC_OVERRIDE
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -400,14 +321,6 @@ services:
       - sonic-secret
     volumes:
       - ${SONIC_VOLUME}:/var/lib/sonic/store
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -427,11 +340,6 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_REMOVE_VOLUMES=true
       - WATCHTOWER_POLL_INTERVAL=3600
-      - DOCKER_CONFIG=/
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
