@@ -58,7 +58,7 @@ services:
       - ${NTFY_REVERSE_PROXY_PORT}:${NTFY_REVERSE_PROXY_PORT}
       - ${MEMOS_REVERSE_PROXY_PORT}:${MEMOS_REVERSE_PROXY_PORT}
       - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
-      - ${CATALLENYA_BLOG_REVERSE_PROXY_PORT}:${CATALLENYA_BLOG_REVERSE_PROXY_PORT}
+      - ${CARREIN_BLOG_REVERSE_PROXY_PORT}:${CARREIN_BLOG_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
@@ -343,16 +343,16 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
-  catallenya-blog:
-    container_name: catallenya-blog
-    image: ghcr.io/carrein/catallenya-blog:latest
+  carrein-blog:
+    container_name: carrein-blog
+    image: ghcr.io/carrein/carrein-blog:latest
     restart: unless-stopped
     networks:
       - caddy-internal
     labels:
       - flame.type=application
-      - flame.name=catallenya-blog
-      - flame.url=${CATALLENYA_BLOG_URL}
+      - flame.name=carrein-blog
+      - flame.url=${CARREIN_BLOG_URL}
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
