@@ -56,9 +56,7 @@ services:
       - ${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
       - ${RADICALE_REVERSE_PROXY_PORT}:${RADICALE_REVERSE_PROXY_PORT}
       - ${NTFY_REVERSE_PROXY_PORT}:${NTFY_REVERSE_PROXY_PORT}
-      - ${MEMOS_REVERSE_PROXY_PORT}:${MEMOS_REVERSE_PROXY_PORT}
       - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
-      - ${CARREIN_BLOG_REVERSE_PROXY_PORT}:${CARREIN_BLOG_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
@@ -247,6 +245,8 @@ services:
     restart: unless-stopped
     networks:
       - caddy-internal
+    ports:
+    - "5230:5230"
     volumes:
       - ${MEMOS_VOLUME}:/var/opt/memos
     environment:
@@ -349,6 +349,8 @@ services:
     restart: unless-stopped
     networks:
       - caddy-internal
+    ports:
+      - "80:80"
     labels:
       - flame.type=application
       - flame.name=carrein-blog
