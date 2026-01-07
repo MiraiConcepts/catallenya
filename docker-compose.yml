@@ -32,7 +32,6 @@ services:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     user: "1000:1000"
-    network_mode: "host" 
     command: tunnel --credentials-file /run/secrets/cloudflared-secret run catallenya-tunnel
     secrets:
       - cloudflared-secret
@@ -43,8 +42,6 @@ services:
     container_name: caddy
     image: caddy:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     depends_on:
       - tailscale
     env_file:
@@ -70,8 +67,6 @@ services:
     image: ghcr.io/immich-app/immich-server:release
     restart: unless-stopped
     user: "1000:1000"
-    networks:
-      - caddy-internal
     ports:
     - "2283:2283" # Allow expose immich server over localhost directly when on same wi-fi network.
     env_file:
@@ -98,8 +93,6 @@ services:
     container_name: immich-machine-learning
     image: ghcr.io/immich-app/immich-machine-learning:release
     restart: unless-stopped
-    networks:
-      - caddy-internal
     volumes:
       - model-cache:/cache
     healthcheck:
@@ -109,8 +102,6 @@ services:
     container_name: immich-redis
     image: docker.io/valkey/valkey:8@sha256:81db6d39e1bba3b3ff32bd3a1b19a6d69690f94a3954ec131277b9a26b95b3aa
     restart: unless-stopped
-    networks:
-      - caddy-internal
     healthcheck:
       test: redis-cli ping || exit 1
     labels:
@@ -120,8 +111,6 @@ services:
     container_name: immich-postgres
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
     restart: unless-stopped
-    networks:
-      - caddy-internal
     secrets:
       - postgres-secret
     environment:
@@ -138,8 +127,6 @@ services:
     container_name: ghost
     image: ghost:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     environment:
       - database__client=sqlite3
       - database__connection__filename=/var/lib/ghost/content/data/ghost.db
@@ -157,8 +144,6 @@ services:
     container_name: flame
     image: pawelmalak/flame:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     volumes:
       - ${FLAME_VOLUME}:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -173,8 +158,6 @@ services:
     container_name: syncthing
     image: syncthing/syncthing:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     environment: 
       - PUID=1000
       - PGID=1000
@@ -191,8 +174,6 @@ services:
     container_name: radicale
     image: tomsquest/docker-radicale:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     init: true
     read_only: true
     security_opt:
@@ -223,8 +204,6 @@ services:
     container_name: ntfy
     image: binwiederhier/ntfy
     restart: unless-stopped
-    networks:
-      - caddy-internal
     command:
       - serve
     environment:
@@ -243,10 +222,6 @@ services:
     container_name: memos
     image: neosmemo/memos:stable
     restart: unless-stopped
-    networks:
-      - caddy-internal
-    ports:
-    - "5230:5230"
     volumes:
       - ${MEMOS_VOLUME}:/var/opt/memos
     environment:
@@ -264,8 +239,6 @@ services:
       context: .
       dockerfile: archivebox.Dockerfile # Custom Dockerfile for ArchiveBox.
     restart: unless-stopped
-    networks:
-      - caddy-internal
     volumes:
       - ${ARCHIVEBOX_VOLUME}:/data
     environment:
@@ -294,8 +267,6 @@ services:
     command: schedule --foreground --update --every=day
     volumes:
       - ${ARCHIVEBOX_VOLUME}:/data
-    networks:
-      - caddy-internal
     environment:
       - SEARCH_BACKEND_ENGINE=sonic
       - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
@@ -313,8 +284,6 @@ services:
     container_name: archivebox_sonic
     image: archivebox/sonic:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     environment:
       - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
     secrets:
@@ -328,8 +297,6 @@ services:
     container_name: watchtower
     image: nickfedor/watchtower:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${ZPOOL_VOLUME}/watchtower/config.json:/config.json:ro
@@ -347,10 +314,6 @@ services:
     container_name: carrein-blog
     image: ghcr.io/carrein/carrein-blog:latest
     restart: unless-stopped
-    networks:
-      - caddy-internal
-    ports:
-      - "80:80"
     labels:
       - flame.type=application
       - flame.name=carrein-blog
@@ -358,6 +321,50 @@ services:
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
+  postgresql:
+    container_name: zipline-postgres
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRESQL_USER}
+      POSTGRES_DB: ${POSTGRESQL_DB}
+      POSTGRES_PASSWORD: ${POSTGRESQL_PASSWORD}
+    volumes:
+      - ${POSTGRESQL_VOLUME}:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'zipline']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zipline:
+    container_name: zipline
+    image: ghcr.io/diced/zipline:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://${POSTGRESQL_USER}:${POSTGRESQL_PASSWORD}@postgresql:5432/${POSTGRESQL_DB}
+      - CORE_SECRET=${ZIPLINE_CORE_SECRET}
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    volumes:
+      - ${ZIPLINE_VOLUME}/uploads:/zipline/uploads
+      - ${ZIPLINE_VOLUME}/public:/zipline/public
+      - ${ZIPLINE_VOLUME}/themes:/zipline/themes
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/api/healthcheck']
+      interval: 15s
+      timeout: 2s
+      retries: 2
+    labels:
+      - flame.type=application
+      - flame.name=zipline
+      - flame.url=${ZIPLINE_URL}
+      - flame.icon=custom
+      - com.centurylinklabs.watchtower.enable=true
+      
 secrets:
   password: # Flame hardcodes the password field.
     file: flame/password.txt
@@ -374,7 +381,3 @@ volumes:
   ntfy-cache:
   caddy-data:
   caddy-config:
-
-networks:
-  caddy-internal:
-    external: false
