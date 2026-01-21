@@ -1,10 +1,15 @@
 # catallenya
-A project aimed at retaining personal data sovereignty, by replacing third-party services with self-hosted solutions for photo management, cloud storage, calendar and contact sync and blogging. Offers deep integration with scheduled backups, encryption and status notifications.
 
-### Blog
-https://catallenya.com/tag/self-hosted/
+catallenya is personal data sovereignty project. We replace third-party services with self-hosted solutions for photo management, cloud storage, calendar and contact sync and blogging. Offers deep integration with scheduled backups, encryption and status notifications.
 
-### Notes
-1. Cloudflare proxy only allows for a maximum of [100 MB](https://developers.cloudflare.com/workers/platform/limits/) uploads. Be aware when attempting to upload files to service exposed through cloudflared tunnels i.e. Ghost blog.
-2. Uploading videos to Ghost through LibreWolf yields: `Argument 1 is not valid for any of the 1-argument overloads. Use an alternate browser to upload videos.`
-3. ~~The latest Ubuntu 24.04 LTS is not yet supported. Docker Desktop will fail to start. Due to a change in how the latest Ubuntu release restricts the unprivileged namespaces, `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` needs to be run at least once.~~ Resolved with [Docker Desktop 4.35.0 release](https://docs.docker.com/desktop/release-notes/#4350).
+## Services hosted (non-exhaustive)
+- [carrein-blog](https://github.com/carrein/carrein-blog)
+- [Immich](https://immich.app)
+- [Zipline](https://zipline.diced.sh/)
+- [Memos](https://usememos.com/)
+- [Syncthing](https://syncthing.net/)
+- [Archivebox](https://archivebox.io/)
+- [Radicale](https://radicale.org/v3.html)
+- [Ntfy](https://ntfy.sh/)
+
+A complete walkthrough of the server setup is available on [carrein-blog](https://catallenya.com/).
