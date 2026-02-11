@@ -1,29 +1,61 @@
+(security_headers) {
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    -Server
+  }
+}
+
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$FLAME_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy flame:5005
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$SYNCTHING_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy syncthing:8384
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$IMMICH_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy immich-server:2283
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$RADICALE_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy radicale:5232
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$GHOST_REVERSE_PROXY_CADDY_PORT} {
+  import security_headers
   reverse_proxy ghost:2368
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$NTFY_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy ntfy:80
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$ARCHIVEBOX_REVERSE_PROXY_PORT} {
+  import security_headers
   reverse_proxy archivebox:8000
+}
+
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$MEMOKA_REVERSE_PROXY_PORT} {
+  import security_headers
+  redir / /app/ 308                                                                                                                                                                                       
+                                                                                                                                                                                                        
+  # Web app and static files (must come first to match /app/*)
+  handle /app/* {
+    reverse_proxy memoka:8082
+    header Cross-Origin-Resource-Policy cross-origin
+  }
+  # Everything else goes to API server (including /chat, /auth, etc.)
+  handle {
+    reverse_proxy memoka:8080
+  }
 }
 
 # We configure our own reverse proxy for Ghost. Since we are handling the SSL termination,

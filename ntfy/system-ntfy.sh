@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Source root .env
 ROOT_ENV="/zpool/catallenya/.env"

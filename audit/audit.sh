@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # --- Setup Log File ---
-LOG_FILE="logs/audit-$(date +%Y-%m-%d).log"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="${SCRIPT_DIR}/logs/$(date +%Y-%m-%d)"
+mkdir -p "$LOG_DIR"
+LOG_FILE="${LOG_DIR}/audit.log"
 
 # Save original stdout to fd 3 so we can still print to terminal
 exec 3>&1
@@ -20,90 +23,110 @@ echo "Audit log being written to: $LOG_FILE" >&3
 echo "=== Docker Security Audit - $(date) ==="
 echo
 
+# ── Runtime Health ──────────────────────────────────────────────
+
 echo "--- 1. Memory & Resource Usage ---"
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
 echo
 
 echo "--- 2. OOM Kill Events ---"
 echo "dmesg OOM:"
-sudo dmesg -T | grep -i "out of memory" | tail -5 || echo "  None found"
+dmesg -T 2>/dev/null | grep -i "out of memory" | tail -5 || echo "  None found"
 echo "Docker service OOM (last 7d):"
-sudo journalctl -u docker --since "7 days ago" | grep -i oom || echo "  None found"
+journalctl -u docker --since "7 days ago" 2>/dev/null | grep -i oom || echo "  None found"
 echo
 
-echo "--- 3. Container Security Options ---"
-docker ps --format '{{.Names}}' | while read container; do
-  if [[ "$container" == "archivebox_scheduler" ]]; then
-    echo "  (Skipping archivebox_scheduler)"
-    continue
+echo "--- 3. Container Health Status ---"
+docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" ps
+echo
+
+echo "--- 4. Recent Error Logs (24h) ---"
+# Show top 20 errors/fatals/panics/exceptions
+docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" logs --since 24h 2>&1 | grep -iwE "error|fatal|panic|exception" | head -20 || echo "  No errors found in last 24h"
+echo
+
+# ── Hardening Drift Detection ──────────────────────────────────
+
+echo "--- 5. Container Security Options ---"
+FAIL=0
+docker ps --format '{{.Names}}' | sort | while read container; do
+  cap_drop=$(docker inspect "$container" --format '{{.HostConfig.CapDrop}}')
+  security_opt=$(docker inspect "$container" --format '{{.HostConfig.SecurityOpt}}')
+  cap_add=$(docker inspect "$container" --format '{{.HostConfig.CapAdd}}')
+
+  # Every container should have cap_drop ALL
+  if [[ "$cap_drop" != *"ALL"* ]]; then
+    echo "  ✗ $container: missing cap_drop ALL"
+    FAIL=1
+  else
+    echo "  ✓ $container: cap_drop=ALL cap_add=${cap_add} security_opt=${security_opt}"
   fi
-  echo "Container: $container"
-  docker inspect "$container" --format '   SecurityOpt: {{.HostConfig.SecurityOpt}}'
-  docker inspect "$container" --format '   CapDrop: {{.HostConfig.CapDrop}}'
 done
 echo
 
-echo "--- 4. Container Health Status ---"
-docker compose ps
+echo "--- 6. Resource Limits ---"
+docker ps --format '{{.Names}}' | sort | while read container; do
+  mem_limit=$(docker inspect "$container" --format '{{.HostConfig.Memory}}')
+  if [[ "$mem_limit" == "0" ]]; then
+    echo "  ✗ $container: no memory limit set"
+  else
+    mem_mb=$((mem_limit / 1024 / 1024))
+    echo "  ✓ $container: ${mem_mb}M"
+  fi
+done
 echo
 
-echo "--- 5. Docker Socket Exposure (in compose) ---"
-docker compose config | grep -B 2 -A 2 "docker.sock" || echo "  Not found in compose config"
+echo "--- 7. Sensitive File Permissions ---"
+COMPOSE_DIR="${SCRIPT_DIR}/.."
+for f in "${COMPOSE_DIR}/.env" "${COMPOSE_DIR}/rclone/.rclone.conf" "${COMPOSE_DIR}/watchtower/config.json" "${COMPOSE_DIR}/radicale/config/users"; do
+  if [[ -f "$f" ]]; then
+    perms=$(stat -c '%a' "$f")
+    if [[ "$perms" == "600" ]]; then
+      echo "  ✓ $(basename "$f"): $perms"
+    else
+      echo "  ✗ $(basename "$f"): $perms (expected 600)"
+    fi
+  else
+    echo "  ? $(basename "$f"): file not found"
+  fi
+done
 echo
 
-echo "--- 6. Environment Variable Secrets ---"
-docker ps --format '{{.Names}}' | while read container; do
-  # Add an exception for the 'flame' container
+echo "--- 8. Hardcoded Secrets in Tracked Files ---"
+# Check for hardcoded tailnet name in tracked files
+if grep -r "kamori-mulley.ts.net" "${COMPOSE_DIR}/docker-compose.yml" "${COMPOSE_DIR}/caddy/Caddyfile" > /dev/null 2>&1; then
+  echo "  ✗ Hardcoded tailnet name found in tracked files"
+else
+  echo "  ✓ No hardcoded tailnet name in tracked files"
+fi
+echo
+
+# ── Informational ──────────────────────────────────────────────
+
+echo "--- 9. Docker Socket Exposure (in compose) ---"
+docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" config | grep -B 2 -A 2 "docker.sock" || echo "  Not found in compose config"
+echo
+
+echo "--- 10. Environment Variable Secrets ---"
+docker ps --format '{{.Names}}' | sort | while read container; do
+  # Skip known false positives
   if [[ "$container" == "flame" ]]; then
     echo "Container: $container"
     echo "   (Skipping known false positive: PASSWORD env var)"
     continue
   fi
   echo "Container: $container"
-  # Grep for common secret keywords.
   docker inspect "$container" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -iE 'password|secret|key|token|psk' || echo "   No obvious secrets found"
 done
 echo
 
-echo "--- 7. Read-Only Mounts ---"
-docker ps --format '{{.Names}}' | while read container; do
-  echo "Container: $container"
-  # Use '{{if not .RW}}' to find read-only mounts
-  mounts=$(docker inspect "$container" --format '{{range .Mounts}}{{if not .RW}}   {{.Destination}} (ro)
-{{end}}{{end}}')
-  if [ -n "$mounts" ]; then
-    echo -e "$mounts" | sed '/^$/d' # Print mounts and remove blank lines
-  else
-    echo "   No read-only mounts."
-  fi
-done
-echo
-
-echo "--- 8. Network Isolation ---"
-# Grep for non-default networks. Add '|| true' to prevent pipefail if none exist.
-docker network ls --format '{{.Name}}' | (grep -v "bridge\|host\|none" || true) | while read network; do
-  echo "Network: $network"
-  docker network inspect "$network" --format '   Internal: {{.Internal}}   Containers: {{len .Containers}}'
-done
-echo
-
-echo "--- 9. Exposed Port Review (in compose) ---"
-docker compose config | grep -B 1 -A 1 '"ports":' || echo "  No 'ports' section found in compose config"
-echo
-
-echo "--- 10. Compose File Validation ---"
-if docker compose config > /dev/null; then
+echo "--- 11. Compose File Validation ---"
+if docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" config > /dev/null; then
   echo "  ✓ Syntax valid"
 else
   echo "  ✗ Syntax errors present"
 fi
-# Show deprecation warnings
-docker compose config 2>&1 | grep -i "deprecat" || echo "  No deprecation warnings"
-echo
-
-echo "--- 11. Recent Error Logs (24h) ---"
-# Show top 20 errors/fatals/panics/exceptions
-docker compose logs --since 24h 2>&1 | grep -iwE "error|fatal|panic|exception" | head -20 || echo "  No errors found in last 24h"
+docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" config 2>&1 | grep -i "deprecat" || echo "  No deprecation warnings"
 echo
 
 echo "--- 12. Volume Backup Status ---"
