@@ -54,7 +54,14 @@ docker ps --format '{{.Names}}' | sort | while read container; do
   security_opt=$(docker inspect "$container" --format '{{.HostConfig.SecurityOpt}}')
   cap_add=$(docker inspect "$container" --format '{{.HostConfig.CapAdd}}')
 
-  # Every container should have cap_drop ALL
+  # Watchtower is exempt — needs full Docker socket access for self-update
+  # and container lifecycle management. Hardening breaks its operation.
+  if [[ "$container" == "watchtower" ]]; then
+    echo "  ~ $container: exempt (requires Docker socket privileges)"
+    continue
+  fi
+
+  # Every other container should have cap_drop ALL
   if [[ "$cap_drop" != *"ALL"* ]]; then
     echo "  ✗ $container: missing cap_drop ALL"
     FAIL=1
@@ -78,13 +85,20 @@ echo
 
 echo "--- 7. Sensitive File Permissions ---"
 COMPOSE_DIR="${SCRIPT_DIR}/.."
-for f in "${COMPOSE_DIR}/.env" "${COMPOSE_DIR}/rclone/.rclone.conf" "${COMPOSE_DIR}/watchtower/config.json" "${COMPOSE_DIR}/radicale/config/users"; do
+declare -A FILE_PERMS=(
+  ["${COMPOSE_DIR}/.env"]="600"
+  ["${COMPOSE_DIR}/rclone/.rclone.conf"]="600"
+  ["${COMPOSE_DIR}/watchtower/config.json"]="600"
+  ["${COMPOSE_DIR}/radicale/config/users"]="644"  # readable by container UID 2999
+)
+for f in "${!FILE_PERMS[@]}"; do
+  expected="${FILE_PERMS[$f]}"
   if [[ -f "$f" ]]; then
     perms=$(stat -c '%a' "$f")
-    if [[ "$perms" == "600" ]]; then
+    if [[ "$perms" == "$expected" ]]; then
       echo "  ✓ $(basename "$f"): $perms"
     else
-      echo "  ✗ $(basename "$f"): $perms (expected 600)"
+      echo "  ✗ $(basename "$f"): $perms (expected $expected)"
     fi
   else
     echo "  ? $(basename "$f"): file not found"

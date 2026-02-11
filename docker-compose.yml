@@ -554,14 +554,9 @@ services:
     container_name: watchtower
     image: nickfedor/watchtower:latest
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 128M
+    # Note: No cap_drop/security_opt — Watchtower needs full Docker socket
+    # access for self-update and container lifecycle management. Hardening
+    # breaks its self-update pull and prevents scanning other containers.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${ZPOOL_VOLUME}/watchtower/config.json:/config.json:ro
