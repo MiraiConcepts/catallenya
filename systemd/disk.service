@@ -3,4 +3,10 @@ Description=Disk Space Monitor
 
 [Service]
 Type=oneshot
+User=carrein
+Group=carrein
+ProtectSystem=strict
+ProtectHome=read-only
+NoNewPrivileges=true
+PrivateTmp=true
 ExecStart=/zpool/catallenya/ntfy/disk-ntfy.sh
