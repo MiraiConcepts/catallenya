@@ -92,5 +92,6 @@ GitHub Actions (`.github/workflows/security.yml`) runs on push to main:
 - All persistent data lives under `/zpool/catallenya/<service>/data`
 - Services run as `user: "1000:1000"` where possible for filesystem permission consistency
 - Security-sensitive containers (radicale) use `read_only: true`, `cap_drop: ALL`, memory limits, and `no-new-privileges`
+- Watchtower is intentionally exempt from `cap_drop`/`no-new-privileges` hardening — it needs full Docker socket access for self-update and container lifecycle management. Hardening breaks its self-update pull and prevents it from scanning other containers. Uses `nickfedor/watchtower` fork (not `containrrr/watchtower`) for Docker 29+ API compatibility.
 - Watchtower handles image updates for registry-pulled images; archivebox requires manual rebuild since it uses a local Dockerfile
 - The Caddyfile uses env var substitution (`{$VAR}`) for all domains and ports -- never hardcode these values
