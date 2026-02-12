@@ -43,20 +43,27 @@
   reverse_proxy archivebox:8000
 }
 
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$MEMOKA_REVERSE_PROXY_PORT} {
-  import security_headers
-  redir / /app/ 308                                                                                                                                                                                       
-                                                                                                                                                                                                        
-  # Web app and static files (must come first to match /app/*)
-  handle /app/* {
-    reverse_proxy memoka:8082
-    header Cross-Origin-Resource-Policy cross-origin
+  {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$MEMOKA_REVERSE_PROXY_PORT} {
+    import security_headers
+    redir / /app/ 308
+
+    # Web app and static files
+    handle /app/* {
+      reverse_proxy memoka:8082
+      header Cross-Origin-Resource-Policy cross-origin
+    }
+
+    # Media files (served by web server)
+    handle /media/* {
+      reverse_proxy memoka:8082
+      header Cross-Origin-Resource-Policy cross-origin
+    }
+
+    # Everything else goes to API server
+    handle {
+      reverse_proxy memoka:8080
+    }
   }
-  # Everything else goes to API server (including /chat, /auth, etc.)
-  handle {
-    reverse_proxy memoka:8080
-  }
-}
 
 # We configure our own reverse proxy for Ghost. Since we are handling the SSL termination,
 # we set headers to coerce Ghost to trust the connection.
