@@ -11,9 +11,6 @@ services:
       resources:
         limits:
           memory: 256M
-    ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8082:8082"
     environment:
       # Passwords
       SERVERPOD_PASSWORD_database: ${MEMOKA_DB_PASSWORD}
@@ -34,6 +31,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    volumes:
+        - memoka_media_data:/app/data/media
     labels:
       - flame.type=application
       - flame.name=Memoka
@@ -675,3 +674,4 @@ volumes:
   caddy-config:
   memoka_postgres_data:
   memoka_redis_data:
+  memoka_media_data:
