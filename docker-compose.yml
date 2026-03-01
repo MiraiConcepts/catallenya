@@ -10,7 +10,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 3072M
     environment:
       # Passwords
       SERVERPOD_PASSWORD_database: ${MEMOKA_DB_PASSWORD}
@@ -32,7 +32,7 @@ services:
       retries: 3
       start_period: 40s
     volumes:
-        - memoka_media_data:/app/data/media
+        - ${MEMOKA_MEDIA_VOLUME}:/app/data/media
     labels:
       - flame.type=application
       - flame.name=Memoka
@@ -63,7 +63,7 @@ services:
       POSTGRES_PASSWORD: ${MEMOKA_DB_PASSWORD}
       POSTGRES_DB: memoka
     volumes:
-      - memoka_postgres_data:/var/lib/postgresql/data
+      - ${MEMOKA_POSTGRES_VOLUME}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U memoka_user -d memoka"]
       interval: 10s
@@ -91,7 +91,7 @@ services:
           - redis
     command: redis-server --requirepass ${MEMOKA_REDIS_PASSWORD}
     volumes:
-      - memoka_redis_data:/data
+      - ${MEMOKA_REDIS_VOLUME}:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a $${MEMOKA_REDIS_PASSWORD} ping || exit 1"]
       interval: 10s
@@ -672,6 +672,3 @@ volumes:
   ntfy-cache:
   caddy-data:
   caddy-config:
-  memoka_postgres_data:
-  memoka_redis_data:
-  memoka_media_data:

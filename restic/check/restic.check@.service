@@ -1,6 +1,7 @@
 [Unit]
 Description=Restic Check %i
 Requires=network-online.target
+After=network-online.target
 OnSuccess=system-ntfy@restic.check@%i.service
 OnFailure=system-ntfy@restic.check@%i.service
 

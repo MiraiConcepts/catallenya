@@ -73,6 +73,11 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 - `restic.check-meta.timer` / `restic.check-data.timer` - integrity checks
 - `restic.forget.timer` - prune old snapshots (retention: 5 daily, 2 weekly, 3 monthly, 1 yearly)
 
+**Database backup strategy:**
+- **Memoka**: `pg_dump` runs before restic on each backup, writing to `memoka/backup/memoka.dump.sql.gz`. Raw `memoka/postgres` and `memoka/redis` dirs are excluded from restic (unsafe to copy live). On restore, start `memoka_postgresql` first, load the dump via `psql`, then start remaining services (see `restic/misc/restic.restore.sh` for exact commands).
+- **Immich**: Handles its own DB backup internally — dumps are written to `immich/data/backups/` which restic picks up automatically.
+- **Zipline**: Not backed up (intentional).
+
 ZFS snapshots are managed by Sanoid separately.
 
 ### Monitoring

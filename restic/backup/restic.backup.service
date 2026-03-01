@@ -1,6 +1,7 @@
 [Unit]
 Description=Restic Backup
 Requires=network-online.target
+After=network-online.target
 OnSuccess=system-ntfy@restic.backup.service
 OnFailure=system-ntfy@restic.backup.service
 
