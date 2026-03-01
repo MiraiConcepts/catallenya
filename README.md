@@ -6,7 +6,7 @@ catallenya is personal data sovereignty project. We replace third-party services
 - [carrein-blog](https://github.com/carrein/carrein-blog)
 - [Immich](https://immich.app)
 - [Zipline](https://zipline.diced.sh/)
-- [Memos](https://usememos.com/)
+- [Memoka](https://github.com/carrein/memoka)
 - [Syncthing](https://syncthing.net/)
 - [Archivebox](https://archivebox.io/)
 - [Radicale](https://radicale.org/v3.html)
