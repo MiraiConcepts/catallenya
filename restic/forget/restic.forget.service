@@ -1,6 +1,7 @@
 [Unit]
 Description=Restic Forget
 Requires=network-online.target
+After=network-online.target
 OnSuccess=system-ntfy@restic.forget.service
 OnFailure=system-ntfy@restic.forget.service
 

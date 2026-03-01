@@ -1,6 +1,7 @@
 [Unit]
 Description=Ntfy Alert for %i
 Requires=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot

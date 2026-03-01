@@ -45,7 +45,7 @@ else
 fi
 
 # Get systemctl status output
-message=$(systemctl status "${service_name}.service")
+message=$(systemctl status "${service_name}.service" || true)
 
 curl -H "Tags: $tag" \
      -H "Title: $title" \
