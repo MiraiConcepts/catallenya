@@ -125,6 +125,12 @@ services:
       # Persist the state in host and survives container reboot. See: https://github.com/tailscale/tailscale/issues/4913#issuecomment-1186402307.
       - TS_STATE_DIR=/var/lib/tailscale
       # Use TS_AUTH_KEY on initial boot. This key will be persisted in var/lib/tailscale and can be removed on subsequent runs.
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /tmp/tailscaled.sock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -160,7 +166,8 @@ services:
         limits:
           memory: 128M
     depends_on:
-      - tailscale
+      tailscale:
+        condition: service_healthy
     environment:
       TAILNET_DOMAIN: ${TAILNET_DOMAIN}
       TAILNET_DNS_NAME: ${TAILNET_DNS_NAME}
@@ -428,32 +435,6 @@ services:
       - flame.type=application
       - flame.name=ntfy
       - flame.url=${NTFY_URL}
-      - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-
-  memos:
-    container_name: memos
-    image: neosmemo/memos:stable
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETUID
-      - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-    volumes:
-      - ${MEMOS_VOLUME}:/var/opt/memos
-    environment:
-      - MEMOS_MODE=prod
-    labels:
-      - flame.type=application
-      - flame.name=memos
-      - flame.url=${MEMOS_URL}
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 

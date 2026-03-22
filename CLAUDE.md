@@ -37,7 +37,7 @@ bash restic/restic.restore.sh
 
 Traffic flows through two paths:
 - **Tailscale (internal)**: All services are accessed via `${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:<port>` through Caddy reverse proxy with auto-TLS from Tailscale
-- **Cloudflare Tunnel (external)**: Internet-facing services (blog, memos, archive, zipline) route through `cloudflared` to `*.catallenya.com`
+- **Cloudflare Tunnel (external)**: Internet-facing services (blog, archive, zipline) route through `cloudflared` to `*.catallenya.com`
 
 Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate management. The Tailscale container must use `hostname: catallenya` because generated certificates are tied to this name.
 
@@ -79,6 +79,22 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 - **Zipline**: Not backed up (intentional).
 
 ZFS snapshots are managed by Sanoid separately.
+
+### Boot Orchestration
+
+`catallenya.service` is a oneshot systemd unit that runs at boot after ZFS and Docker are ready. It is the **one unit file that lives on root filesystem** (`/etc/systemd/system/catallenya.service`) — all other project units are symlinks into `/zpool/catallenya/` which don't resolve until ZFS mounts.
+
+**What it does** (via `systemd/catallenya.sh`):
+1. `systemctl daemon-reload` — re-reads unit files now that ZFS symlinks resolve
+2. Starts all 6 project timers
+3. `docker compose up -d` — brings up containers (as `carrein`)
+4. Verifies all containers reach `running` state
+5. Posts success/failure notification to ntfy `/boot` topic
+
+**Key commands:**
+- `systemctl status catallenya` — check boot state (green = all OK)
+- `sudo bash systemd/install.sh` — set up systemd on a fresh server (writes service, creates symlinks, enables everything). Idempotent.
+- `journalctl -u catallenya` — boot orchestrator logs
 
 ### Monitoring
 
