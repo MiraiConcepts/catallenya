@@ -37,7 +37,7 @@ bash restic/restic.restore.sh
 
 Traffic flows through two paths:
 - **Tailscale (internal)**: All services are accessed via `${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:<port>` through Caddy reverse proxy with auto-TLS from Tailscale
-- **Cloudflare Tunnel (external)**: Internet-facing services (blog, archive, zipline) route through `cloudflared` to `*.catallenya.com`
+- **Cloudflare Tunnel (external)**: Internet-facing services (archive, zipline) route through `cloudflared` to `*.catallenya.com`. For `catallenya.com` itself, cloudflared terminates TLS at the CF edge and forwards to Caddy's internal `http://catallenya.com` block, which path-splits `/api/votes/*` to `upvotes:8080` and everything else to `carrein-blog:80`. Tunnel ingress rules live in the Cloudflare dashboard, not in this repo.
 
 Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate management. The Tailscale container must use `hostname: catallenya` because generated certificates are tied to this name.
 
@@ -61,6 +61,7 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 - **Zipline** depends on `zipline_postgresql`
 - **Archivebox** uses `archivebox_sonic` for search; scheduler depends on both
 - **Caddy** depends on `tailscale` for TLS certificate socket
+- **carrein-blog** (`ghcr.io/carrein/carrein-blog`) and **upvotes** (`ghcr.io/carrein/upvotes`, Bun + SQLite) sit behind Caddy's `http://catallenya.com` block — no host port mapping; reached only via the cloudflared tunnel
 
 ### Secrets Management
 
@@ -76,6 +77,7 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 **Database backup strategy:**
 - **Memoka**: `pg_dump` runs before restic on each backup, writing to `memoka/backup/memoka.dump.sql.gz`. Raw `memoka/postgres` and `memoka/redis` dirs are excluded from restic (unsafe to copy live). On restore, start `memoka_postgresql` first, load the dump via `psql`, then start remaining services (see `restic/misc/restic.restore.sh` for exact commands).
 - **Immich**: Handles its own DB backup internally — dumps are written to `immich/data/backups/` which restic picks up automatically.
+- **Upvotes**: SQLite `VACUUM INTO` runs inside the upvotes container before restic, writing to `upvotes/dump/votes.db`. Live `upvotes/data` is not in restic targets — only the consistent dump is. Restore: stop upvotes, copy dump back to `upvotes/data/votes.db`, remove stale `-wal`/`-shm`, restart.
 - **Zipline**: Not backed up (intentional).
 
 ZFS snapshots are managed by Sanoid separately.
