@@ -143,7 +143,7 @@ fi
 docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" config 2>&1 | grep -i "deprecat" || echo "  No deprecation warnings"
 echo
 
-echo "--- 12. Volume Backup Status ---"
+echo "--- 12. Docker Volume Inventory ---"
 docker volume ls --format "table {{.Name}}\t{{.Driver}}"
 echo
 
