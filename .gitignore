@@ -60,5 +60,7 @@
 !immich/scripts/immich.lib.sh
 !immich/scripts/immich.validate.sh
 !immich/scripts/immich.find-junk.sh
+!immich/scripts/immich.verify-junk.sh
 !immich/scripts/immich.delete.sh
+!immich/scripts/immich.restore.sh
 !immich/scripts/README.md
