@@ -29,6 +29,12 @@ bash restic/restic.snapshots.sh
 
 # Restore from backup
 bash restic/restic.restore.sh
+
+# Immich junk-asset cleanup (find → verify → delete pipeline)
+# See immich/scripts/README.md for the full pipeline.
+bash immich/scripts/immich.find-junk.sh        # nominate candidates (heuristics)
+bash immich/scripts/immich.verify-junk.sh      # physical playability check
+bash immich/scripts/immich.delete.sh --dry-run # preview; drop --dry-run to act
 ```
 
 ## Architecture

@@ -13,16 +13,25 @@
 #   bash immich/scripts/immich.delete.sh [OPTIONS]
 #
 # OPTIONS:
-#   --dry-run         Show what would be deleted, no API calls.
-#   --yes             Skip the confirmation prompt.
-#   --force           Hard delete (skip trash).
-#   --tier=a|b|all    Which tier(s) from the run dir (default: all).
-#   --batch=N         IDs per DELETE call (default: 100).
-#   --run=<ts>        Specific run dir instead of latest unprocessed.
-#   --from-file=<p>   Read IDs from a file (TSV col 1 or UUID-per-line).
-#                     Creates runs/<ts>_external/ for the log.
-#   --force-rerun     Re-process a run dir that already has deleted.tsv.
-#   -h, --help        Show this help.
+#   --dry-run             Show what would be deleted, no API calls.
+#   --yes                 Skip the confirmation prompt.
+#   --force               Hard delete (skip trash).
+#   --tier=a|b|all        Which tier(s) from the run dir (default: all).
+#   --asset-type=image|video|all
+#                         Which asset type(s) from the run dir (default: all).
+#                         Files read are verified-junk-{a,b}-{image,video}.tsv
+#                         per the cartesian product of --tier and --asset-type.
+#   --skip-verify         Read raw tier-*.tsv files (skipping verify-junk's
+#                         physical playability check). Prints warning + asks
+#                         to confirm unless --yes is also passed. DANGEROUS —
+#                         may delete real content that find-junk wrongly flagged.
+#   --batch=N             IDs per DELETE call (default: 100).
+#   --run=<ts>            Specific run dir instead of latest unprocessed.
+#   --from-file=<p>       Read IDs from a file (TSV col 1 or UUID-per-line).
+#                         Creates runs/<ts>_external/ for the log.
+#                         --asset-type is ignored: caller provides IDs directly.
+#   --force-rerun         Re-process a run dir that already has deleted.tsv.
+#   -h, --help            Show this help.
 #
 # EXIT CODES:
 #   0  all succeeded (200/204) or already gone (404)
@@ -39,7 +48,9 @@ DRY_RUN=0
 YES=0
 FORCE=0
 FORCE_RERUN=0
+SKIP_VERIFY=0
 TIER="all"
+ASSET_TYPE="all"
 BATCH=100
 RUN_OVERRIDE=""
 FROM_FILE=""
@@ -49,20 +60,23 @@ usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --dry-run)     DRY_RUN=1; shift ;;
-    --yes)         YES=1; shift ;;
-    --force)       FORCE=1; shift ;;
-    --force-rerun) FORCE_RERUN=1; shift ;;
-    --tier=*)      TIER="${1#*=}"; shift ;;
-    --batch=*)     BATCH="${1#*=}"; shift ;;
-    --run=*)       RUN_OVERRIDE="${1#*=}"; shift ;;
-    --from-file=*) FROM_FILE="${1#*=}"; shift ;;
-    -h|--help)     usage; exit 0 ;;
+    --dry-run)      DRY_RUN=1; shift ;;
+    --yes)          YES=1; shift ;;
+    --force)        FORCE=1; shift ;;
+    --force-rerun)  FORCE_RERUN=1; shift ;;
+    --skip-verify)  SKIP_VERIFY=1; shift ;;
+    --tier=*)       TIER="${1#*=}"; shift ;;
+    --asset-type=*) ASSET_TYPE="${1#*=}"; shift ;;
+    --batch=*)      BATCH="${1#*=}"; shift ;;
+    --run=*)        RUN_OVERRIDE="${1#*=}"; shift ;;
+    --from-file=*)  FROM_FILE="${1#*=}"; shift ;;
+    -h|--help)      usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-case "$TIER" in a|b|all) ;; *) echo "error: --tier must be a, b, or all" >&2; exit 2 ;; esac
+case "$TIER"       in a|b|all)         ;; *) echo "error: --tier must be a, b, or all" >&2; exit 2 ;; esac
+case "$ASSET_TYPE" in image|video|all) ;; *) echo "error: --asset-type must be image, video, or all" >&2; exit 2 ;; esac
 [[ "$BATCH" =~ ^[0-9]+$ && "$BATCH" -ge 1 && "$BATCH" -le 1000 ]] \
   || { echo "error: --batch must be 1..1000" >&2; exit 2; }
 [[ -n "$FROM_FILE" && -n "$RUN_OVERRIDE" ]] \
@@ -74,6 +88,7 @@ imapi_load_key
 # ── Resolve the source of IDs and the output dir ──────────────────────────
 RUN_DIR=""
 INPUT_DESC=""
+src=()  # populated by run-dir branch below; stays empty for --from-file
 
 if [[ -n "$FROM_FILE" ]]; then
   [[ -r "$FROM_FILE" ]] || { echo "error: cannot read $FROM_FILE" >&2; exit 2; }
@@ -95,7 +110,10 @@ else
   for d in $(printf '%s\n' "${candidates[@]}" | sort -r); do
     d="${d%/}"
     if [[ -f "$d/deleted.tsv" && "$FORCE_RERUN" -ne 1 ]]; then continue; fi
-    [[ -f "$d/tier-a.tsv" || -f "$d/tier-b.tsv" ]] || continue
+    shopt -s nullglob
+    tier_files=("$d/tier-"*.tsv)
+    shopt -u nullglob
+    (( ${#tier_files[@]} > 0 )) || continue
     RUN_DIR="$d"; break
   done
   [[ -n "$RUN_DIR" ]] || {
@@ -119,14 +137,55 @@ if [[ -n "$FROM_FILE" ]]; then
      | sort -u > "$TMP_IDS"
 else
   src=()
+  tier_letters=()
+  type_words=()
   case "$TIER" in
-    a)   [[ -f "$RUN_DIR/tier-a.tsv" ]] && src+=("$RUN_DIR/tier-a.tsv") ;;
-    b)   [[ -f "$RUN_DIR/tier-b.tsv" ]] && src+=("$RUN_DIR/tier-b.tsv") ;;
-    all) [[ -f "$RUN_DIR/tier-a.tsv" ]] && src+=("$RUN_DIR/tier-a.tsv")
-         [[ -f "$RUN_DIR/tier-b.tsv" ]] && src+=("$RUN_DIR/tier-b.tsv") ;;
+    a)   tier_letters=(a) ;;
+    b)   tier_letters=(b) ;;
+    all) tier_letters=(a b) ;;
   esac
-  (( ${#src[@]} > 0 )) || { echo "error: no tier files in $RUN_DIR (tier=$TIER)" >&2; exit 2; }
-  awk -F'\t' '{print $1}' "${src[@]}" | sort -u > "$TMP_IDS"
+  case "$ASSET_TYPE" in
+    image) type_words=(image) ;;
+    video) type_words=(video) ;;
+    all)   type_words=(image video) ;;
+  esac
+  # Prefer verified-junk-*.tsv (output of immich.verify-junk.sh). Falls back
+  # to raw tier-*.tsv only when --skip-verify is set explicitly.
+  source_kind=""
+  for t in "${tier_letters[@]}"; do
+    for typ in "${type_words[@]}"; do
+      f="$RUN_DIR/verified-junk-$t-$typ.tsv"
+      [[ -f "$f" ]] && src+=("$f")
+    done
+  done
+  if (( ${#src[@]} > 0 )); then
+    source_kind="verified-junk"
+  elif [[ -f "$RUN_DIR/verify-summary.txt" ]]; then
+    # Verify ran but produced no verified-junk for this tier/type filter —
+    # everything was rescued. That's a successful no-op, not an error.
+    source_kind="verified-junk (empty)"
+  elif (( SKIP_VERIFY == 1 )); then
+    for t in "${tier_letters[@]}"; do
+      for typ in "${type_words[@]}"; do
+        f="$RUN_DIR/tier-$t-$typ.tsv"
+        [[ -f "$f" ]] && src+=("$f")
+      done
+    done
+    # Legacy fallback for pre-extension runs (tier-{a,b}.tsv, image-only)
+    if (( ${#src[@]} == 0 )) && [[ "$ASSET_TYPE" == "image" || "$ASSET_TYPE" == "all" ]]; then
+      for t in "${tier_letters[@]}"; do
+        f="$RUN_DIR/tier-$t.tsv"
+        [[ -f "$f" ]] && src+=("$f")
+      done
+    fi
+    (( ${#src[@]} > 0 )) || { echo "error: no candidate files in $RUN_DIR (tier=$TIER, asset-type=$ASSET_TYPE)" >&2; exit 2; }
+    source_kind="raw-tier (--skip-verify)"
+  else
+    echo "error: verify-junk has not been run on $RUN_DIR" >&2
+    echo "  Run immich.verify-junk.sh on this dir first, or pass --skip-verify to use raw tier files." >&2
+    exit 2
+  fi
+  awk -F'\t' '{print $1}' "${src[@]:-/dev/null}" 2>/dev/null | sort -u > "$TMP_IDS"
 fi
 
 OUT_FILE="$RUN_DIR/deleted.tsv"
@@ -151,10 +210,27 @@ TOTAL="$(wc -l < "$TMP_IDS" | tr -d ' ')"
 # ── Pre-flight summary ────────────────────────────────────────────────────
 echo "Source: $INPUT_DESC"
 echo "Run dir: $RUN_DIR"
-echo "Tier: $TIER"
+echo "Tier: $TIER  /  Asset type: $ASSET_TYPE"
+echo "Source files: ${source_kind:-from-file}"
+if (( ${#src[@]} > 0 )); then
+  echo "Files:"
+  for f in "${src[@]}"; do printf '  %s (%d IDs)\n' "$(basename "$f")" "$(wc -l < "$f")"; done
+fi
 echo "Mode: $([[ $FORCE -eq 1 ]] && echo 'HARD DELETE (force=true, skips trash)' || echo 'soft delete (force=false, goes to trash)')"
 echo "Batch size: $BATCH"
 echo "Assets to process: $TOTAL"
+
+# Loud warning + confirmation when --skip-verify is in effect
+if (( SKIP_VERIFY == 1 )) && [[ -z "$FROM_FILE" ]] && [[ "${source_kind:-}" == raw-tier* ]]; then
+  echo
+  echo "  ⚠  WARNING: --skip-verify means physical playability was NOT checked."
+  echo "  ⚠  Find-junk's heuristics may have flagged real content that won't be"
+  echo "  ⚠  rescued. The 30-day trash window is your only safety net."
+  if (( YES != 1 )) && (( DRY_RUN != 1 )); then
+    read -rp "Proceed without verify? [y/N] " ans
+    [[ "$ans" =~ ^[Yy] ]] || { echo "Aborted."; exit 2; }
+  fi
+fi
 [[ $DRY_RUN -eq 1 ]] && echo "DRY RUN — no API calls will be made"
 echo
 
