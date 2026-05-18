@@ -18,6 +18,9 @@
 #   --parallel=N             Concurrent verify workers (default: nproc)
 #   --timeout=N              Per-file ffmpeg/identify timeout in seconds
 #                            (default: 60)
+#   --monochrome-stddev=N    Max-channel stddev threshold for Tier C image
+#                            (default: 0.1; computed over a white-composited
+#                            sRGB image so transparent-bg PNGs aren't FPs)
 #   --force-rerun            Overwrite existing verify output in the run dir
 #   -h, --help               Show this help.
 #
@@ -38,13 +41,18 @@
 #                 — verified junk
 #   TRIVIAL       video plays (remux ≥ 80%) BUT content is small/short/
 #                 unnamed — likely Telegram sticker / WhatsApp thumbnail.
-#                 — verified junk
+#                 Also: Tier B image (filename trusted) and Tier C image
+#                 whose max-channel stddev (over white composite) confirms
+#                 monochrome. — verified junk
 #   PARTIAL       video remux ratio 30–79% — rescued (review!)
 #   GOOD          video remux ≥ 80% AND meaningful content (size ≥ 1MB
 #                 OR camera-prefix name OR duration ≥ 5s OR min dim ≥ 240px),
-#                 OR image passes both ffmpeg+identify — rescued (DO NOT delete)
-#   VERIFY_ERROR  ffmpeg/identify crash, timeout, or non-zero exit
-#                 — rescued (default safe)
+#                 OR image passes both ffmpeg+identify, OR Tier C image
+#                 whose stddev exceeds --monochrome-stddev (e.g. transparent-bg
+#                 PNG with real content) — rescued (DO NOT delete)
+#   VERIFY_ERROR  ffmpeg/identify/convert crash, timeout, or non-numeric output
+#                 — rescued (default safe; covers giant PNGs that exhaust IM
+#                 cache, etc.)
 #
 # EXIT CODES:
 #   0  verify completed; check rescued/verified-junk files for results
@@ -89,18 +97,20 @@ AUDIT_RUN=""
 PARALLEL="$(nproc)"
 TIMEOUT=60
 FORCE_RERUN=0
+MONO_STDDEV="0.1"
 
 usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --type=*)        TYPE="${1#*=}"; shift ;;
-    --run=*)         RUN_OVERRIDE="${1#*=}"; shift ;;
-    --audit-run=*)   AUDIT_RUN="${1#*=}"; shift ;;
-    --parallel=*)    PARALLEL="${1#*=}"; shift ;;
-    --timeout=*)     TIMEOUT="${1#*=}"; shift ;;
-    --force-rerun)   FORCE_RERUN=1; shift ;;
-    -h|--help)       usage; exit 0 ;;
+    --type=*)               TYPE="${1#*=}"; shift ;;
+    --run=*)                RUN_OVERRIDE="${1#*=}"; shift ;;
+    --audit-run=*)          AUDIT_RUN="${1#*=}"; shift ;;
+    --parallel=*)           PARALLEL="${1#*=}"; shift ;;
+    --timeout=*)            TIMEOUT="${1#*=}"; shift ;;
+    --monochrome-stddev=*)  MONO_STDDEV="${1#*=}"; shift ;;
+    --force-rerun)          FORCE_RERUN=1; shift ;;
+    -h|--help)              usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -108,8 +118,11 @@ done
 case "$TYPE" in image|video|all) ;; *) echo "error: --type must be image, video, or all" >&2; exit 2 ;; esac
 [[ "$PARALLEL" =~ ^[0-9]+$ && "$PARALLEL" -ge 1 ]] || { echo "error: --parallel must be >=1" >&2; exit 2; }
 [[ "$TIMEOUT" =~ ^[0-9]+$ && "$TIMEOUT" -ge 1 ]] || { echo "error: --timeout must be >=1" >&2; exit 2; }
+[[ "$MONO_STDDEV" =~ ^0?\.[0-9]+$ ]] || { echo "error: --monochrome-stddev must be a positive decimal like 0.1" >&2; exit 2; }
 [[ -n "$AUDIT_RUN" && -n "$RUN_OVERRIDE" ]] && { echo "error: --audit-run and --run are mutually exclusive" >&2; exit 2; }
 
+# `convert` is only needed if a tier-c-image.tsv exists in the run dir.
+# Probed below once RUN_DIR is resolved.
 imapi_require_cmd docker identify awk sort timeout
 # ffmpeg/ffprobe live inside immich-server, not host. Probe in-container:
 docker exec immich-server which ffmpeg ffprobe >/dev/null || { echo "error: ffmpeg/ffprobe missing in immich-server" >&2; exit 2; }
@@ -162,6 +175,11 @@ else
   rm -f "$RUN_DIR/audit-report.tsv"
 fi
 
+# Conditional dependency: monochrome verify needs ImageMagick `convert` on host.
+if [[ -s "$RUN_DIR/tier-c-image.tsv" ]]; then
+  imapi_require_cmd convert
+fi
+
 # ── Build the enriched input (TSV with originalPath) ─────────────────────
 # Format: uuid<TAB>tier<TAB>type<TAB>bytes<TAB>path<TAB>filename<TAB>duration
 ENRICHED="$(mktemp)"
@@ -186,8 +204,9 @@ SQL
 }
 
 collect_input_normal() {
-  # Normal mode: read tier files for selected types, enrich with originalPath
-  local types=() tiers=(a b)
+  # Normal mode: read tier files for selected types, enrich with originalPath.
+  # Tier `c` only exists for image type (added by --enable-monochrome in find-junk).
+  local types=() tiers=(a b c)
   case "$TYPE" in
     image) types=(image) ;;
     video) types=(video) ;;
@@ -314,6 +333,23 @@ verify_one_row() {
       # via decode — a valid messaging GIF (e.g. imgur reaction) decodes fine
       # but is exactly the junk the user wants gone. Trust the filename match.
       emit_verdict="TRIVIAL"
+    elif [[ "$tier" =~ ^[cC]$ ]]; then
+      # Tier C image: monochrome candidate. Composite over white (so transparent
+      # PNG content shows against the bg instead of hiding in stored-as-black
+      # alpha pixels), then measure max-channel stddev. Empty / non-numeric
+      # output (e.g. giant images that exhaust IM's cache) → VERIFY_ERROR rescue.
+      local stddev
+      stddev=$(timeout "$TIMEOUT" convert "$hpath" -background white -alpha remove -alpha off -colorspace sRGB \
+                -format '%[fx:max(standard_deviation.r,max(standard_deviation.g,standard_deviation.b))]' \
+                info: 2>/dev/null || echo "")
+      if [[ -z "$stddev" || ! "$stddev" =~ ^[0-9.eE+-]+$ ]]; then
+        emit_verdict="VERIFY_ERROR"
+      elif awk -v s="$stddev" -v t="$MONO_STDDEV" 'BEGIN{exit !(s+0 < t+0)}'; then
+        emit_verdict="TRIVIAL"
+      else
+        emit_verdict="GOOD"
+      fi
+      emit_ratio="$stddev"  # repurpose ratio column for the stddev value
     else
       # Tier A image: physical-impossibility candidate. Verify is the FP rescue.
       if ! docker exec immich-server timeout "$TIMEOUT" \
@@ -334,7 +370,7 @@ verify_one_row() {
 }
 export -f verify_one_row
 export TIMEOUT TINY_VIDEO RATIO_GOOD RATIO_PARTIAL CONTAINER_PATH_PREFIX HOST_PATH_PREFIX B1_REGEX
-export MEANINGFUL_BYTES MEANINGFUL_NAME_REGEX
+export MEANINGFUL_BYTES MEANINGFUL_NAME_REGEX MONO_STDDEV
 
 # ── Run verify in parallel ───────────────────────────────────────────────
 echo "Verifying $TOTAL candidates with $PARALLEL parallel workers..."

@@ -14,7 +14,7 @@ Both pipelines share the `immich.lib.sh` substrate (`imapi`, `imapi_load_key`, `
 | `immich.conf` | Base URL + API key file path (sourced by lib). |
 | `immich.lib.sh` | Shared helpers: `imapi <METHOD> <path>`, `imapi_load_key`, `imapi_require_cmd`. |
 | `immich.validate.sh` | Read-only connectivity + auth + stats sanity check. Run first to verify API access. |
-| `immich.find-junk.sh` | Reads Postgres directly, writes a timestamped run dir under `runs/<ts>/` with `tier-{a,b}-{image,video}.tsv` + `summary.txt`. Read-only. `--type=image\|video\|all` (default `all`). |
+| `immich.find-junk.sh` | Reads Postgres directly, writes a timestamped run dir under `runs/<ts>/` with `tier-{a,b}-{image,video}.tsv` + `summary.txt`. Read-only. `--type=image\|video\|all` (default `all`). `--enable-monochrome` adds `tier-c-image.tsv` (low-bytes-per-pixel prefilter for single-color candidates). |
 | `immich.verify-junk.sh` | Reads tier files, ffmpeg-remuxes / decodes each candidate, classifies into `verified-junk-*.tsv` (safe to delete) or `rescued-*.tsv` (do NOT delete, review). Read-only. **Mandatory before delete.** Also supports `--audit-run=<ts>` mode for retroactive checks on already-deleted assets. |
 | `immich.delete.sh` | Consumes `verified-junk-*.tsv` from a run dir. Batches `DELETE /api/assets`. Soft-delete default (Trash, 30-day retention). `--skip-verify` to bypass (with warning + prompt). |
 | `immich.restore.sh` | Inverse of soft-delete. Accepts UUIDs via `--from-file` (TSV or one-per-line, `-` for stdin), batches `POST /api/trash/restore/assets`. |
@@ -24,7 +24,7 @@ Both pipelines share the `immich.lib.sh` substrate (`imapi`, `imapi_load_key`, `
 | `.immich_api_key` | API key file (chmod 600, gitignored). Override with `IMMICH_API_KEY` env var. |
 | `runs/` | Per-invocation working dirs (gitignored). |
 
-**Host dependencies:** `curl`, `jq`, `docker`, `awk`, `sort`, `stat`, `date`. Date-recovery additionally needs **`exiftool`** on the host (`sudo apt install -y libimage-exiftool-perl`). `ffprobe`/`ffmpeg`/`identify` are read from the `immich-server` container as needed.
+**Host dependencies:** `curl`, `jq`, `docker`, `awk`, `sort`, `stat`, `date`, **`identify`** (ImageMagick — used by verify-junk on Tier A images and required for Tier C monochrome verification). Date-recovery additionally needs **`exiftool`** (`sudo apt install -y libimage-exiftool-perl`). Tier C monochrome verification also uses ImageMagick's **`convert`** (same package as `identify`). `ffprobe`/`ffmpeg` are read from the `immich-server` container as needed.
 
 Run `bash immich.<script>.sh --help` for full flag listings.
 
@@ -48,6 +48,7 @@ This means a future heuristic regression in find-junk can't silently delete real
 ### Image tiers
 - **Tier A — physical-impossibility.** `area < 10000 px` OR `fileSizeInByte < 5000` OR missing dim/size.
 - **Tier B — pattern match.** Filenames matching narrow Android UI sprite prefixes (`abc_`, `ic_`, `btn_`, etc.) + 10 known tracking-pixel names.
+- **Tier C — monochrome candidates (opt-in via `--enable-monochrome`).** SQL prefilter only: `width≥200 AND height≥200 AND bytes/(w×h) < --monochrome-bpp-max` (default `0.01`). The precise per-pixel stddev classification happens in verify-junk (see below); find-junk just nominates the bucket.
 
 ### Video tiers
 - **Tier A — physical-impossibility.** Catches: `fileSizeInByte < 50 KB` OR `area < 10000 px` OR `(missing dim AND < 5 MB)` OR `(missing duration AND < 5 MB)`.
@@ -67,10 +68,10 @@ Each candidate is classified into one of:
 | `MISSING` | file does not exist on disk | verified-junk |
 | `AUDIO_ONLY` | filename matches B1 OR no video stream | verified-junk |
 | `BROKEN` | video remux ratio < 30%, OR image fails decode | verified-junk |
-| `TRIVIAL` | plays cleanly BUT bytes < 1 MB AND not a camera-prefix name (Telegram stickers, WhatsApp thumbnails) | verified-junk |
+| `TRIVIAL` | plays cleanly BUT bytes < 1 MB AND not a camera-prefix name (Telegram stickers, WhatsApp thumbnails); also: Tier B images (filename trusted); also: Tier C images whose max-channel stddev (over a white composite) is below `--monochrome-stddev` (default `0.1`) — confirmed monochrome | verified-junk |
 | `PARTIAL` | video remux ratio 30–79% | rescued (review) |
-| `GOOD` | video remux ≥ 80% AND (bytes ≥ 1 MB OR camera-prefix name); OR image passes both ffmpeg + ImageMagick | rescued (do not delete) |
-| `VERIFY_ERROR` | ffmpeg/identify crashed, timed out, or non-zero exit | rescued (default safe) |
+| `GOOD` | video remux ≥ 80% AND (bytes ≥ 1 MB OR camera-prefix name); OR image passes both ffmpeg + ImageMagick; OR Tier C image whose stddev exceeds the threshold (e.g. transparent-bg PNG whose real content was hidden in the alpha) | rescued (do not delete) |
+| `VERIFY_ERROR` | ffmpeg/identify/convert crashed, timed out, or returned non-numeric output | rescued (default safe — covers e.g. giant PNGs that exhaust ImageMagick's pixel cache) |
 
 Camera-prefix regex: `^(PXL_|IMG_|VID_|DSC_|MOV_|MVI_)` — underscore distinguishes real camera names from messaging-app conventions (`VID-*-WA*.mp4` is WhatsApp, not a camera capture).
 
@@ -83,9 +84,11 @@ bash immich.validate.sh
 # 2. Detect junk — creates runs/<ts>/. Default scans both images and videos.
 bash immich.find-junk.sh
 bash immich.find-junk.sh --type=video     # videos only
+bash immich.find-junk.sh --enable-monochrome   # adds Tier C image candidates
 
-# 3. Verify — physical playability check. Mandatory before delete.
+# 3. Verify — physical playability + monochrome stddev check. Mandatory before delete.
 bash immich.verify-junk.sh
+bash immich.verify-junk.sh --monochrome-stddev=0.05  # stricter Tier C threshold
 
 # 4. Review rescued items (these would have been deleted without verify)
 cat runs/<ts>/rescued-*.tsv
@@ -228,8 +231,7 @@ curl -X PUT "${IMMICH_API_URL}/api/jobs/metadataExtraction" \
 
 ## What's deferred
 
-- True single-color detection (requires reading image bytes pixel by pixel — needs ImageMagick `identify -fx` or similar).
-- Duplicate cleanup — Immich has built-in detection; handle via UI.
+- Duplicate cleanup — Immich's `UQ_asset_owner_checksum` unique constraint blocks byte-identical dupes at upload; a scan of this library (2026-05-18, 168,541 live assets) found 0 SHA collisions. For fuzzy near-duplicates use Immich's CLIP-based "Review Duplicates" UI.
 - Combined scan+verify+delete script — the explicit split is intentional. The review gap between verify and delete is the human-in-the-loop layer.
 - Video Tier C (implied-bitrate floor, `bytes/duration < 200 kbps`) — replaced in spirit by verify's remux-ratio test (which catches the same class of broken clips with higher precision).
 - `immich.fix-dates.revert.sh` — `applied.tsv` retains both old and new dates so a revert is implementable when needed.
