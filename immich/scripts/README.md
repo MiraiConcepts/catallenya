@@ -1,6 +1,11 @@
-# Immich cleanup pipeline
+# Immich library tooling
 
-Scripts for finding, verifying, and deleting junk/artifact assets (images + videos) from the Immich library.
+Scripts for two pipelines against the Immich library:
+
+1. **Cleanup**: find → verify → delete junk/artifact assets (images + videos)
+2. **Date recovery**: scan → verify → apply authoritative capture timestamps to assets whose `fileCreatedAt` was bulk-defaulted during a bad import
+
+Both pipelines share the `immich.lib.sh` substrate (`imapi`, `imapi_load_key`, `imapi_require_cmd`) and the per-run `runs/<ts>/` directory convention.
 
 ## Files
 
@@ -13,8 +18,13 @@ Scripts for finding, verifying, and deleting junk/artifact assets (images + vide
 | `immich.verify-junk.sh` | Reads tier files, ffmpeg-remuxes / decodes each candidate, classifies into `verified-junk-*.tsv` (safe to delete) or `rescued-*.tsv` (do NOT delete, review). Read-only. **Mandatory before delete.** Also supports `--audit-run=<ts>` mode for retroactive checks on already-deleted assets. |
 | `immich.delete.sh` | Consumes `verified-junk-*.tsv` from a run dir. Batches `DELETE /api/assets`. Soft-delete default (Trash, 30-day retention). `--skip-verify` to bypass (with warning + prompt). |
 | `immich.restore.sh` | Inverse of soft-delete. Accepts UUIDs via `--from-file` (TSV or one-per-line, `-` for stdin), batches `POST /api/trash/restore/assets`. |
+| `immich.fix-dates.scan.sh` | Date-recovery stage 1. Reads Postgres + per-asset external sources (exiftool / filename regex / ffprobe / mtime), writes `proposed-{image,video}.tsv` + `scan-summary.txt`. Read-only. Strict priority resolution. |
+| `immich.fix-dates.verify.sh` | Date-recovery stage 2. Re-reads the declared source per row and sanity-checks; routes to `verified-fixes-*.tsv` (safe to apply) or `rescued-fixes-*.tsv` (review). Read-only. **Mandatory before apply.** |
+| `immich.fix-dates.apply.sh` | Date-recovery stage 3. Consumes `verified-fixes-*.tsv`. Per-asset `PUT /api/assets/<id>` with `dateTimeOriginal`. Pauses `metadataExtraction` job in a trap-protected window to avoid the race. `--dry-run` previews. |
 | `.immich_api_key` | API key file (chmod 600, gitignored). Override with `IMMICH_API_KEY` env var. |
 | `runs/` | Per-invocation working dirs (gitignored). |
+
+**Host dependencies:** `curl`, `jq`, `docker`, `awk`, `sort`, `stat`, `date`. Date-recovery additionally needs **`exiftool`** on the host (`sudo apt install -y libimage-exiftool-perl`). `ffprobe`/`ffmpeg`/`identify` are read from the `immich-server` container as needed.
 
 Run `bash immich.<script>.sh --help` for full flag listings.
 
@@ -128,11 +138,100 @@ The presence of `deleted.tsv` in a run dir marks it processed; `delete.sh` skips
 
 `restored.tsv` (written by restore.sh) follows the same shape.
 
+## Pipeline: scan → verify → apply (dates)
+
+```
+fix-dates.scan      →   fix-dates.verify         →   fix-dates.apply
+(external sources)      (sanity + stability)         (PUT /api/assets/<id>)
+                                                     --skip-verify to bypass
+```
+
+Motivation: bulk-imported assets sometimes land in Immich with `fileCreatedAt` defaulted to the import date (e.g., a 22,925-image cluster on `2023-02-19` SGT) when EXIF was unavailable or skipped during ingest. This pipeline reconstructs capture timestamps from external sources of truth and patches Immich.
+
+### Sources of truth (strict priority order)
+
+| # | Source | Tool | Notes |
+|---|---|---|---|
+| 1 | EXIF `DateTimeOriginal` | `exiftool` | Cameras, JPEG/HEIC. Most authoritative when an `OffsetTimeOriginal` is present; naked EXIF (no offset, common on older cameras) is stamped as SGT per library convention. |
+| 2 | Filename-embedded date | regex | WhatsApp (`IMG-YYYYMMDD-WA####`), Android (`IMG_/VID_/PXL_/PANO_YYYYMMDD_HHMMSS`), iOS-ish (`IMGYYYYMMDDHHMMSS`), screenshots (`Screenshot_YYYYMMDD-HHMMSS`, `Screenshot YYYY-MM-DD at HH.MM.SS`), Signal (`signal-YYYY-MM-DD-…`), bare `YYYYMMDD_HHMMSS` / `YYYYMMDD-HHMMSS_N`, dated-with-dots `YYYY-MM-DD HH.MM.SS[-_ .(]N`, Android stock video (`video-YYYY-MM-DD-HH-MM-SS.mp4`), Facebook downloads (`<digits>_<13-digit ms epoch>_…`), Unix-ms screenshot saves (`screenshot-{13digits}_N.png`), date-only `YYYY-MM-DD (N).ext` / `YYYY-MM-DD.ext`. |
+| 3 | Video container `creation_time` | `ffprobe` | Video only. Can be wrong on re-encoded clips. |
+| 4 | File mtime | `stat` | Opt-in only (`--allow-mtime`). Weakest signal. |
+
+First non-empty source that passes the sanity range (`--min-date` ≤ d ≤ `--max-date`) wins. SGT (UTC+8) is the assumed library timezone — see `[[immich-photos-sgt-timezone]]` memory.
+
+### Verdicts (verify)
+
+| Verdict | Test | Routed to |
+|---|---|---|
+| `OK` | All checks pass; source re-read produced same value | `verified-fixes-*.tsv` |
+| `MISSING` | File no longer exists on disk | rescued |
+| `OUT_OF_RANGE` | Proposed date outside `[min-date, max-date]` | rescued |
+| `NO_CHANGE` | Proposed equals current (defensive; scan should have skipped) | rescued |
+| `CONFLICT` | Scan flagged cross-source disagreement (EXIF + filename differ > 24h) | rescued |
+| `UNSTABLE` | Source re-read produced a different (or empty) date | rescued |
+
+### Apply safety
+
+`apply.sh` pauses Immich's `metadataExtraction` job before issuing PUTs and resumes it in an `EXIT` trap. Without this, a queued extraction can land after the PUT and overwrite the new date (immich-app/immich#16901).
+
+A successful `PUT /api/assets/{id}` with `dateTimeOriginal` triggers a `SIDECAR_WRITE` job that persists the new date to an XMP sidecar next to the asset. Subsequent metadata extractions read the sidecar (XMP > embedded EXIF), so writes are authoritative across rescans.
+
+### Typical workflow
+
+```bash
+# 1. One-time: install exiftool (the only host dependency added)
+sudo apt install -y libimage-exiftool-perl
+
+# 2. Canary: target the known 22.9k-image 2023-02-19 cluster, images only, EXIF only
+bash immich.fix-dates.scan.sh --date-cluster=2023-02-19 --source=exif --type=image --limit=100
+
+# 3. Verify (auto-picks the latest run dir)
+bash immich.fix-dates.verify.sh
+
+# 4. Review what would change
+bash immich.fix-dates.apply.sh --dry-run
+
+# 5. Apply the canary
+bash immich.fix-dates.apply.sh --limit=100
+
+# 6. Spot-check in the Immich UI; sidecar write is async, may lag a few minutes.
+
+# 7. Broaden: drop --limit, then drop --source, then drop --date-cluster
+bash immich.fix-dates.scan.sh --date-cluster=2023-02-19
+bash immich.fix-dates.verify.sh
+bash immich.fix-dates.apply.sh --yes
+```
+
+### Reading the apply log
+
+`applied.tsv` has six columns:
+```
+<uuid>\t<old_date>\t<new_date>\t<source>\t<http_code>\t<iso_timestamp>
+```
+- `200`/`204` = success
+- `400`/`404` = asset gone or malformed payload
+- anything else = failure (script continues; aborts on `401`)
+
+`--dry-run` prints preview rows to stdout only and does NOT touch `applied.tsv` — keeping the log free of fake entries that would otherwise confuse resume logic on later real runs.
+
+The old/new dates are retained on every row so a future revert is implementable from this log alone.
+
+### Recovering from a stuck pause
+
+If `apply.sh` is killed in a way that bypasses the EXIT trap (rare — `kill -9`, OOM), `metadataExtraction` may stay paused. Resume manually:
+```bash
+curl -X PUT "${IMMICH_API_URL}/api/jobs/metadataExtraction" \
+     -H "x-api-key: $(cat .immich_api_key)" \
+     -H "Content-Type: application/json" \
+     --data '{"command":"resume"}'
+```
+
 ## What's deferred
 
 - True single-color detection (requires reading image bytes pixel by pixel — needs ImageMagick `identify -fx` or similar).
 - Duplicate cleanup — Immich has built-in detection; handle via UI.
 - Combined scan+verify+delete script — the explicit split is intentional. The review gap between verify and delete is the human-in-the-loop layer.
 - Video Tier C (implied-bitrate floor, `bytes/duration < 200 kbps`) — replaced in spirit by verify's remux-ratio test (which catches the same class of broken clips with higher precision).
+- `immich.fix-dates.revert.sh` — `applied.tsv` retains both old and new dates so a revert is implementable when needed.
 
-See `.claude/plans/immich-find-junk-plan.md`, `.claude/plans/immich-delete-plan.md`, `.claude/plans/immich-find-junk-videos-plan.md`, and `.claude/plans/immich-verify-pipeline-plan.md` for the full design rationale.
+See `.claude/plans/immich-find-junk-plan.md`, `.claude/plans/immich-delete-plan.md`, `.claude/plans/immich-find-junk-videos-plan.md`, `.claude/plans/immich-verify-pipeline-plan.md`, and `.claude/plans/immich-fix-dates-plan.md` for the full design rationale.

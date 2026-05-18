@@ -63,4 +63,7 @@
 !immich/scripts/immich.verify-junk.sh
 !immich/scripts/immich.delete.sh
 !immich/scripts/immich.restore.sh
+!immich/scripts/immich.fix-dates.scan.sh
+!immich/scripts/immich.fix-dates.verify.sh
+!immich/scripts/immich.fix-dates.apply.sh
 !immich/scripts/README.md
