@@ -16,11 +16,14 @@
 #   --dry-run             Show what would be deleted, no API calls.
 #   --yes                 Skip the confirmation prompt.
 #   --force               Hard delete (skip trash).
-#   --tier=a|b|all        Which tier(s) from the run dir (default: all).
+#   --tier=a|b|c|all      Which tier(s) from the run dir (default: all).
+#                         Tier c is image-only (monochrome candidates from
+#                         --enable-monochrome).
 #   --asset-type=image|video|all
 #                         Which asset type(s) from the run dir (default: all).
-#                         Files read are verified-junk-{a,b}-{image,video}.tsv
+#                         Files read are verified-junk-{a,b,c}-{image,video}.tsv
 #                         per the cartesian product of --tier and --asset-type.
+#                         (tier c × video has no matching file, silently skipped.)
 #   --skip-verify         Read raw tier-*.tsv files (skipping verify-junk's
 #                         physical playability check). Prints warning + asks
 #                         to confirm unless --yes is also passed. DANGEROUS —
@@ -75,7 +78,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$TIER"       in a|b|all)         ;; *) echo "error: --tier must be a, b, or all" >&2; exit 2 ;; esac
+case "$TIER"       in a|b|c|all)       ;; *) echo "error: --tier must be a, b, c, or all" >&2; exit 2 ;; esac
 case "$ASSET_TYPE" in image|video|all) ;; *) echo "error: --asset-type must be image, video, or all" >&2; exit 2 ;; esac
 [[ "$BATCH" =~ ^[0-9]+$ && "$BATCH" -ge 1 && "$BATCH" -le 1000 ]] \
   || { echo "error: --batch must be 1..1000" >&2; exit 2; }
@@ -142,7 +145,8 @@ else
   case "$TIER" in
     a)   tier_letters=(a) ;;
     b)   tier_letters=(b) ;;
-    all) tier_letters=(a b) ;;
+    c)   tier_letters=(c) ;;
+    all) tier_letters=(a b c) ;;
   esac
   case "$ASSET_TYPE" in
     image) type_words=(image) ;;
