@@ -35,6 +35,13 @@ bash restic/restic.restore.sh
 bash immich/scripts/immich.find-junk.sh        # nominate candidates (heuristics)
 bash immich/scripts/immich.verify-junk.sh      # physical playability check
 bash immich/scripts/immich.delete.sh --dry-run # preview; drop --dry-run to act
+
+# Immich date recovery (scan → verify → apply pipeline)
+# Reconstructs fileCreatedAt from EXIF / filename / ffprobe / mtime.
+# Requires exiftool on host: sudo apt install -y libimage-exiftool-perl
+bash immich/scripts/immich.fix-dates.scan.sh   --date-cluster=2023-02-19 --limit=100
+bash immich/scripts/immich.fix-dates.verify.sh
+bash immich/scripts/immich.fix-dates.apply.sh  --dry-run
 ```
 
 ## Architecture
