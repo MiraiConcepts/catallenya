@@ -1,5 +1,7 @@
 # catallenya
 
+![catallenya](catallenya.png)
+
 catallenya is personal data sovereignty project. We replace third-party services with self-hosted solutions for photo management, cloud storage, calendar and contact sync and blogging. Offers deep integration with scheduled backups, encryption and status notifications.
 
 ## Services hosted (non-exhaustive)
