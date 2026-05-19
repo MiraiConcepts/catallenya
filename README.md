@@ -1,10 +1,10 @@
 # catallenya
 
-![catallenya](catallenya.png)
-
 catallenya is personal data sovereignty project. We replace third-party services with self-hosted solutions for photo management, cloud storage, calendar and contact sync and blogging. Offers deep integration with scheduled backups, encryption and status notifications.
 
-## Services hosted (non-exhaustive)
+![catallenya](catallenya.png)
+
+# Services hosted (non-exhaustive)
 - [carrein-blog](https://github.com/carrein/carrein-blog)
 - [Immich](https://immich.app)
 - [Zipline](https://zipline.diced.sh/)
