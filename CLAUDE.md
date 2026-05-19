@@ -117,6 +117,7 @@ ZFS snapshots are managed by Sanoid separately.
 
 - **Disk monitoring**: `systemd/disk.timer` runs every 15 min, alerts via Ntfy at 75% usage
 - **Service monitoring**: `ntfy/system-ntfy.sh` reports restic job status to Ntfy
+- **ZFS pool monitoring**: ZFS Event Daemon (`zed`) publishes pool events (scrub, errors, resilver) to the `zpool` ntfy topic. Configured on the host at `/etc/zfs/zed.d/zed.rc` (`ZED_NTFY_TOPIC`, `ZED_NTFY_URL`) — not in this repo. Sanoid handles snapshots only and is not wired to ntfy.
 - **Watchtower**: Auto-updates containers with `com.centurylinklabs.watchtower.enable=true` label, polls hourly
 
 ### CI/CD
