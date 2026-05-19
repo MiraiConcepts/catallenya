@@ -81,3 +81,8 @@ http://catallenya.com {
 		reverse_proxy memoka:8080
 	}
 }
+
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$CHANGEDETECTION_REVERSE_PROXY_PORT} {
+	import security_headers
+	reverse_proxy changedetection:5000
+}
