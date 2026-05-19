@@ -66,6 +66,7 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 | `IMMICH_REVERSE_PROXY_PORT`      | Immich      |
 | `ARCHIVEBOX_REVERSE_PROXY_PORT`  | Archivebox  |
 | `MEMOKA_REVERSE_PROXY_PORT`      | Memoka      |
+| `CHANGEDETECTION_REVERSE_PROXY_PORT` | Changedetection.io |
 
 ### Service Dependencies
 
@@ -75,6 +76,7 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 - **Archivebox** uses `archivebox_sonic` for search; scheduler depends on both
 - **Caddy** depends on `tailscale` for TLS certificate socket
 - **carrein-blog** (`ghcr.io/carrein/carrein-blog`) and **upvotes** (`ghcr.io/carrein/upvotes`, Bun + SQLite) sit behind Caddy's `http://catallenya.com` block — no host port mapping; reached only via the cloudflared tunnel
+- **Changedetection** depends on `changedetection-browser` (sockpuppetbrowser, Chromium via Playwright over WebSocket) for JS-rendered fetches. The companion needs `cap_add: SYS_ADMIN` for the Chromium user-namespace sandbox; the main container needs `CHOWN/FOWNER/DAC_OVERRIDE` because the image runs as root and writes to a non-root-owned bind mount. Notifications fan out via ntfy using Apprise URL `ntfy://ntfy/${CHANGEDETECTION_NTFY_TOPIC}` — configured in the UI, not in env.
 
 ### Secrets Management
 
