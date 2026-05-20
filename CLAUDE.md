@@ -103,7 +103,7 @@ ZFS snapshots are managed by Sanoid separately.
 
 **What it does** (via `systemd/catallenya.sh`):
 1. `systemctl daemon-reload` — re-reads unit files now that ZFS symlinks resolve
-2. Starts all 6 project timers
+2. Starts all project timers
 3. `docker compose up -d` — brings up containers (as `carrein`)
 4. Verifies all containers reach `running` state
 5. Posts success/failure notification to ntfy `/boot` topic
@@ -112,6 +112,14 @@ ZFS snapshots are managed by Sanoid separately.
 - `systemctl status catallenya` — check boot state (green = all OK)
 - `sudo bash systemd/install.sh` — set up systemd on a fresh server (writes service, creates symlinks, enables everything). Idempotent.
 - `journalctl -u catallenya` — boot orchestrator logs
+
+### Remote LUKS Unlock
+
+The host's encrypted root supports SSH-driven remote unlock. `dropbear-initramfs` + `tailscale-initramfs` are baked into every kernel's initramfs; on boot the box registers ephemerally on the tailnet as `catallenya-initrd` (tagged `tag:initrd`) and accepts SSH on port 22 with the forced command `cryptroot-unlock`.
+
+The tailnet has tailnet lock (TKA) enabled, so the auth key embedded in `/etc/tailscale/initramfs/config` must be `tailscale lock sign`-wrapped before registering nodes get connectivity. `tailscale/initrd-rotation/rotate-initrd-authkey.sh` (run monthly by `rotate-initrd-authkey.timer`) mints a fresh auth key via the Tailscale OAuth client, wraps it, replaces the config line, rebuilds all initramfs, and posts to ntfy `boot` topic on success/failure.
+
+Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>`) and physical console (LUKS slot 0 = daily passphrase, slot 7 = paper recovery in password manager). Full runbook + post-execution addendum in `docs/remote-luks-unlock.md` (host-local, gitignored).
 
 ### Monitoring
 
