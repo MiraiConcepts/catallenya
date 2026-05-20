@@ -9,6 +9,7 @@ OnFailure=system-ntfy@restic.backup.service
 Type=oneshot
 User=carrein
 Group=carrein
+AmbientCapabilities=CAP_DAC_READ_SEARCH
 Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
 ExecStart=/zpool/catallenya/restic/backup/restic.backup.sh
 StandardOutput=journal
