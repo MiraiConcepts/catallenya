@@ -1,0 +1,15 @@
+[Unit]
+Description=Rotate signed auth key embedded in initramfs (TKA + OAuth)
+Documentation=file:///zpool/catallenya/docs/remote-luks-unlock.md
+Requires=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/zpool/catallenya/tailscale/initrd-rotation/rotate-initrd-authkey.sh
+StandardOutput=journal
+StandardError=journal
+# Notification is handled inside the script (ntfy curl calls), so no
+# OnSuccess/OnFailure to system-ntfy@ here. The script alerts on every failure.

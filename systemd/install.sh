@@ -44,12 +44,14 @@ declare -A SYMLINKS=(
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
     ["restic.check-meta.timer"]="${REPO_DIR}/restic/check/restic.check-meta.timer"
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
+    ["rotate-initrd-authkey.timer"]="${REPO_DIR}/tailscale/initrd-rotation/rotate-initrd-authkey.timer"
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
     # Services
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
     ["restic.forget.service"]="${REPO_DIR}/restic/forget/restic.forget.service"
+    ["rotate-initrd-authkey.service"]="${REPO_DIR}/tailscale/initrd-rotation/rotate-initrd-authkey.service"
     ["system-ntfy@.service"]="${REPO_DIR}/ntfy/system-ntfy@.service"
     ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
 )
@@ -80,6 +82,7 @@ TIMERS=(
     restic.check-data.timer
     restic.check-meta.timer
     restic.forget.timer
+    rotate-initrd-authkey.timer
     zpool.scrub.timer
 )
 
