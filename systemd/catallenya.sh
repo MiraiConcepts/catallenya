@@ -75,7 +75,7 @@ if [[ ${#ERRORS[@]} -eq 0 ]]; then
     TITLE="Boot Success"
     TAG="green_heart"
     PRIORITY="default"
-    BODY="All systems up.
+    BODY="All systems nominal.
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
 Containers: ${CONTAINER_TOTAL} running"
 else
