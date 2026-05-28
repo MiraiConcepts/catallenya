@@ -7,16 +7,8 @@ set -euo pipefail
 # starts project timers, brings up Docker Compose, and notifies via ntfy.
 
 COMPOSE_DIR="/zpool/catallenya"
+SYSTEMD_DIR="/etc/systemd/system"
 LOG_TAG="catallenya-boot"
-
-TIMERS=(
-    disk.timer
-    restic.backup.timer
-    restic.check-data.timer
-    restic.check-meta.timer
-    restic.forget.timer
-    zpool.scrub.timer
-)
 
 log() { echo "[${LOG_TAG}] $*"; }
 fail() { log "FAIL: $*"; ERRORS+=("$*"); }
@@ -27,6 +19,23 @@ ERRORS=()
 log "Reloading systemd daemon..."
 if ! systemctl daemon-reload; then
     fail "daemon-reload failed"
+fi
+
+# --- Step 1b: Discover project timers ---
+# Don't hardcode the list. Any *.timer symlinked from this repo into systemd
+# is ours; vendor timers (logrotate, etc.) point elsewhere and are skipped.
+# Adding a service that ships a timer (+ running systemd/install.sh) makes it
+# show up here automatically — started below and counted in the ntfy message.
+log "Discovering project timers..."
+TIMERS=()
+for unit in "${SYSTEMD_DIR}"/*.timer; do
+    [[ -L "$unit" ]] || continue
+    [[ "$(readlink "$unit")" == "${COMPOSE_DIR}/"* ]] && TIMERS+=("$(basename "$unit")")
+done
+if [[ ${#TIMERS[@]} -eq 0 ]]; then
+    fail "No project timers found under ${SYSTEMD_DIR} (expected symlinks into ${COMPOSE_DIR})"
+else
+    log "  Found ${#TIMERS[@]}: ${TIMERS[*]}"
 fi
 
 # --- Step 2: Start all project timers ---

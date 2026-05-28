@@ -76,15 +76,12 @@ systemctl daemon-reload
 echo "Enabling catallenya.service..."
 systemctl enable catallenya.service
 
-TIMERS=(
-    disk.timer
-    restic.backup.timer
-    restic.check-data.timer
-    restic.check-meta.timer
-    restic.forget.timer
-    rotate-initrd-authkey.timer
-    zpool.scrub.timer
-)
+# Derive the timer list from SYMLINKS so there's a single source of truth —
+# add a service's timer to SYMLINKS above and it's enabled here automatically.
+TIMERS=()
+for unit in "${!SYMLINKS[@]}"; do
+    [[ "$unit" == *.timer ]] && TIMERS+=("$unit")
+done
 
 echo "Enabling timers..."
 for timer in "${TIMERS[@]}"; do
@@ -100,4 +97,4 @@ echo "  - ${#TIMERS[@]} timers enabled"
 echo ""
 echo "Verify with:"
 echo "  systemctl status catallenya"
-echo "  systemctl list-timers disk.timer restic.backup.timer restic.check-data.timer restic.check-meta.timer restic.forget.timer zpool.scrub.timer"
+echo "  systemctl list-timers ${TIMERS[*]}"
