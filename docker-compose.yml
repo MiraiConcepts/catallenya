@@ -522,6 +522,7 @@ services:
     container_name: archivebox_sonic
     image: archivebox/sonic:latest
     restart: unless-stopped
+    user: "1000:1000" # Match store ownership; root + cap_drop ALL (no DAC_OVERRIDE) can't write the 1000-owned KV dir.
     security_opt:
       - no-new-privileges:true
     cap_drop:
