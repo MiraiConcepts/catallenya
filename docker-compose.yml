@@ -463,7 +463,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 2G # Archiving spawns headless Chromium (singlefile/screenshot/pdf/dom); 256M OOM-killed mid-archive.
+    shm_size: 1gb # Chrome uses /dev/shm heavily; the 64M default crashes the renderer on heavy pages.
     volumes:
       - ${ARCHIVEBOX_VOLUME}:/data
     environment:
