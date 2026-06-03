@@ -115,11 +115,11 @@ ZFS snapshots are managed by Sanoid separately.
 
 ### Remote LUKS Unlock
 
-The host's encrypted root supports SSH-driven remote unlock. `dropbear-initramfs` + `tailscale-initramfs` are baked into every kernel's initramfs; on boot the box registers ephemerally on the tailnet as `catallenya-initrd` (tagged `tag:initrd`) and accepts SSH on port 22 with the forced command `cryptroot-unlock`.
+The host's encrypted root supports SSH-driven remote unlock. `dropbear-initramfs` + `tailscale-initramfs` are baked into every kernel's initramfs; on boot the box comes up on the tailnet as `catallenya-initrd` (tagged `tag:initrd`) and accepts SSH on port 22 with the forced command `cryptroot-unlock`.
 
-The tailnet has tailnet lock (TKA) enabled, so the auth key embedded in `/etc/tailscale/initramfs/config` must be `tailscale lock sign`-wrapped before registering nodes get connectivity. `tailscale/initrd-rotation/rotate-initrd-authkey.sh` (run monthly by `rotate-initrd-authkey.timer`) mints a fresh auth key via the Tailscale OAuth client, wraps it, replaces the config line, rebuilds all initramfs, and posts to ntfy `boot` topic on success/failure.
+The tailnet has tailnet lock (TKA) enabled. Rather than re-registering a fresh ephemeral node each boot (which caused `catallenya-initrd-N` duplicates), the initramfs now carries a **persistent node identity**: `tailscaled.state` lives at `/etc/tailscale/initramfs/tailscaled.state` and is baked into every image by the hook `/etc/initramfs-tools/hooks/initrd-tailscale-state` (repo copy in `tailscale/initramfs-hooks/`), so the node resumes the same identity each boot. It is **state-only** — no auth key in `/boot`; a patched premount override (`/etc/initramfs-tools/scripts/init-premount/tailscale`) omits `--authkey` when empty. The node is signed by a SigDirect under the host's durable `self` TKA key. The old monthly auth-key rotation is retired; `tailscale/initrd-identity/generate-initrd-state.sh` regenerates the identity on demand (recovery: mint a one-off `tag:initrd` key in the admin console, then run it with `--authkey=… --rebuild`). **Never delete the `catallenya-initrd` node** in the Tailscale console — it shows offline while the box runs, and deleting it orphans the baked identity.
 
-Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>`) and physical console (LUKS slot 0 = daily passphrase, slot 7 = paper recovery in password manager). Full runbook + post-execution addendum in `docs/remote-luks-unlock.md` (host-local, gitignored).
+Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable at home, no relay) and physical console (LUKS slot 0 = daily passphrase, slot 7 = paper recovery in password manager). In initramfs the node connects via DERP relay only, so when away connect once and allow ~30–90s. Full runbook + addendum in `docs/remote-luks-unlock.md` (host-local, gitignored).
 
 ### Monitoring
 
