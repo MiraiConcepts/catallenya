@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# initramfs-tools HOOK: bake the persistent "catallenya-initrd" node identity into the
+# initramfs so the remote-LUKS-unlock Tailscale node reconnects as the SAME node on every
+# boot (eliminates the catallenya-initrd-N duplication bug).
+#
+# Installed to /etc/initramfs-tools/hooks/initrd-tailscale-state (canonical copy lives in
+# the repo at tailscale/initramfs-hooks/). Lives under /etc so it survives apt upgrades of
+# the tailscale-initramfs package. The premount script (scripts/init-premount/tailscale)
+# starts `tailscaled --state=/var/lib/tailscale/tailscaled.state`, so placing the state
+# there makes it resume that identity automatically.
+#
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+    prereqs) prereqs; exit 0 ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+SRC="/etc/tailscale/initramfs/tailscaled.state"
+if [ -f "$SRC" ]; then
+    mkdir -p "$DESTDIR/var/lib/tailscale"
+    cp -p "$SRC" "$DESTDIR/var/lib/tailscale/tailscaled.state"
+    chmod 600 "$DESTDIR/var/lib/tailscale/tailscaled.state"
+else
+    echo "initrd-tailscale-state: WARNING: $SRC missing — initramfs will register a FRESH" >&2
+    echo "initrd-tailscale-state: node (the duplication bug). Run generate-initrd-state.sh." >&2
+fi
+exit 0

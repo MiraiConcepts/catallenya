@@ -57,8 +57,10 @@
 
 # Explicit includes inside tailscale folder
 # (tailscale/data + tailscale/tmp hold runtime state and stay ignored by the default `*` deny)
-!tailscale/initrd-rotation/
-!tailscale/initrd-rotation/**
+!tailscale/initrd-identity/
+!tailscale/initrd-identity/**
+!tailscale/initramfs-hooks/
+!tailscale/initramfs-hooks/**
 
 # Explicit includes inside immich folder
 # (raw photo data + .immich_api_key stay ignored by the default `*` deny)
