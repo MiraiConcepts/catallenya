@@ -437,6 +437,11 @@ services:
       # 400 with "attachments not allowed".
       - NTFY_ATTACHMENT_CACHE_DIR=/var/cache/ntfy/attachments
       - NTFY_BASE_URL=${NTFY_URL}
+      # Bodies over the size limit get auto-converted to attachments with a
+      # mime-sniffed name (seen as "attachment.csv" from a watchtower warning
+      # batch). 16K keeps verbose log batches inline. Self-hosted only — no
+      # Firebase/APNS in play, so exceeding the upstream 4K default is safe.
+      - NTFY_MESSAGE_SIZE_LIMIT=16384
     volumes:
       - ntfy-cache:/var/cache/ntfy
       - ntfy:/etc/ntfy
