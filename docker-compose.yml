@@ -269,8 +269,9 @@ services:
           memory: 64M
     healthcheck:
       test: redis-cli ping || exit 1
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
+    # No watchtower label: image is digest-pinned (matching upstream Immich's
+    # compose), so watchtower could never move it anyway. Bump the digest
+    # manually alongside Immich updates.
 
   postgres:
     container_name: immich-postgres
@@ -515,8 +516,10 @@ services:
     depends_on:
       - archivebox
       - archivebox_sonic
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
+    # No watchtower label: the main archivebox container is built from a local
+    # Dockerfile, so auto-updating the scheduler would let a newer ArchiveBox
+    # migrate the shared index.sqlite3 ahead of it. Pull a matching image when
+    # rebuilding archivebox instead.
 
   archivebox_sonic:
     container_name: archivebox_sonic
