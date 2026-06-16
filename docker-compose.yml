@@ -175,13 +175,11 @@ services:
       SYNCTHING_REVERSE_PROXY_PORT: ${SYNCTHING_REVERSE_PROXY_PORT}
       IMMICH_REVERSE_PROXY_PORT: ${IMMICH_REVERSE_PROXY_PORT}
       RADICALE_REVERSE_PROXY_PORT: ${RADICALE_REVERSE_PROXY_PORT}
-      GHOST_REVERSE_PROXY_CADDY_PORT: ${GHOST_REVERSE_PROXY_CADDY_PORT}
       NTFY_REVERSE_PROXY_PORT: ${NTFY_REVERSE_PROXY_PORT}
       ARCHIVEBOX_REVERSE_PROXY_PORT: ${ARCHIVEBOX_REVERSE_PROXY_PORT}
       MEMOKA_REVERSE_PROXY_PORT: ${MEMOKA_REVERSE_PROXY_PORT}
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
     ports:
-      - ${GHOST_REVERSE_PROXY_CADDY_PORT}:${GHOST_REVERSE_PROXY_CADDY_PORT}
       - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
       - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
       - ${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
@@ -302,34 +300,6 @@ services:
     volumes:
       - ${DB_VOLUME}:/var/lib/postgresql/data
     shm_size: 512mb
-
-  ghost:
-    container_name: ghost
-    image: ghost:latest
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETUID
-      - SETGID
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    environment:
-      - database__client=sqlite3
-      - database__connection__filename=/var/lib/ghost/content/data/ghost.db
-      - url=${PUBLIC_URL}
-    volumes:
-      - ${GHOST_VOLUME}:/var/lib/ghost/content
-    labels:
-      - flame.type=application
-      - flame.name=ghost
-      - flame.url=${GHOST_URL}
-      - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
 
   flame:
     container_name: flame
