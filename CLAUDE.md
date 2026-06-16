@@ -50,7 +50,7 @@ bash immich/scripts/immich.fix-dates.apply.sh  --dry-run
 
 Traffic flows through two paths:
 - **Tailscale (internal)**: All services are accessed via `${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:<port>` through Caddy reverse proxy with auto-TLS from Tailscale
-- **Cloudflare Tunnel (external)**: Internet-facing services (archive, zipline) route through `cloudflared` to `*.catallenya.com`. For `catallenya.com` itself, cloudflared terminates TLS at the CF edge and forwards to Caddy's internal `http://catallenya.com` block, which path-splits `/api/votes/*` to `upvotes:8080` and everything else to `carrein-blog:80`. Tunnel ingress rules live in the Cloudflare dashboard, not in this repo.
+- **Cloudflare Tunnel (external)**: Internet-facing services (zipline) route through `cloudflared` to `*.catallenya.com`. For `catallenya.com` itself, cloudflared terminates TLS at the CF edge and forwards to Caddy's internal `http://catallenya.com` block, which path-splits `/api/votes/*` to `upvotes:8080` and everything else to `carrein-blog:80`. Tunnel ingress rules live in the Cloudflare dashboard, not in this repo.
 
 Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate management. The Tailscale container must use `hostname: catallenya` because generated certificates are tied to this name.
 
@@ -60,7 +60,6 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 |----------------------------------|-------------|
 | `NTFY_REVERSE_PROXY_PORT`        | Ntfy        |
 | `FLAME_REVERSE_PROXY_PORT`       | Flame       |
-| `GHOST_REVERSE_PROXY_CADDY_PORT` | Ghost       |
 | `RADICALE_REVERSE_PROXY_PORT`    | Radicale    |
 | `SYNCTHING_REVERSE_PROXY_PORT`   | Syncthing   |
 | `IMMICH_REVERSE_PROXY_PORT`      | Immich      |

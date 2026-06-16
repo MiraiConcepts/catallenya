@@ -41,11 +41,6 @@ http://catallenya.com {
 	reverse_proxy radicale:5232
 }
 
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$GHOST_REVERSE_PROXY_CADDY_PORT} {
-	import security_headers
-	reverse_proxy ghost:2368
-}
-
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$NTFY_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy ntfy:80
