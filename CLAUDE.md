@@ -25,10 +25,10 @@ docker compose logs -f <service-name>
 bash audit/audit.sh
 
 # Check backup snapshots
-bash restic/restic.snapshots.sh
+bash restic/misc/restic.snapshots.sh
 
 # Restore from backup
-bash restic/restic.restore.sh
+bash restic/misc/restic.restore.sh
 
 # Immich junk-asset cleanup (find → verify → delete pipeline)
 # See immich/scripts/README.md for the full pipeline.
