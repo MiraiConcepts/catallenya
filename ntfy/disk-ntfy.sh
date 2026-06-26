@@ -18,31 +18,29 @@ ROOT_THRESHOLD=75
 ZPOOL_THRESHOLD=75
 TOPIC="disk"
 
-# Safer way to get percentage: --output=pcent grabs just the percent column
-# 'tail' gets the last line (the value), and 'tr' removes the % sign
-ROOT_USAGE=$(df --output=pcent / | tail -n 1 | tr -d ' %')
-ZPOOL_USAGE=$(df --output=pcent /zpool | tail -n 1 | tr -d ' %')
+# Root is ext4/LVM -> df is the right metric. Capture pcent + human-readable used/size/avail.
+read -r ROOT_USED ROOT_SIZE ROOT_AVAIL ROOT_PCENT < <(df -h --output=used,size,avail,pcent / | tail -n 1)
+ROOT_USAGE=${ROOT_PCENT%\%}
+
+# Zpool is ZFS -> use pool-level capacity. Unlike df, this counts snapshot-held space,
+# so the alert reflects TRUE pool fill (df under-reports when snapshots hold space).
+read -r ZPOOL_USAGE ZPOOL_SIZE ZPOOL_ALLOC ZPOOL_FREE < <(zpool list -H -o capacity,size,alloc,free zpool)
+ZPOOL_USAGE=${ZPOOL_USAGE%\%}
 
 ALERT_MESSAGE=""
 
 if [ "$ROOT_USAGE" -ge "$ROOT_THRESHOLD" ]; then
-    # Calculate the difference
     ROOT_DIFF=$((ROOT_USAGE - ROOT_THRESHOLD))
-    # Build the new message format
-    ALERT_MESSAGE="Root partition usage is ${ROOT_DIFF}% above ${ROOT_THRESHOLD}% threshold (at ${ROOT_USAGE}%)"
+    ALERT_MESSAGE="Root partition at ${ROOT_USAGE}% — ${ROOT_USED} used of ${ROOT_SIZE} (${ROOT_AVAIL} free), ${ROOT_DIFF}% over ${ROOT_THRESHOLD}% threshold"
 fi
 
 if [ "$ZPOOL_USAGE" -ge "$ZPOOL_THRESHOLD" ]; then
-    # Calculate the difference
     ZPOOL_DIFF=$((ZPOOL_USAGE - ZPOOL_THRESHOLD))
-    # Define the new message line
-    new_line="Zpool partition usage is ${ZPOOL_DIFF}% above ${ZPOOL_THRESHOLD}% threshold (at ${ZPOOL_USAGE}%)"
-    
+    new_line="Zpool at ${ZPOOL_USAGE}% — ${ZPOOL_ALLOC} used of ${ZPOOL_SIZE} (${ZPOOL_FREE} free), ${ZPOOL_DIFF}% over ${ZPOOL_THRESHOLD}% threshold"
+
     if [ -n "$ALERT_MESSAGE" ]; then
-        # Use a proper newline character \n to append
         ALERT_MESSAGE="${ALERT_MESSAGE}"$'\n'"${new_line}"
     else
-        # Or set it as the first message
         ALERT_MESSAGE="${new_line}"
     fi
 fi

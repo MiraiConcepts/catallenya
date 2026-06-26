@@ -122,7 +122,7 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 
 ### Monitoring
 
-- **Disk monitoring**: `systemd/disk.timer` runs every 15 min, alerts via Ntfy at 75% usage
+- **Disk monitoring**: `systemd/disk.timer` runs hourly (`ntfy/disk-ntfy.sh`), alerts via Ntfy at 75% usage. Root is measured with `df`; the zpool is measured with pool `capacity` (`zpool list`), which counts snapshot-held space — `df` under-reports it
 - **Service monitoring**: `ntfy/system-ntfy.sh` reports restic job status to Ntfy
 - **ZFS pool monitoring**: ZFS Event Daemon (`zed`) publishes pool events (scrub, errors, resilver) to the `zpool` ntfy topic. Configured on the host at `/etc/zfs/zed.d/zed.rc` (`ZED_NTFY_TOPIC`, `ZED_NTFY_URL`) — not in this repo. Sanoid handles snapshots only and is not wired to ntfy.
 - **Watchtower**: Auto-updates containers with `com.centurylinklabs.watchtower.enable=true` label, polls hourly
