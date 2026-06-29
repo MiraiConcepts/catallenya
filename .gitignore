@@ -48,6 +48,12 @@
 !caddy/Caddyfile
 !cloudflared/cloudflared.md
 
+# Immich Public Proxy config (non-secret, stack-defining; mirrors caddy/Caddyfile).
+# The container bind-mounts this file read-only, so it must exist on disk before
+# `up` — track it so the service is reproducible from the repo.
+!immich-public-proxy/
+!immich-public-proxy/config.json
+
 # Explicit includes notification scripts
 !ntfy/**
 !ntfy/.env

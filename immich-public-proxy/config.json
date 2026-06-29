@@ -1,0 +1,17 @@
+{
+  "ipp": {
+    "downloadOriginalPhoto": true,
+    "showMetadata": {
+      "location": {
+        "gps": false
+      }
+    },
+    "responseHeaders": {
+      "Cache-Control": "public, max-age=2592000",
+      "Access-Control-Allow-Origin": "*"
+    },
+    "gallery": {
+      "singleImage": true
+    }
+  }
+}
