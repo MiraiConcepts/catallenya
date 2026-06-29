@@ -21,6 +21,24 @@ http://catallenya.com {
 	}
 }
 
+# Public image CDN origin — IPP behind the catallenya-tunnel (TLS terminated at the CF
+# edge; internal-bridge only, caddy:80 is not host-mapped). cloudflared forwards
+# img.catallenya.com here. Only publicly-shared Immich albums are reachable; Immich
+# itself stays private. Cloudflare Image Transformations rewrite /cdn-cgi/image/… at
+# the edge against these /share/photo/… sources.
+http://img.catallenya.com {
+	import security_headers
+	# Serve the raw original inline (display in tab) rather than the upstream's
+	# Content-Disposition: attachment (download). Scoped to /original only —
+	# previews, thumbnails, album HTML, and CF transforms are unaffected.
+	@original path */original
+	header @original {
+		Content-Disposition inline
+		defer
+	}
+	reverse_proxy immich-public-proxy:3000
+}
+
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$FLAME_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy flame:5005
@@ -34,6 +52,13 @@ http://catallenya.com {
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$IMMICH_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy immich-server:2283
+}
+
+# Immich Public Proxy — public gallery surface for publicly-shared albums only.
+# Fronts the PRIVATE immich-server; the blog reads albums here, never from Immich.
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$IPP_REVERSE_PROXY_PORT} {
+	import security_headers
+	reverse_proxy immich-public-proxy:3000
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$RADICALE_REVERSE_PROXY_PORT} {

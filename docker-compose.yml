@@ -179,6 +179,7 @@ services:
       ARCHIVEBOX_REVERSE_PROXY_PORT: ${ARCHIVEBOX_REVERSE_PROXY_PORT}
       MEMOKA_REVERSE_PROXY_PORT: ${MEMOKA_REVERSE_PROXY_PORT}
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
+      IPP_REVERSE_PROXY_PORT: ${IPP_REVERSE_PROXY_PORT}
     ports:
       - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
       - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
@@ -188,6 +189,7 @@ services:
       - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
       - ${MEMOKA_REVERSE_PROXY_PORT}:${MEMOKA_REVERSE_PROXY_PORT}  # API server port
       - ${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
+      - ${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
@@ -300,6 +302,50 @@ services:
     volumes:
       - ${DB_VOLUME}:/var/lib/postgresql/data
     shm_size: 512mb
+
+  immich-public-proxy:
+    container_name: immich-public-proxy
+    # Public gallery surface in front of the PRIVATE Immich: serves only
+    # publicly-shared albums (authenticated per album by its share key), so the
+    # blog never touches Immich's /api or /share. Docker Hub, version-pinned —
+    # GHCR has no clean semver release tags; 2.5.0 is the current stable release.
+    image: alangrainger/immich-public-proxy:2.5.0
+    restart: unless-stopped
+    user: "1000:1000" # Matches the image's built-in "node" user (UID 1000) and the stack convention.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true # Stateless proxy; only writes to /tmp (verified to boot read-only).
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    environment:
+      # PRIVATE internal address — must NEVER be public. IPP needs no Immich API
+      # key; it authenticates to shared albums with each album's public share key.
+      - IMMICH_URL=http://immich-server:2283
+      # Public base URL IPP advertises (OG/canonical tags). Reached publicly via the
+      # catallenya-tunnel → Caddy http://img.catallenya.com block. Item image URLs in
+      # the #ipp-init island are relative, so consumers prepend this base themselves.
+      - PUBLIC_BASE_URL=${IPP_PUBLIC_BASE_URL}
+      - IPP_PORT=3000
+    volumes:
+      - ${ZPOOL_VOLUME}/immich-public-proxy/config.json:/app/config.json:ro
+    depends_on:
+      immich-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Intentionally NO watchtower label: the blog parses IPP's internal JSON
+    # data-island (#ipp-init), so IPP is version-pinned and bumped deliberately
+    # in lockstep with the blog's parser.
 
   flame:
     container_name: flame
