@@ -36,6 +36,15 @@ http://img.catallenya.com {
 		Content-Disposition inline
 		defer
 	}
+	# Album HTML only (one segment after /share/, e.g. /share/<key>) — make the
+	# browser revalidate instead of holding the upstream 30d max-age, while the
+	# Cloudflare edge keeps short-TTL caching it. Does NOT match /share/photo/...
+	# or /share/static/... (those keep their long cache). defer = replace, not add.
+	@albumhtml path_regexp ^/share/[^/]+$
+	header @albumhtml {
+		Cache-Control "no-cache"
+		defer
+	}
 	reverse_proxy immich-public-proxy:3000
 }
 
