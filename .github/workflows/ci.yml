@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]  # Direct pushes (the normal flow).
+  pull_request:         # Vets dependabot's action-bump PRs before merge.
+  workflow_dispatch:    # Manual runs for testing.
+
+permissions:
+  contents: read  # Read-only token; no job needs write access.
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0  # Full history for secret scanning.
+
+      - name: Run GitLeaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Check .env.ci covers every compose variable
+        # `docker compose config` only warns (exit 0) when a var used in a
+        # non-structural position is unset, so drift between docker-compose.yml
+        # and .env.ci would otherwise pass silently.
+        run: |
+          # shellcheck disable=SC2016  # the ${...} in the grep pattern is a regex, not an expansion
+          missing=$(comm -23 \
+            <(grep -oE '\$\{[A-Z_0-9]+\}' docker-compose.yml | tr -d '${}' | sort -u) \
+            <(grep -v '^#' .env.ci | cut -d= -f1 | sort -u))
+          if [ -n "$missing" ]; then
+            echo "Variables used in docker-compose.yml but missing from .env.ci:"
+            echo "$missing"
+            exit 1
+          fi
+
+      - name: Validate compose file
+        run: docker compose --env-file .env.ci config --quiet
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Run shellcheck
+        # shellcheck is preinstalled on ubuntu-latest runners.
+        # -S error is clean today; see APPLY.md for the 13 findings to fix
+        # before graduating this gate to -S warning.
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S error
+
+  notify-failure:
+    runs-on: ubuntu-latest
+    needs: [gitleaks, compose-validate, shellcheck]
+    if: failure()
+    steps:
+      - name: Post failure to ntfy
+        env:
+          NTFY_URL: ${{ secrets.NTFY_FAILURE_URL }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$NTFY_URL" ]; then
+            echo "NTFY_FAILURE_URL secret not set; skipping notification."
+            exit 0
+          fi
+          curl -sf \
+            -H "Title: CI failed: $REPO" \
+            -H "Priority: high" \
+            -H "Tags: rotating_light" \
+            -d "A CI job failed on $REF. $RUN_URL" \
+            "$NTFY_URL"

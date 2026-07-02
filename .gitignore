@@ -5,6 +5,8 @@
 !README.md
 !CLAUDE.md
 !.gitignore
+!.gitleaksignore
+!.env.ci
 !docker-compose.yml
 !archivebox.Dockerfile
 !catallenya.png
@@ -40,9 +42,10 @@
 !restic/misc/restic.locks.sh
 !restic/restic.conf
 
-# Explicit includes inside .github workflows
+# Explicit includes inside .github
 !.github/workflows/
-!.github/workflows/**``
+!.github/workflows/**
+!.github/dependabot.yml
 
 # Explicit includes inside caddy and cloudflared subfolders
 !caddy/Caddyfile

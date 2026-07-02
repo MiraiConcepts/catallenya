@@ -129,9 +129,21 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 
 ### CI/CD
 
-GitHub Actions (`.github/workflows/security.yml`) runs on push to main:
-- **Trivy**: Filesystem vulnerability scan (CRITICAL/HIGH/MEDIUM)
-- **GitLeaks**: Scans git history for leaked secrets
+GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manual dispatch:
+- **GitLeaks** (v3): scans full git history for leaked secrets. Known-fake findings are
+  suppressed by fingerprint in `.gitleaksignore` (e.g. the deliberate 2025-11-05 test key)
+- **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
+  guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
+  adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`
+- **shellcheck**: all tracked `*.sh` at `-S error` (preinstalled runner binary, no action)
+- **notify-failure**: curls the `NTFY_FAILURE_URL` Actions secret (ntfy.sh topic —
+  tailnet ntfy is unreachable from runners) when any job fails; skips gracefully if unset
+
+Conventions: third-party actions are pinned to full commit SHAs with a `# vX.Y.Z`
+comment (a trivy-action tag deletion once broke CI for 5 weeks); `.github/dependabot.yml`
+bumps the pins weekly via PRs, which the `pull_request` trigger vets pre-merge.
+Trivy was removed deliberately — no lockfiles to scan, and its misconfig mode can't
+read docker-compose (see `.claude/plans/ci-actions-canon-research.md`).
 
 ## Key Conventions
 
