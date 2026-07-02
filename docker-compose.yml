@@ -308,8 +308,9 @@ services:
     # Public gallery surface in front of the PRIVATE Immich: serves only
     # publicly-shared albums (authenticated per album by its share key), so the
     # blog never touches Immich's /api or /share. Docker Hub, version-pinned —
-    # GHCR has no clean semver release tags; 2.5.0 is the current stable release.
-    image: alangrainger/immich-public-proxy:2.5.0
+    # GHCR has no clean semver release tags; 3.0.1 is the current stable release
+    # (v3.x adds Immich v3 support and stays compatible with Immich 2.x).
+    image: alangrainger/immich-public-proxy:3.0.1
     restart: unless-stopped
     user: "1000:1000" # Matches the image's built-in "node" user (UID 1000) and the stack convention.
     security_opt:
