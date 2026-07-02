@@ -57,9 +57,9 @@
 !immich-public-proxy/
 !immich-public-proxy/config.json
 
-# Explicit includes notification scripts
+# Explicit includes notification scripts (but never a local env file)
 !ntfy/**
-!ntfy/.env
+ntfy/.env
 
 # Explicit includes systemd services
 !systemd/**
