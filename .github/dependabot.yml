@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Keep the SHA-pinned actions in .github/workflows fresh. Dependabot bumps
+  # the pinned SHA and keeps the "# vX.Y.Z" comment in sync, one PR per bump.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

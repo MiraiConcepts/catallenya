@@ -1,0 +1,4 @@
+# Deliberate fake RSA key committed 2025-11-05 to test the GitLeaks CI job
+# ("GITLEAKS TEST" comment in the commit; removed by the next commit, 38c0757).
+# The value is the literal string THISISAFANTASTICALLYFAKETESTKEYFOR... — not a secret.
+5fd0bfcf571dc74b4832c15d0cb65af696ba3cff:archivebox.Dockerfile:private-key:5
