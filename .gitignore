@@ -81,4 +81,5 @@
 !immich/scripts/immich.fix-dates.scan.sh
 !immich/scripts/immich.fix-dates.verify.sh
 !immich/scripts/immich.fix-dates.apply.sh
+!immich/scripts/immich.fix-rotations.sh
 !immich/scripts/README.md
