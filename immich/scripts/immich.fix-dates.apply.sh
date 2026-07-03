@@ -285,8 +285,10 @@ pause_metadata_job
 # ── Per-asset apply function ─────────────────────────────────────────────
 apply_one_row() {
   local line=$1
-  local uuid current_iso proposed_iso source fname cpath type
-  IFS=$'\t' read -r uuid current_iso proposed_iso source fname cpath type <<<"$line"
+  # Row: uuid, current_iso, proposed_iso, source, fname, cpath, type —
+  # only the first four are used; `_` swallows the rest.
+  local uuid current_iso proposed_iso source
+  IFS=$'\t' read -r uuid current_iso proposed_iso source _ <<<"$line"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     printf '  DRY  %s  %s → %s  [%s]\n' "$uuid" "${current_iso:0:19}" "${proposed_iso:0:19}" "$source"

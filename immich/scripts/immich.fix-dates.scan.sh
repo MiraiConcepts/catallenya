@@ -197,8 +197,9 @@ fi
 # current date.
 resolve_one_row() {
   local line=$1
-  local uuid type cpath fname bytes current_iso
-  IFS=$'\t' read -r uuid type cpath fname bytes current_iso <<<"$line"
+  # Row: uuid, type, cpath, fname, bytes, current_iso — bytes is unused (`_`).
+  local uuid type cpath fname current_iso
+  IFS=$'\t' read -r uuid type cpath fname _ current_iso <<<"$line"
   local hpath="${cpath/$CONTAINER_PATH_PREFIX/$HOST_PATH_PREFIX}"
 
   local exif_iso="" filename_iso="" container_iso="" mtime_iso=""

@@ -4,6 +4,7 @@ set -euo pipefail
 # Source root .env
 ROOT_ENV="/zpool/catallenya/.env"
 if [[ -f "$ROOT_ENV" ]]; then
+    # shellcheck source=/dev/null  # runtime-only file, not in the repo
     source "$ROOT_ENV"
 else
     echo "Root .env not found at $ROOT_ENV"

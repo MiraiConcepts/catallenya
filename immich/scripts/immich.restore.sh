@@ -112,7 +112,7 @@ flush_batch() {
   local payload
   payload="$(printf '%s\n' "${ids[@]}" | jq -R . | jq -s '{ids: .}')"
 
-  local ts http_code resp_body count
+  local ts http_code resp_body
   ts="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   resp_body="$(mktemp)"
   http_code="$(curl -sS -o "$resp_body" -w '%{http_code}' \
@@ -130,8 +130,6 @@ flush_batch() {
     rm -f "$resp_body"
     exit 2
   fi
-
-  count="$(jq -r '.count // 0' < "$resp_body" 2>/dev/null || echo 0)"
 
   for id in "${ids[@]}"; do
     printf '%s\t%s\t%s\n' "$id" "$http_code" "$ts" >> "$OUT_FILE"
