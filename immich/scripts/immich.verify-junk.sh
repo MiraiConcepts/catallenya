@@ -159,7 +159,7 @@ fi
 
 # Re-run guard
 if [[ -z "$AUDIT_RUN" ]]; then
-  if ls "$RUN_DIR"/verified-junk-*.tsv "$RUN_DIR"/rescued-*.tsv 2>/dev/null | grep -q .; then
+  if compgen -G "$RUN_DIR/verified-junk-*.tsv" > /dev/null || compgen -G "$RUN_DIR/rescued-*.tsv" > /dev/null; then
     if [[ "$FORCE_RERUN" -ne 1 ]]; then
       echo "error: verify output already exists in $RUN_DIR" >&2
       echo "  Pass --force-rerun to overwrite." >&2

@@ -110,7 +110,7 @@ else
 fi
 
 # Re-run guard
-if ls "$RUN_DIR"/verified-fixes-*.tsv "$RUN_DIR"/rescued-fixes-*.tsv 2>/dev/null | grep -q .; then
+if compgen -G "$RUN_DIR/verified-fixes-*.tsv" > /dev/null || compgen -G "$RUN_DIR/rescued-fixes-*.tsv" > /dev/null; then
   if [[ "$FORCE_RERUN" -ne 1 ]]; then
     echo "error: verify-fixes output already exists in $RUN_DIR" >&2
     echo "  Pass --force-rerun to overwrite." >&2

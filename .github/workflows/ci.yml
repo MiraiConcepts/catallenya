@@ -55,9 +55,8 @@ jobs:
 
       - name: Run shellcheck
         # shellcheck is preinstalled on ubuntu-latest runners.
-        # -S error is clean today; see APPLY.md for the 13 findings to fix
-        # before graduating this gate to -S warning.
-        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S error
+        # Gates on warning+error; info/style-level findings don't block.
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
 
   notify-failure:
     runs-on: ubuntu-latest
