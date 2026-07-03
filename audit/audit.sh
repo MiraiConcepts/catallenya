@@ -49,7 +49,9 @@ echo
 
 echo "--- 5. Container Security Options ---"
 FAIL=0
-docker ps --format '{{.Names}}' | sort | while read container; do
+# Process substitution (not a pipe): a piped `while` runs in a subshell,
+# so FAIL=1 set inside it would never reach this shell.
+while read -r container; do
   cap_drop=$(docker inspect "$container" --format '{{.HostConfig.CapDrop}}')
   security_opt=$(docker inspect "$container" --format '{{.HostConfig.SecurityOpt}}')
   cap_add=$(docker inspect "$container" --format '{{.HostConfig.CapAdd}}')
@@ -68,7 +70,7 @@ docker ps --format '{{.Names}}' | sort | while read container; do
   else
     echo "  ✓ $container: cap_drop=ALL cap_add=${cap_add} security_opt=${security_opt}"
   fi
-done
+done < <(docker ps --format '{{.Names}}' | sort)
 echo
 
 echo "--- 6. Resource Limits ---"
@@ -147,4 +149,9 @@ echo "--- 12. Docker Volume Inventory ---"
 docker volume ls --format "table {{.Name}}\t{{.Driver}}"
 echo
 
+if [[ "$FAIL" -ne 0 ]]; then
+  echo "=== Audit Complete — HARDENING DRIFT FOUND ==="
+  echo "Audit FAILED — see $LOG_FILE" >&3
+  exit 1
+fi
 echo "=== Audit Complete ==="
