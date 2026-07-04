@@ -266,7 +266,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
+          # Immich v3 integrity checks enqueue ~2MB BullMQ jobs (10k file
+          # entries per payload); a 609k-asset run needs ~200MB peak. 64M
+          # caused a valkey OOM-kill loop on 2026-07-02 (see git history).
+          memory: 512M
     healthcheck:
       test: redis-cli ping || exit 1
     # No watchtower label: image is digest-pinned (matching upstream Immich's
