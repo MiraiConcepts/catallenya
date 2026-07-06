@@ -180,6 +180,8 @@ services:
       MEMOKA_REVERSE_PROXY_PORT: ${MEMOKA_REVERSE_PROXY_PORT}
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
       IPP_REVERSE_PROXY_PORT: ${IPP_REVERSE_PROXY_PORT}
+      MITSUME_REVERSE_PROXY_PORT: ${MITSUME_REVERSE_PROXY_PORT}
+      MITSUME_DAV_B64: ${MITSUME_DAV_B64}
     ports:
       - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
       - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
@@ -190,6 +192,7 @@ services:
       - ${MEMOKA_REVERSE_PROXY_PORT}:${MEMOKA_REVERSE_PROXY_PORT}  # API server port
       - ${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
       - ${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
+      - ${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
@@ -432,6 +435,26 @@ services:
       - flame.type=application
       - flame.name=radicale
       - flame.url=${RADICALE_URL}
+      - flame.icon=custom
+      - com.centurylinklabs.watchtower.enable=true
+
+  mitsume:
+    container_name: mitsume
+    image: ghcr.io/carrein/mitsume:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE # in-container Caddy binds :80
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    labels:
+      - flame.type=application
+      - flame.name=mitsume
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
