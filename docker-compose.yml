@@ -183,16 +183,20 @@ services:
       MITSUME_REVERSE_PROXY_PORT: ${MITSUME_REVERSE_PROXY_PORT}
       MITSUME_DAV_B64: ${MITSUME_DAV_B64}
     ports:
-      - ${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
-      - ${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
-      - ${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
-      - 127.0.0.1:${RADICALE_REVERSE_PROXY_PORT}:${RADICALE_REVERSE_PROXY_PORT} # loopback-only: tailnet reaches this via userspace-tailscaled→127.0.0.1; closes the LAN path
-      - ${NTFY_REVERSE_PROXY_PORT}:${NTFY_REVERSE_PROXY_PORT}
-      - ${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
-      - ${MEMOKA_REVERSE_PROXY_PORT}:${MEMOKA_REVERSE_PROXY_PORT}  # API server port
-      - ${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
-      - ${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
-      - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT} # loopback-only: tailnet reaches this via userspace-tailscaled→127.0.0.1; closes the LAN path
+      # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
+      # userspace-tailscaled→127.0.0.1 forward, so loopback still serves the
+      # tailnet while the home LAN (enp3s0) gets no listener. See memory
+      # tailscale-userspace-loopback-forwarding.
+      - 127.0.0.1:${FLAME_REVERSE_PROXY_PORT}:${FLAME_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${SYNCTHING_REVERSE_PROXY_PORT}:${SYNCTHING_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${IMMICH_REVERSE_PROXY_PORT}:${IMMICH_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${RADICALE_REVERSE_PROXY_PORT}:${RADICALE_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${NTFY_REVERSE_PROXY_PORT}:${NTFY_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${ARCHIVEBOX_REVERSE_PROXY_PORT}:${ARCHIVEBOX_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${MEMOKA_REVERSE_PROXY_PORT}:${MEMOKA_REVERSE_PROXY_PORT}  # API server port
+      - 127.0.0.1:${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
