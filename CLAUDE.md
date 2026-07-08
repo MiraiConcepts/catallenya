@@ -42,6 +42,11 @@ bash immich/scripts/immich.delete.sh --dry-run # preview; drop --dry-run to act
 bash immich/scripts/immich.fix-dates.scan.sh   --date-cluster=2023-02-19 --limit=100
 bash immich/scripts/immich.fix-dates.verify.sh
 bash immich/scripts/immich.fix-dates.apply.sh  --dry-run
+
+# Immich rotation bake (lossless EXIF orientation for UI rotate edits)
+# Runs daily at 04:00 SGT via immich.fix-rotations.timer; manual run:
+bash immich/scripts/immich.fix-rotations.sh --dry-run   # preview
+bash immich/scripts/immich.fix-rotations.sh --yes       # apply now
 ```
 
 ## Architecture
@@ -125,6 +130,7 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 - **Disk monitoring**: `systemd/disk.timer` runs hourly (`ntfy/disk-ntfy.sh`), alerts via Ntfy at 75% usage. Root is measured with `df`; the zpool is measured with pool `capacity` (`zpool list`), which counts snapshot-held space — `df` under-reports it
 - **Service monitoring**: `ntfy/system-ntfy.sh` reports restic job status to Ntfy
 - **ZFS pool monitoring**: ZFS Event Daemon (`zed`) publishes pool events (scrub, errors, resilver) to the `zpool` ntfy topic. Configured on the host at `/etc/zfs/zed.d/zed.rc` (`ZED_NTFY_TOPIC`, `ZED_NTFY_URL`) — not in this repo. Sanoid handles snapshots only and is not wired to ntfy.
+- **Immich rotation bake**: `immich.fix-rotations.timer` runs daily at 04:00 SGT (`OnCalendar` pins `Asia/Singapore`, DST-safe) via `immich/scripts/immich.fix-rotations.daily.sh`, baking pending UI rotate edits into originals losslessly. Notifies the `immich` ntfy topic only when something was baked, failed, or skipped for a reason needing a human; silent when there is nothing to do (crop/mirror edits are intentionally left alone)
 - **Watchtower**: Auto-updates containers with `com.centurylinklabs.watchtower.enable=true` label, polls hourly
 
 ### CI/CD
