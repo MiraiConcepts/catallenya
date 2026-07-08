@@ -40,6 +40,7 @@ EOF
 declare -A SYMLINKS=(
     # Timers
     ["disk.timer"]="${REPO_DIR}/systemd/disk.timer"
+    ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
     ["restic.check-meta.timer"]="${REPO_DIR}/restic/check/restic.check-meta.timer"
@@ -47,6 +48,7 @@ declare -A SYMLINKS=(
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
     # Services
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
+    ["immich.fix-rotations.service"]="${REPO_DIR}/systemd/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
     ["restic.forget.service"]="${REPO_DIR}/restic/forget/restic.forget.service"

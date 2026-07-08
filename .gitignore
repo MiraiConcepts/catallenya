@@ -85,4 +85,5 @@ ntfy/.env
 !immich/scripts/immich.fix-dates.verify.sh
 !immich/scripts/immich.fix-dates.apply.sh
 !immich/scripts/immich.fix-rotations.sh
+!immich/scripts/immich.fix-rotations.daily.sh
 !immich/scripts/README.md

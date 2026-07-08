@@ -1,0 +1,14 @@
+[Unit]
+Description=Immich Rotation Bake (lossless EXIF orientation)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+NoNewPrivileges=true
+PrivateTmp=true
+ExecStart=/zpool/catallenya/immich/scripts/immich.fix-rotations.daily.sh
+StandardOutput=journal
+StandardError=journal
