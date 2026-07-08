@@ -234,7 +234,7 @@ for _ in $(seq 1 40); do
     got="$(pg "SELECT orientation FROM asset_exif WHERE \"assetId\"='${id}';")"
     [[ "${got}" == "${want}" ]] || bad=$((bad+1))
   done
-  [[ ${bad} -eq 0 ]] && { echo "  all ${#DONE_IDS[@]} oriented ✓"; break; }
+  [[ ${bad} -eq 0 ]] && { echo "  all ${#DONE_IDS[@]} oriented ✓"; fail=0; break; }
   fail=${bad}
   sleep 2
 done
