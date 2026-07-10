@@ -199,6 +199,7 @@ services:
       - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${ZPOOL_VOLUME}/caddy/flags:/flags:ro
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
       - caddy-data:/data # Persistent volume for certificates.
       - caddy-config:/config # Persistent volume for config cache.
