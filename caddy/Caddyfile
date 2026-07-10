@@ -12,10 +12,36 @@
 # Internal-bridge only — caddy:80 is not host-mapped. Path-split between blog and upvotes API.
 http://catallenya.com {
 	import security_headers
+
 	@upvotes path /api/votes /api/votes/*
 	handle @upvotes {
 		reverse_proxy upvotes:8080
 	}
+
+	# Maintenance toggle: ON whenever /flags/maintenance.on exists (flag file is
+	# bind-mounted read-only at /flags, re-checked per request - touch/rm to flip,
+	# no reload needed). Page URLs get the blog's /maintenance.html as HTTP 503;
+	# static assets are excluded so the page still renders. The vote API is handled
+	# above and never reaches this matcher.
+	@down_page {
+		file {
+			root /flags
+			try_files maintenance.on
+		}
+		not path /image/* /assets/* /styles/*
+	}
+	handle @down_page {
+		rewrite * /maintenance.html
+		reverse_proxy carrein-blog:80 {
+			@ok status 200
+			handle_response @ok {
+				header Content-Type "text/html; charset=utf-8"
+				header Retry-After 3600
+				copy_response 503
+			}
+		}
+	}
+
 	handle {
 		reverse_proxy carrein-blog:80
 	}
