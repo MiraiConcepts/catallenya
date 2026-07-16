@@ -24,6 +24,10 @@
 !.github/
 !immich/
 !tailscale/
+# Lets git DESCEND into syncthing/ so the per-file allowlist below can match. Files
+# inside are still denied by the default `*` — only what is explicitly re-included is
+# tracked. Same arrangement as !immich/ above, which keeps raw photo data out.
+!syncthing/
 
 # Explicit exclude audit logs
 !audit/audit.sh
@@ -87,3 +91,16 @@ ntfy/.env
 !immich/scripts/immich.fix-rotations.sh
 !immich/scripts/immich.fix-rotations.daily.sh
 !immich/scripts/README.md
+
+# Explicit includes inside syncthing folder — SCRIPTS ONLY, never data.
+# syncthing/data/ holds the synced corpus, including master/documents (personal IDs,
+# medical, financial). Do NOT add a blanket `!syncthing/` — the default `*` deny is what
+# keeps that corpus out of git. syncthing/intake-state/ (seen.json + rasterised scratch)
+# stays ignored for the same reason.
+!syncthing/scripts/
+!syncthing/scripts/documents.lib.sh
+!syncthing/scripts/documents.vocab.json
+!syncthing/scripts/documents.intake.scan.sh
+!syncthing/scripts/documents.intake.classify.sh
+!syncthing/scripts/documents.intake.apply.sh
+!syncthing/scripts/documents.intake.daily.sh

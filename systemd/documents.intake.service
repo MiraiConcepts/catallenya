@@ -1,0 +1,50 @@
+[Unit]
+Description=Nightly documents intake (classify + file master/documents)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/syncthing/intake-state
+Environment=HOME=/home/carrein
+Environment=PATH=/home/carrein/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DISABLE_AUTOUPDATER=1
+EnvironmentFile=-/etc/documents-intake.env
+TimeoutStartSec=30min
+
+# Free (no inference, no tokens) — refuse to start rather than fail mysteriously at 03:00.
+ExecStartPre=/home/carrein/.local/bin/claude auth status
+ExecStart=/zpool/catallenya/syncthing/scripts/documents.intake.daily.sh --yes
+
+StandardOutput=journal
+StandardError=journal
+
+# --- Hardening ---
+# NOT protection against today's design: the classifier already has no filesystem access
+# (--tools "StructuredOutput" is its only tool, and it is the answer channel). This is
+# insurance against a FUTURE edit that drops --tools or --setting-sources and hands the
+# model real tools back. These directives are what stop a regression reaching restic.pwd
+# or .env.
+#
+# Verify with:
+#   sudo systemd-run --wait --pipe --uid=carrein \
+#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
+#     --property=InaccessiblePaths=/zpool/catallenya/restic \
+#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
+# Assert the sandbox ENGAGED, not that the job succeeded: `systemd-run --user` silently
+# accepts these properties and discards them (kernel.apparmor_restrict_unprivileged_userns
+# =1 on this host), so a user-scope test passes while protecting nothing.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
+ReadWritePaths=/zpool/catallenya/syncthing/intake-state
+
+InaccessiblePaths=/zpool/catallenya/restic
+InaccessiblePaths=/zpool/catallenya/cloudflared
+InaccessiblePaths=/zpool/catallenya/rclone
