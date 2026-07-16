@@ -47,6 +47,15 @@ bash immich/scripts/immich.fix-dates.apply.sh  --dry-run
 # Runs daily at 04:00 SGT via immich.fix-rotations.timer; manual run:
 bash immich/scripts/immich.fix-rotations.sh --dry-run   # preview
 bash immich/scripts/immich.fix-rotations.sh --yes       # apply now
+
+# Documents intake (scan → classify → apply pipeline)
+# Files new documents dropped at the root of syncthing master/documents per
+# .../documents/.claude/FILING-SCHEME.md. Daily 03:00 SGT via documents.intake.timer.
+# Requires on host: sudo apt install -y tesseract-ocr jdupes  (poppler-utils already present)
+bash syncthing/scripts/documents.intake.scan.sh > /tmp/s.json          # deterministic, no LLM
+bash syncthing/scripts/documents.intake.classify.sh < /tmp/s.json > /tmp/a.json
+bash syncthing/scripts/documents.intake.apply.sh --dry-run < /tmp/a.json   # preview
+bash syncthing/scripts/documents.intake.daily.sh --dry-run             # whole pipeline, no writes
 ```
 
 ## Architecture
@@ -131,6 +140,7 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 - **Service monitoring**: `ntfy/system-ntfy.sh` reports restic job status to Ntfy
 - **ZFS pool monitoring**: ZFS Event Daemon (`zed`) publishes pool events (scrub, errors, resilver) to the `zpool` ntfy topic. Configured on the host at `/etc/zfs/zed.d/zed.rc` (`ZED_NTFY_TOPIC`, `ZED_NTFY_URL`) — not in this repo. Sanoid handles snapshots only and is not wired to ntfy.
 - **Immich rotation bake**: `immich.fix-rotations.timer` runs daily at 04:00 SGT (`OnCalendar` pins `Asia/Singapore`, DST-safe) via `immich/scripts/immich.fix-rotations.daily.sh`, baking pending UI rotate edits into originals losslessly. Notifies the `immich` ntfy topic only when something was baked, failed, or skipped for a reason needing a human; silent when there is nothing to do (crop/mirror edits are intentionally left alone)
+- **Documents intake**: `documents.intake.timer` runs daily at 03:00 SGT (clear of the immich bake at 04:00), classifying and filing anything dropped at the root of `syncthing/data/master/documents` per its `FILING-SCHEME.md`. Notifies the `documents` ntfy topic only when something was filed, removed, flagged, or failed — silent when nothing arrived. Scope is **root files only**; the ~131 already-filed documents are never read or moved, only hashed for duplicate detection. Design + verified CLI traps in `.claude/plans/documents-nightly-intake{,-canon}.md`
 - **Watchtower**: Auto-updates containers with `com.centurylinklabs.watchtower.enable=true` label, polls hourly
 
 ### CI/CD
