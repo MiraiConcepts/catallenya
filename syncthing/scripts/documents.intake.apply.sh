@@ -145,7 +145,8 @@ while IFS= read -r c; do
     esac
 done < <(jq -c '.candidates[]' <<<"$(cat)")
 
-[[ "$MODE" == "apply" ]] && seen_gc
+# seen_gc moved to scan.sh — it must run even when the root is empty, which apply never
+# sees. One call site, not two.
 
 jq -n --arg mode "$MODE" --argjson filed "$FILED" --argjson removed "$REMOVED" \
       --argjson flagged "$FLAGGED" --argjson failed "$FAILED" --argjson actions "$ACTIONS" \
