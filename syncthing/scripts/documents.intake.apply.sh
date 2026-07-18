@@ -110,7 +110,16 @@ while IFS= read -r c; do
       NEEDS_HUMAN)
         reason="$(jq -r '.reason_code // "UNKNOWN"' <<<"$c")"
         FLAGGED=$((FLAGGED+1)); record flagged "$name" "" "$reason"
-        [[ "$MODE" == "apply" ]] && seen_put "$sha" flagged "$reason"
+        # TRANSIENT failures (dead auth, API blip, rate limit) must NOT be marked seen:
+        # seen = never retried, so a doc that failed once during an outage would sit
+        # unprocessed forever even after auth is restored. Leaving it unseen means it
+        # retries nightly — one ntfy per night until it either files or a human acts,
+        # and it self-heals the night after a re-login. Only genuine document problems
+        # (encrypted, unsupported, unreadable) are remembered.
+        case "$reason" in
+          CLASSIFY_FAILED|VERIFY_FAILED) ;;   # retry tomorrow
+          *) [[ "$MODE" == "apply" ]] && seen_put "$sha" flagged "$reason" ;;
+        esac
         log "  FLAG    ${name} (${reason})"
         ;;
 
