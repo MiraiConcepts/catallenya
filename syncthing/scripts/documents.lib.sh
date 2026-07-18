@@ -51,6 +51,9 @@ st_api_base() {
 # testable without waiting an hour — the nightly timer never sets it.
 MIN_AGE_SECONDS="${MIN_AGE_SECONDS:-3600}"
 MAX_PER_RUN="${MAX_PER_RUN:-20}"   # cap; truncation is logged explicitly, never silent
+# Pages rasterised and sent per document. NOT 1: page 1 is often a cover sheet, and
+# classifying it reads the wrong page correctly. 3 covers 75 of 96 filed PDFs outright.
+MAX_PAGES="${MAX_PAGES:-3}"
 
 NTFY_TOPIC="documents"
 
