@@ -4,7 +4,7 @@
 # Emits a JSON manifest of root candidates to stdout. Every status below is decided by
 # code, never by a model:
 #   READY        rasterised, ready for classification
-#   DUPE         byte-identical to a filed document (jdupes) -> root copy dies in apply
+#   DUPE         byte-identical to a filed document (sha256) -> root copy dies in apply
 #   NEEDS_HUMAN  unopenable/encrypted/unsupported -> flagged WITHOUT ever being transmitted
 #   SKIP_SEEN    already adjudicated in a previous run -> silent, no LLM, no re-notify
 #

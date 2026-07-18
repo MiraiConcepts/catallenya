@@ -51,7 +51,7 @@ bash immich/scripts/immich.fix-rotations.sh --yes       # apply now
 # Documents intake (scan → classify → apply pipeline)
 # Files new documents dropped at the root of syncthing master/documents per
 # .../documents/.claude/FILING-SCHEME.md. Daily 03:00 SGT via documents.intake.timer.
-# Requires on host: sudo apt install -y tesseract-ocr jdupes  (poppler-utils already present)
+# Requires on host: sudo apt install -y tesseract-ocr  (poppler-utils/imagemagick already present)
 bash syncthing/scripts/documents.intake.scan.sh > /tmp/s.json          # deterministic, no LLM
 bash syncthing/scripts/documents.intake.classify.sh < /tmp/s.json > /tmp/a.json
 bash syncthing/scripts/documents.intake.apply.sh --dry-run < /tmp/a.json   # preview
