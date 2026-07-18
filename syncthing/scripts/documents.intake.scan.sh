@@ -30,6 +30,15 @@ if ! st_folder_idle; then
     exit 0
 fi
 
+# Collect stale seen.json entries HERE, not in apply.sh. apply only runs when there ARE
+# candidates, so a night with an empty root never collected — and a file that was flagged,
+# deleted, then re-uploaded byte-identical would match its own stale hash and be skipped as
+# SKIP_SEEN forever: no classification, no ntfy, silent. Verified 2026-07-18.
+# Placed AFTER the idle gate (mid-transfer means "absent from root" is unreliable) and
+# BEFORE the seen_has lookups below, so stale entries are gone before anything is tested
+# against them. Files still at root keep their entries, so flag-once still holds.
+seen_gc
+
 mapfile -t CANDS < <(list_candidates)
 if (( ${#CANDS[@]} == 0 )); then
     log "no candidates at root"
