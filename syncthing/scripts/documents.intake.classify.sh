@@ -86,22 +86,39 @@ VERIFY_SCHEMA='{
 
 # --- invocation ------------------------------------------------------------
 
-# $1=png $2=prompt $3=schema -> structured_output JSON on stdout, or empty on failure
+# $1=newline-separated png paths $2=prompt $3=schema -> structured_output JSON, or empty
 ask() {
-    local png="$1" prompt="$2" schema="$3" out so b64f msgf
-    # A rasterised page is ~200KB, so ~270KB of base64. Passing that as a jq --arg
-    # blows ARG_MAX ("Argument list too long"). Go via a file.
+    local pngs="$1" prompt="$2" schema="$3" out so b64f msgf contentf tmpf pg
+    # Send EVERY rasterised page, not just the first. A cover sheet on page 1 otherwise
+    # gets classified correctly as the wrong page — see the W-2 case in scan.sh.
+    # EVERYTHING carrying base64 goes via a FILE, never a command-line argument. A page is
+    # ~270KB of base64 and three of them is ~800KB — well past ARG_MAX. This bit three
+    # times during development ("Argument list too long"), on --arg, then on --argjson for
+    # the accumulated array. Both the per-page blob AND the growing content array must be
+    # file-passed; --rawfile and --slurpfile are the tools.
     b64f="$(mktemp "${WORK_DIR}/b64.XXXXXX")"
     msgf="$(mktemp "${WORK_DIR}/msg.XXXXXX")"
-    base64 -w0 "$png" > "$b64f"
+    contentf="$(mktemp "${WORK_DIR}/content.XXXXXX")"
+    tmpf="$(mktemp "${WORK_DIR}/tmp.XXXXXX")"
+    echo '[]' > "$contentf"
+    local n=0
+    while IFS= read -r pg; do
+        [[ -n "$pg" && -f "$pg" ]] || continue
+        base64 -w0 "$pg" > "$b64f"
+        jq -c --rawfile b64 "$b64f" \
+            '. + [{type:"image", source:{type:"base64", media_type:"image/png", data:($b64|rtrimstr("\n"))}}]' \
+            "$contentf" > "$tmpf" && mv "$tmpf" "$contentf"
+        n=$((n+1))
+    done <<<"$pngs"
+    if (( n == 0 )); then
+        log "    !! no pages to send"; rm -f "$b64f" "$msgf" "$contentf" "$tmpf"; return 1
+    fi
     # -c is REQUIRED: stream-json input is NDJSON, one object per LINE. jq's default
     # pretty-printing splits the object across lines and the CLI rejects each fragment
     # ("Error parsing streaming input line: {").
-    jq -nc --rawfile b64 "$b64f" --arg t "$prompt" \
-        '{type:"user", message:{role:"user", content:[
-            {type:"image", source:{type:"base64", media_type:"image/png", data:($b64|rtrimstr("\n"))}},
-            {type:"text", text:$t}]}}' > "$msgf"
-    rm -f "$b64f"
+    jq -nc --slurpfile c "$contentf" --arg t "$prompt" \
+        '{type:"user", message:{role:"user", content:($c[0] + [{type:"text", text:$t}])}}' > "$msgf"
+    rm -f "$b64f" "$contentf" "$tmpf"
 
     # Trap 3: the stream must stay open or this silently no-ops.
     out="$( ( cat "$msgf"; sleep 10 ) | timeout 180 "$CLAUDE_BIN" -p \
@@ -229,13 +246,13 @@ while IFS= read -r c; do
         continue
     fi
 
-    png="$(jq -r .png <<<"$c")"
+    pngs="$(jq -r ".pngs[]?" <<<"$c")"
     ocrf="$(jq -r .ocr <<<"$c")"
     ocr=""
     [[ -n "$ocrf" && -f "$ocrf" ]] && ocr="$(head -c 4000 "$ocrf")"
 
     log "  CLASSIFY ${name}"
-    prop="$(ask "$png" "$(classify_prompt "$ocr")" "$SCHEMA")" || {
+    prop="$(ask "$pngs" "$(classify_prompt "$ocr")" "$SCHEMA")" || {
         OUT="$(jq --argjson c "$c" '. + [($c + {status:"NEEDS_HUMAN", reason_code:"CLASSIFY_FAILED"})]' <<<"$OUT")"
         continue
     }
@@ -243,7 +260,7 @@ while IFS= read -r c; do
     # Adversarial, not a second opinion: a re-run shares the first pass's blind spots
     # (correlated errors, not independence). Hand it the ANSWER and ask it to attack.
     log "  VERIFY   ${name}"
-    verd="$(ask "$png" "$(verify_prompt "$prop")" "$VERIFY_SCHEMA")" || {
+    verd="$(ask "$pngs" "$(verify_prompt "$prop")" "$VERIFY_SCHEMA")" || {
         OUT="$(jq --argjson c "$c" '. + [($c + {status:"NEEDS_HUMAN", reason_code:"VERIFY_FAILED"})]' <<<"$OUT")"
         continue
     }

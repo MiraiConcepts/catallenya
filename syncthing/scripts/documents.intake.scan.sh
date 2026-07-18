@@ -96,13 +96,24 @@ openable() { # $1=path -> echoes reason_code on failure
 # Unicode Tags (U+E0000-E007F) are the exception — ASCII smuggling never becomes
 # pixels — but they cannot survive rasterisation to PNG either, which is the point.
 
-rasterise() { # $1=src $2=out_prefix -> echoes png path
+# Rasterise up to MAX_PAGES pages, not just the first.
+#
+# Page 1 is often NOT the informative page. Proven case: the 7-page 2023 W-2 opens with a
+# the payroll provider "Earning Summary" cover — no year, no employer, no W-2 form anywhere on it; the
+# actual W-2 is on pages 2/4/6. Classifying from page 1 alone read "Earning Summary /
+# the payroll provider", which is a *correct reading of the wrong page*. 45 of 96 filed PDFs are
+# multi-page, so this is not a corner case.
+#
+# Cap at 3 because 75 of 96 filed PDFs are <= 3 pages, so it covers almost everything while
+# bounding cost and CPU on the 90-page outliers. Later pages are boilerplate far more often
+# than they are the document's identity.
+rasterise() { # $1=src $2=out_prefix -> echoes one png path per line
     local f="$1" out="$2" ext="${1##*.}"
     case "${ext,,}" in
         pdf)
-            pdftoppm -png -r 150 -f 1 -l 1 "$f" "$out" >/dev/null 2>&1 || return 1
-            local p; p="$(ls "${out}"-*.png 2>/dev/null | head -1)"
-            [[ -n "$p" ]] && { echo "$p"; return 0; }
+            pdftoppm -png -r 150 -f 1 -l "$MAX_PAGES" "$f" "$out" >/dev/null 2>&1 || return 1
+            local p; p="$(ls "${out}"-*.png 2>/dev/null | sort -V)"
+            [[ -n "$p" ]] && { printf '%s\n' "$p"; return 0; }
             return 1
             ;;
         jpg|jpeg|png)
@@ -148,22 +159,30 @@ for name in "${CANDS[@]}"; do
         continue
     fi
 
-    png="$(rasterise "$path" "${WORK_DIR}/${sha:0:12}")" || {
+    pngs="$(rasterise "$path" "${WORK_DIR}/${sha:0:12}")" || {
         log "  HUMAN  ${name} (RASTERISE_FAILED) — not transmitted"
         RESULTS="$(jq --arg f "$name" --arg s "$sha" \
             '. + [{file:$f, sha256:$s, status:"NEEDS_HUMAN", reason_code:"RASTERISE_FAILED"}]' <<<"$RESULTS")"
         continue
     }
 
+    # OCR every rasterised page and concatenate, so the classifier's text signal covers
+    # the same pages as its images.
     ocr=""
     if command -v tesseract >/dev/null 2>&1; then
-        ocr="${WORK_DIR}/${sha:0:12}.txt"
-        tesseract "$png" "${ocr%.txt}" >/dev/null 2>&1 || ocr=""
+        ocr="${WORK_DIR}/${sha:0:12}.txt"; : > "$ocr"
+        while IFS= read -r pg; do
+            [[ -n "$pg" ]] || continue
+            tesseract "$pg" stdout >> "$ocr" 2>/dev/null || true
+        done <<<"$pngs"
+        [[ -s "$ocr" ]] || ocr=""
     fi
 
-    log "  READY  ${name}"
-    RESULTS="$(jq --arg f "$name" --arg s "$sha" --arg p "$png" --arg o "$ocr" --arg e "${name##*.}" \
-        '. + [{file:$f, sha256:$s, status:"READY", png:$p, ocr:$o, ext:$e}]' <<<"$RESULTS")"
+    npages="$(grep -c . <<<"$pngs")"
+    log "  READY  ${name} (${npages} page(s))"
+    RESULTS="$(jq --arg f "$name" --arg s "$sha" --arg o "$ocr" --arg e "${name##*.}" \
+        --argjson p "$(jq -R -s -c 'split("\n") | map(select(length>0))' <<<"$pngs")" \
+        '. + [{file:$f, sha256:$s, status:"READY", pngs:$p, ocr:$o, ext:$e}]' <<<"$RESULTS")"
 done
 
 jq -n --argjson c "$RESULTS" --argjson t "$TRUNCATED" --argjson d "$DRY_RUN" \
