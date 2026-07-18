@@ -91,7 +91,7 @@ while IFS= read -r c; do
 
       DUPE)
         keeper="$(jq -r .keeper <<<"$c")"
-        # Decided by jdupes/sha256, never by the model. Both copies live inside the same
+        # Decided by sha256, never by the model. Both copies live inside the same
         # restic target, so the "kept the copy outside the backup set" hazard can't apply.
         # ZFS + sanoid + restic make this recoverable regardless.
         if [[ "$MODE" == "apply" ]]; then
