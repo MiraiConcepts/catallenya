@@ -67,6 +67,14 @@ gate() { # $1=candidate json -> echoes failing reason, or nothing on pass
     vocab_has qualifier "$(jq -r .qualifier <<<"$p")" || { echo "QUALIFIER_NOT_IN_VOCAB"; return 1; }
     # 4. the date must be printed on the document, not inferred
     [[ "$(jq -r .date_source <<<"$p")" == "printed_on_document" ]] || { echo "DATE_NOT_PRINTED"; return 1; }
+    # 4b. and must be a REAL calendar date. The schema regex accepts 2023-02-29, and the
+    # 2026-07-18 model battery produced exactly that (haiku, both runs, on a paystub) —
+    # an impossible date that would have filed silently. GNU date validates leap years.
+    local dt; dt="$(jq -r .date <<<"$p")"
+    case "${#dt}" in
+        10) date -d "$dt" >/dev/null 2>&1 || { echo "IMPOSSIBLE_DATE"; return 1; } ;;
+        7)  [[ "${dt:5:2}" =~ ^(0[1-9]|1[0-2])$ ]] || { echo "IMPOSSIBLE_DATE"; return 1; } ;;
+    esac
     # 8. lookalike families never auto-file, however confident
     ! is_lookalike "$t" "$f" || { echo "LOOKALIKE_FAMILY"; return 1; }
     return 0

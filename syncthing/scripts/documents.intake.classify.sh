@@ -35,8 +35,11 @@ set -uo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/documents.lib.sh"
 
 CLAUDE_BIN="/home/carrein/.local/bin/claude"
-MODEL="claude-haiku-4-5"
-BUDGET="0.50"
+# Opus: 2026-07-18 battery scored opus 24/24 (discounting one defensible qualifier),
+# sonnet 23/24, haiku 19/24 incl. an INVENTED 2023-02-29. ~24 calls/year in anger —
+# take the best. Quota-weight at this volume is negligible.
+MODEL="claude-opus-4-8"
+BUDGET="1.50"   # opus per-call cost is higher; 2 passes/doc, 3 pages each
 
 command -v jq >/dev/null || die "jq not found"
 [[ -x "$CLAUDE_BIN" ]] || die "claude not found at $CLAUDE_BIN"
