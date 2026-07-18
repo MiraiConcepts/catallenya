@@ -172,11 +172,22 @@ Rules (from the owner's filing scheme):
   vocabulary and the distinction is otherwise arbitrary, so anchoring to the printed
   heading is what keeps naming consistent across runs and across years.)
 - date: use the MOST PRECISE date PRINTED ON the document itself. Never guess from
-  context. If only a month is printed, give YYYY-MM. If only a year, YYYY. If no date is
-  printed at all, set date_source="absent" and needs_human=true.
-- owner: "self" is the repository owner. Other known people are listed in the
-  schema enum. If the document belongs to someone not listed, set owner="unknown" and
+  context. If only a month is printed, give YYYY-MM. If only a year, YYYY (a tax form's
+  date is its tax year). If no date is printed at all, set date_source="absent" and
   needs_human=true.
+- When SEVERAL dates are printed, prefer the report/issue/generated/statement date over
+  received, collected, due, delivery, or payment dates. (Battery-verified 2026-07-18: a
+  lab report printing "Received 06 Nov" and "Generated 07 Nov" must file as 11-07 — the
+  owner adjudicated exactly this class by hand in past intakes.)
+- Singapore documents print dates as DD/MM/YYYY: 08/07/2026 is 8 July, never August 7.
+- owner: "self" is the repository owner. Other known people are listed in the
+  schema enum: REDACTED-PERSON-B, REDACTED-PERSON-C, REDACTED-PERSON-D.
+  If the document belongs to someone not listed, set owner="unknown" and needs_human=true.
+- Folder purpose guide: invoices/receipts from ANY vendor including clinics and hospitals
+  -> 09_receipts-and-purchases. Clinical results, scan reports, discharge summaries,
+  prescriptions -> 07_medical. Payslips, tax forms, bank/CPF statements ->
+  05_finance-and-tax. Insurance cards/policies -> 06_insurance. Utility/telco/broadband
+  bills and leases -> 08_housing-and-utilities.
 - If the document type or issuer is not in the enums, set needs_human=true with the
   matching reason_code. Do NOT force a wrong value to fit.
 - If unsure about anything, set needs_human=true. Being flagged is cheap; being misfiled
@@ -221,7 +232,10 @@ Check each claim against what you can actually see:
 - folder matches the document's PURPOSE (a clinic's invoice is a receipt, not a medical
   record)
 - the date appears PRINTED on the document and is the most precise one printed. A
-  delivery date, a due date, or a photo timestamp is not the document's date.
+  delivery date, a due date, or a photo timestamp is not the document's date. When
+  several dates are printed, the report/issue/generated/statement date is the CORRECT
+  choice over received/collected/due/payment dates — do not refute a proposal for
+  preferring it. Singapore documents print DD/MM/YYYY.
 - owner matches who the document belongs to
 - doc_type matches what this actually is
 
