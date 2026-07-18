@@ -13,8 +13,14 @@ Environment=DISABLE_AUTOUPDATER=1
 EnvironmentFile=-/etc/documents-intake.env
 TimeoutStartSec=30min
 
-# Free (no inference, no tokens) — refuse to start rather than fail mysteriously at 03:00.
-ExecStartPre=/home/carrein/.local/bin/claude auth status
+# NO ExecStartPre auth check — deliberately. Two proven facts (2026-07-18):
+#   1. `claude auth status` exits 0 even with a bogus token — it validates nothing.
+#   2. An ExecStartPre failure kills the unit BEFORE daily.sh starts, so the ntfy code
+#      never runs and auth death would be silent.
+# The real detector is the API call inside classify: on dead auth, daily.sh sends a
+# HIGH-priority ntfy ("failed (classify) — check auth first") the first night a document
+# is actually waiting, and the file stays at root (7-day nudge as backup). Empty nights
+# with dead auth stay silent — nothing was lost, nothing to file.
 ExecStart=/zpool/catallenya/syncthing/scripts/documents.intake.daily.sh --yes
 
 StandardOutput=journal
