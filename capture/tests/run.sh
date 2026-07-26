@@ -125,6 +125,113 @@ is "unicode survives cleaning" "$(jq -r .title <<<"$out")" "Café ☕"
 out="$(clean_proposal "$(mut '.location=null|.description=null')")"
 is "nulls stay null" "$(jq -r '[.location,.description]|map(type)|join(",")' <<<"$out")" "null,null"
 
+# ------------------------------------------------------------------ sweep args
+echo "capture.sweep.sh arguments"
+
+# Shipped bug: the sweep took no arguments at all, so --dry-run was silently
+# ignored and it archived for real. Every sibling script honours that flag.
+sweep="${SCRIPT_DIR}/capture.sweep.sh"
+
+out="$(bash "$sweep" --help 2>&1)"; rc=$?
+is "--help exits 0"        "$rc" "0"
+has "--help prints usage"  "$out" "--dry-run"
+
+out="$(bash "$sweep" --nonsense 2>&1)"; rc=$?
+is  "unknown arg is rejected"     "$rc" "1"
+has "unknown arg names itself"    "$out" "--nonsense"
+
+# The real guarantee: --dry-run must announce itself, so a run that says nothing
+# about being a dry run is doing the real thing.
+out="$(bash "$sweep" --dry-run 2>&1)"
+has "--dry-run announces itself" "$out" "DRY RUN"
+
+# --------------------------------------------------------------- retry, live
+# Exercises the real ask() against a local sink. This is the only way to prove the
+# retry loop behaves — a genuine 429 cannot be summoned on demand, and the failure
+# it guards against (one blip destroying the screenshot) is the expensive kind.
+echo "ask() retry against a local sink"
+
+TMP="$(mktemp -d)"
+SINK_PID=""
+cleanup() { [[ -n "$SINK_PID" ]] && kill "$SINK_PID" 2>/dev/null; rm -rf "$TMP"; }
+trap cleanup EXIT
+
+# Drive the sink through a scripted sequence and report the status curl saw.
+sink_probe() {
+    local codes="$1" port out
+    : > "${TMP}/port"
+    python3 "${SELF_DIR}/sink.py" "$codes" > "${TMP}/port" &
+    SINK_PID=$!
+    for _ in $(seq 20); do [[ -s "${TMP}/port" ]] && break; sleep 0.2; done
+    port="$(cat "${TMP}/port")"
+    out="$(curl -sS --max-time 5 -w $'\n%{http_code}' -X POST -d '{}' \
+           "http://127.0.0.1:${port}/" 2>&1)"
+    kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null; SINK_PID=""
+    echo "${out##*$'\n'}"
+}
+
+is "sink can force a 429" "$(sink_probe 429,200)" "429"
+is "sink can force a 200" "$(sink_probe 200)"     "200"
+is "sink can force a 500" "$(sink_probe 500)"     "500"
+
+# The real api_post loop, driven against the sink. This is the part that could not
+# be proven any other way: that a transient failure is retried rather than ending
+# the capture, and that a fatal one is not retried at all.
+export ANTHROPIC_API_KEY="sk-ant-sink-not-a-real-key"
+API_RETRY_BASE_S=1   # keep the suite fast; the loop multiplies by attempt number
+echo '{}' > "${TMP}/req.json"
+
+run_post() { # $1 = sink script -> "<rc>|<stderr log>"
+    local port rc out err
+    : > "${TMP}/port"
+    python3 "${SELF_DIR}/sink.py" "$1" > "${TMP}/port" &
+    SINK_PID=$!
+    for _ in $(seq 20); do [[ -s "${TMP}/port" ]] && break; sleep 0.2; done
+    port="$(cat "${TMP}/port")"
+    rc=0
+    out="$(API_URL="http://127.0.0.1:${port}/" api_post "${TMP}/req.json" 2>"${TMP}/err")" || rc=$?
+    err="$(tr '\n' ' ' < "${TMP}/err")"
+    kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null; SINK_PID=""
+    printf '%s|%s|%s' "$rc" "$err" "$out"
+}
+
+r="$(run_post 200)"
+is  "clean 200 returns 0"        "${r%%|*}" "0"
+has "clean 200 returns the body" "$r" "Sink Lunch"
+
+r="$(run_post 429,429,200)"
+is  "recovers after two 429s"  "${r%%|*}" "0"
+has "logged the first retry"   "$r" "attempt 1/3"
+has "logged the second retry"  "$r" "attempt 2/3"
+has "got the body on attempt 3" "$r" "Sink Lunch"
+
+r="$(run_post 503,503,503)"
+is  "persistent 5xx gives rc=2 (transient)" "${r%%|*}" "2"
+has "says it will retry later"              "$r" "will retry later"
+
+r="$(run_post 401)"
+is    "401 gives rc=1 (fatal)"   "${r%%|*}" "1"
+hasnt "401 is never retried"     "$r" "attempt 1/3"
+
+# api_class is the REAL function from capture.lib.sh, not a copy — if the mapping
+# in the retry loop changes, these fail.
+is "200 is success"           "$(api_class 200)" "ok"
+is "429 retries"              "$(api_class 429)" "retry"
+is "500 retries"              "$(api_class 500)" "retry"
+is "503 retries"              "$(api_class 503)" "retry"
+is "no-answer (000) retries"  "$(api_class 000)" "retry"
+is "400 is fatal"             "$(api_class 400)" "fatal"
+is "401 is fatal"             "$(api_class 401)" "fatal"
+is "404 is fatal"             "$(api_class 404)" "fatal"
+
+# ---------------------------------------------------------------- retry config
+echo "retry configuration"
+is "in-run attempts bounded"   "$(( API_MAX_ATTEMPTS > 1 && API_MAX_ATTEMPTS <= 5 ))" "1"
+is "backoff is non-zero"       "$(( API_RETRY_BASE_S > 0 ))" "1"
+# Must exceed the triage's TimeoutStartSec (15min) or the sweep could adopt a
+# record while the triage is still working on it and re-queue it underneath.
+is "requeue waits out a live run" "$(( REQUEUE_AFTER_HOURS >= 1 ))" "1"
+
 # --------------------------------------------------------------------- result
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

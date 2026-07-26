@@ -136,3 +136,4 @@ ntfy/.env
 !capture/client/capture.sh
 !capture/tests/
 !capture/tests/run.sh
+!capture/tests/sink.py

@@ -2,6 +2,11 @@
 Description=Capture triage (screenshot -> opus-5 -> proposed calendar event)
 After=network-online.target docker.service
 Wants=network-online.target
+# Same alerting the restic units use. The triage exits non-zero only when a run
+# produced no successful triage at all, or when systemd's start limit trips after
+# a hot loop — both cases where the pipeline is down and nothing else would say so.
+# Per-capture failures are reported over ntfy by the script itself.
+OnFailure=system-ntfy@capture.triage.service
 
 [Service]
 Type=oneshot

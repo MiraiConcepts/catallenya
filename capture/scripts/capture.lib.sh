@@ -40,6 +40,84 @@ DURATION_MIN=60           # default length when only a start time is known
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
+# Transient API failure handling. In-process retries cover a rate limit or a brief
+# 5xx; anything longer (an auth outage, a provider incident) outlives the run, so
+# the record is left in pending/ without a proposal.json and the sweep re-queues
+# the screenshot once before giving up. Mirrors documents.intake, which declines to
+# memoize CLASSIFY_FAILED so the next nightly run retries it (commit 5ab987a).
+API_MAX_ATTEMPTS=3        # attempts within one triage run
+API_RETRY_BASE_S=5        # linear backoff: 5s, 10s
+# Overridable so the retry path is testable against a local sink without spending
+# an API call — same seam as MIN_AGE_SECONDS in documents.lib.sh. Never set in
+# production; the default is the only value systemd ever runs with.
+API_URL="${API_URL:-https://api.anthropic.com/v1/messages}"
+
+# api_class <http-status> -> ok | retry | fatal
+# "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
+# Lives here rather than inline in ask() so the tests assert the real mapping
+# instead of a copy of it that can drift.
+api_class() {
+    case "$1" in
+        200)          echo ok ;;
+        429|5??|000)  echo retry ;;   # rate limited, server-side, or no answer
+        *)            echo fatal ;;   # 400/401/403/404: retrying cannot help
+    esac
+}
+
+# api_post <request-body-file> -> response body on stdout
+#   0 = ok | 1 = fatal (do not retry) | 2 = transient, attempts exhausted
+#
+# Lives here rather than inside ask() so the retry behaviour can be exercised
+# against a local sink. ANTHROPIC_API_KEY must be set by the caller.
+#
+# The key goes via a curl config on stdin, never argv: /proc is mounted without
+# hidepid here, so /proc/<pid>/cmdline is world-readable for the whole call.
+#
+# -f is deliberately NOT used. It collapses every failure into exit 22 and throws
+# away the response body, which makes a rate limit indistinguishable from a bad
+# API key — and the caller used to treat both as terminal, so a single blip
+# destroyed the screenshot. The status code is what decides whether to retry.
+api_post() {
+    local msgf="$1" out code body attempt=0 delay
+    while :; do
+        attempt=$((attempt + 1))
+        out="$(curl -sS -K - --max-time 180 -w $'\n%{http_code}' 2>&1 <<CURLRC
+url = "${API_URL}"
+header = "x-api-key: ${ANTHROPIC_API_KEY}"
+header = "anthropic-version: 2023-06-01"
+header = "content-type: application/json"
+data-binary = "@${msgf}"
+CURLRC
+)"
+        code="${out##*$'\n'}"
+        body="${out%$'\n'*}"
+        # Normalise "curl never completed the exchange" (DNS, TLS, timeout, reset)
+        # to 000, which api_class treats as transient.
+        [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
+
+        case "$(api_class "$code")" in
+            ok)
+                printf '%s' "$body"
+                return 0 ;;
+            retry)
+                if (( attempt >= API_MAX_ATTEMPTS )); then
+                    log "  !! api unavailable after ${attempt} attempts (last: ${code}) — will retry later"
+                    return 2
+                fi
+                delay=$(( API_RETRY_BASE_S * attempt ))
+                log "  api ${code}, attempt ${attempt}/${API_MAX_ATTEMPTS} — retrying in ${delay}s"
+                sleep "$delay"
+                ;;
+            *)
+                log "  !! api rejected the request (${code}): $(tail -c 300 <<<"$body")"
+                return 1 ;;
+        esac
+    done
+}
+REQUEUE_AFTER_HOURS=1     # how long a proposal-less record waits before re-queueing.
+                          # Must exceed the triage's TimeoutStartSec (15min) so a
+                          # run still in flight is never adopted mid-call.
+
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
 
