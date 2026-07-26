@@ -64,7 +64,7 @@ sudo systemctl start capture.triage.service   # drain incoming/ now (systemd inj
 bash capture/scripts/capture.sweep.sh         # re-notify stale proposals, archive ignored ones
 # Accept rate. Empty while data/.recording-disabled exists (currently set, testing) —
 # with the flag on, resolved captures are deleted and nothing reaches the ledger.
-jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' capture/data/decisions.jsonl
+jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' capture/data/decisions.jsonl 2>/dev/null || echo 'no decisions recorded yet'
 ```
 
 ## Architecture
@@ -164,7 +164,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
 - **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
   guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
   adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`
-- **shellcheck**: all tracked `*.sh` at `-S error` (preinstalled runner binary, no action)
+- **shellcheck**: all tracked `*.sh` at `-S warning` (preinstalled runner binary, no action)
 - **notify-failure**: curls the `NTFY_FAILURE_URL` Actions secret (ntfy.sh topic —
   tailnet ntfy is unreachable from runners) when any job fails; skips gracefully if unset
 
