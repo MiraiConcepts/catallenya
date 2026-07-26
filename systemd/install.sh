@@ -47,6 +47,9 @@ declare -A SYMLINKS=(
     ["restic.check-meta.timer"]="${REPO_DIR}/restic/check/restic.check-meta.timer"
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
+    ["capture.sweep.timer"]="${REPO_DIR}/capture/systemd/capture.sweep.timer"
+    # Paths (event-triggered, not scheduled)
+    ["capture.triage.path"]="${REPO_DIR}/capture/systemd/capture.triage.path"
     # Services
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
     ["documents.intake.service"]="${REPO_DIR}/systemd/documents.intake.service"
@@ -56,6 +59,8 @@ declare -A SYMLINKS=(
     ["restic.forget.service"]="${REPO_DIR}/restic/forget/restic.forget.service"
     ["system-ntfy@.service"]="${REPO_DIR}/ntfy/system-ntfy@.service"
     ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
+    ["capture.triage.service"]="${REPO_DIR}/capture/systemd/capture.triage.service"
+    ["capture.sweep.service"]="${REPO_DIR}/capture/systemd/capture.sweep.service"
 )
 
 echo "Creating symlinks..."
@@ -85,11 +90,33 @@ for unit in "${!SYMLINKS[@]}"; do
     [[ "$unit" == *.timer ]] && TIMERS+=("$unit")
 done
 
+# --now so a NEWLY added timer starts immediately rather than lying dormant until
+# the next reboot. Existing timers are active only because catallenya.service
+# starts them at boot; without --now, adding a timer here and not rebooting means
+# its job silently never runs. (Caught 2026-07-25: capture.sweep.timer was enabled
+# but inactive after install, so the pending-capture sweep would never have fired.)
 echo "Enabling timers..."
 for timer in "${TIMERS[@]}"; do
-    systemctl enable "$timer"
-    echo "  Enabled ${timer}"
+    systemctl enable --now "$timer"
+    echo "  Enabled + started ${timer}"
 done
+
+# Same single-source-of-truth trick for .path units. These are event-triggered
+# rather than scheduled, so they must also be STARTED — an enabled-but-unstarted
+# path unit watches nothing until the next boot, and the pipeline would look
+# installed while silently doing nothing.
+PATHS=()
+for unit in "${!SYMLINKS[@]}"; do
+    [[ "$unit" == *.path ]] && PATHS+=("$unit")
+done
+
+if (( ${#PATHS[@]} )); then
+    echo "Enabling path units..."
+    for p in "${PATHS[@]}"; do
+        systemctl enable --now "$p"
+        echo "  Enabled + started ${p}"
+    done
+fi
 
 echo ""
 echo "Done. Summary:"

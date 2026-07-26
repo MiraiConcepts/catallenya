@@ -1,0 +1,57 @@
+[Unit]
+Description=Capture triage (screenshot -> opus-5 -> proposed calendar event)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/capture
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# ANTHROPIC_API_KEY lives here — root-owned 0600, read by systemd (PID 1) and
+# injected into this User=carrein process. The key is therefore never in a
+# carrein-readable file, never in the repo, and never on a command line.
+EnvironmentFile=/etc/capture.env
+
+# Generous: one opus-5 vision call at medium effort runs ~10-20s, and a burst of
+# captures is drained serially in a single invocation.
+TimeoutStartSec=15min
+
+ExecStart=/zpool/catallenya/capture/scripts/capture.triage.sh
+
+StandardOutput=journal
+StandardError=journal
+
+# --- Hardening ---
+# The triage sends ONE plain /v1/messages request with output_config.format and
+# no tools, so the model has no tool surface and no path to the filesystem. This
+# sandbox is insurance against a future edit that adds tool use, and it also
+# bounds the blast radius of the API key sitting in this unit's environment:
+# even with the key, the process cannot read restic.pwd, .env secrets it does
+# not need, or anything outside the capture spool.
+#
+# Verify the sandbox actually ENGAGED (not merely that the job succeeded):
+#   sudo systemd-run --wait --pipe --uid=carrein \
+#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
+#     --property=InaccessiblePaths=/zpool/catallenya/restic \
+#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Only the spool is writable. Scripts + .env are read-only by virtue of
+# ProtectSystem=strict (the repo is outside the writable set).
+ReadWritePaths=/zpool/catallenya/capture/data
+
+InaccessiblePaths=/zpool/catallenya/restic
+InaccessiblePaths=/zpool/catallenya/cloudflared
+InaccessiblePaths=/zpool/catallenya/rclone
+
+[Install]
+WantedBy=multi-user.target

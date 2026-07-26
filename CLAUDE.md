@@ -56,6 +56,15 @@ bash syncthing/scripts/documents.intake.scan.sh > /tmp/s.json          # determi
 bash syncthing/scripts/documents.intake.classify.sh < /tmp/s.json > /tmp/a.json
 bash syncthing/scripts/documents.intake.apply.sh --dry-run < /tmp/a.json   # preview
 bash syncthing/scripts/documents.intake.daily.sh --dry-run             # whole pipeline, no writes
+
+# Capture pipeline (screenshot → opus-5 vision → ntfy Add/Discard → Radicale)
+# Event-driven, not scheduled: capture.triage.path fires the moment a PNG lands in
+# capture/data/incoming/. Laptop hotkey client + notification format in capture/README.md.
+sudo systemctl start capture.triage.service   # drain incoming/ now (systemd injects the API key)
+bash capture/scripts/capture.sweep.sh         # re-notify stale proposals, archive ignored ones
+# Accept rate. Empty while data/.recording-disabled exists (currently set, testing) —
+# with the flag on, resolved captures are deleted and nothing reaches the ledger.
+jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' capture/data/decisions.jsonl
 ```
 
 ## Architecture
@@ -80,6 +89,7 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 | `ARCHIVEBOX_REVERSE_PROXY_PORT`  | Archivebox  |
 | `MEMOKA_REVERSE_PROXY_PORT`      | Memoka      |
 | `CHANGEDETECTION_REVERSE_PROXY_PORT` | Changedetection.io |
+| `CAPTURE_REVERSE_PROXY_PORT`     | Capture (10000) |
 
 ### Service Dependencies
 
@@ -89,6 +99,7 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 - **Archivebox** uses `archivebox_sonic` for search; scheduler depends on both
 - **Caddy** depends on `tailscale` for TLS certificate socket
 - **carrein-blog** (`ghcr.io/carrein/carrein-blog`) and **upvotes** (`ghcr.io/carrein/upvotes`, Bun + SQLite) sit behind Caddy's `http://catallenya.com` block — no host port mapping; reached only via the cloudflared tunnel
+- **Capture** is a locally-built Bun container (like archivebox, no GHCR image) on `CAPTURE_REVERSE_PROXY_PORT` (10000) with no host `ports:`. It is deliberately dumb — it accepts the uploaded screenshot and, on an ntfy button tap, does one CalDAV `PUT` to `radicale:5232` reusing the same `MITSUME_DAV_B64` Caddy injects for mitsume. All the intelligence (the opus-5 vision call, the `.ics` renderer) lives in the host triage, which shares only the `capture/data/` spool with the container; that split is kept so the triage can serve future non-capture consumers
 - **Changedetection** depends on `changedetection-browser` (sockpuppetbrowser, Chromium via Playwright over WebSocket) for JS-rendered fetches. The companion needs `cap_add: SYS_ADMIN` for the Chromium user-namespace sandbox; the main container needs `CHOWN/FOWNER/DAC_OVERRIDE` because the image runs as root and writes to a non-root-owned bind mount. Notifications fan out via ntfy using Apprise URL `ntfy://ntfy/${CHANGEDETECTION_NTFY_TOPIC}` — configured in the UI, not in env.
 
 ### Secrets Management
@@ -107,6 +118,7 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 - **Immich**: Handles its own DB backup internally — dumps are written to `immich/data/backups/` which restic picks up automatically.
 - **Upvotes**: SQLite `VACUUM INTO` runs inside the upvotes container before restic, writing to `upvotes/dump/votes.db`. Live `upvotes/data` is not in restic targets — only the consistent dump is. Restore: stop upvotes, copy dump back to `upvotes/data/votes.db`, remove stale `-wal`/`-shm`, restart.
 - **Zipline**: Not backed up (intentional).
+- **Capture**: Not backed up (intentional). `capture/` is deliberately absent from restic's path allowlist — a screenshot can hold anything that was on screen, so none of it leaves the box. ZFS + Sanoid still cover disk failure. Do not add `capture/` to restic without revisiting that decision.
 
 ZFS snapshots are managed by Sanoid separately.
 
@@ -141,6 +153,7 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 - **ZFS pool monitoring**: ZFS Event Daemon (`zed`) publishes pool events (scrub, errors, resilver) to the `zpool` ntfy topic. Configured on the host at `/etc/zfs/zed.d/zed.rc` (`ZED_NTFY_TOPIC`, `ZED_NTFY_URL`) — not in this repo. Sanoid handles snapshots only and is not wired to ntfy.
 - **Immich rotation bake**: `immich.fix-rotations.timer` runs daily at 04:00 SGT (`OnCalendar` pins `Asia/Singapore`, DST-safe) via `immich/scripts/immich.fix-rotations.daily.sh`, baking pending UI rotate edits into originals losslessly. Notifies the `immich` ntfy topic only when something was baked, failed, or skipped for a reason needing a human; silent when there is nothing to do (crop/mirror edits are intentionally left alone)
 - **Documents intake**: `documents.intake.timer` runs daily at 03:00 SGT (clear of the immich bake at 04:00), classifying and filing anything dropped at the root of `syncthing/data/master/documents` per its `FILING-SCHEME.md`. Notifies the `documents` ntfy topic only when something was filed, removed, flagged, or failed — silent when nothing arrived. Scope is **root files only**; the ~131 already-filed documents are never read or moved, only hashed for duplicate detection. Design + verified CLI traps in `.claude/plans/documents-nightly-intake{,-canon}.md`
+- **Capture triage**: `capture.triage.path` — the repo's only `.path` unit, everything else polls — fires `capture.triage.service` the instant a screenshot lands in `capture/data/incoming/`, which calls `claude-opus-5` with vision and posts the proposed event to the `capture` ntfy topic with Add/Discard action buttons. Nothing reaches Radicale without that tap. The triage **must** move every file out of `incoming/` on every branch: `PathExistsGlob` re-fires while a file remains, so a leftover PNG hot-loops systemd and bills an API call per spin. `capture.sweep.timer` runs hourly (no API calls) to re-notify a proposal untouched for 24h and archive it as `ignored` at 7d. `ANTHROPIC_API_KEY` lives in `/etc/capture.env` (root-owned 0600, read by systemd and injected into the `User=carrein` process) — deliberately **not** in `.env`, which that user can read. Design, bake-off results, and post-deploy fixes in `.claude/plans/capture-pipeline-plan.md`
 - **Watchtower**: Auto-updates containers with `com.centurylinklabs.watchtower.enable=true` label, polls hourly
 
 ### CI/CD

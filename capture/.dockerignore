@@ -1,0 +1,7 @@
+data/
+scripts/
+systemd/
+client/
+*.md
+.git
+.gitignore

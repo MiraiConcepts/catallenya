@@ -1,0 +1,6 @@
+# Runtime spool — never commit captured screenshots or pending events.
+# The dirs are created at deploy/runtime (container + host triage both mkdir -p).
+data/
+
+# py_compile / import scratch
+__pycache__/

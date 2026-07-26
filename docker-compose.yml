@@ -181,6 +181,7 @@ services:
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
       IPP_REVERSE_PROXY_PORT: ${IPP_REVERSE_PROXY_PORT}
       MITSUME_REVERSE_PROXY_PORT: ${MITSUME_REVERSE_PROXY_PORT}
+      CAPTURE_REVERSE_PROXY_PORT: ${CAPTURE_REVERSE_PROXY_PORT}
       MITSUME_DAV_B64: ${MITSUME_DAV_B64}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
@@ -197,6 +198,7 @@ services:
       - 127.0.0.1:${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
       - 127.0.0.1:${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
       - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${CAPTURE_REVERSE_PROXY_PORT}:${CAPTURE_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/caddy/flags:/flags:ro
@@ -442,6 +444,43 @@ services:
       - flame.url=${RADICALE_URL}
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
+
+  capture:
+    container_name: capture
+    # Built locally: the source lives in this repo (capture/src), unlike the
+    # carrein apps which ship prebuilt from GHCR. Same reason archivebox builds.
+    build:
+      context: ./capture
+    restart: unless-stopped
+    user: "1000:1000" # writes the spool, which is host-owned 1000:1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    environment:
+      # Radicale app password, reused rather than duplicated — this is the same
+      # base64(carrein:<app pw>) that Caddy injects for mitsume.
+      MITSUME_DAV_B64: ${MITSUME_DAV_B64}
+      # Calendar collection IDs. Literals, not .env vars: they are stack-defining
+      # constants like `reverse_proxy radicale:5232`, not secrets.
+      CAL_GENERAL: ac0fbe63-a775-4603-97cb-03020b239ae3 # carrein-calendar
+      CAL_BIRTHDAY: 28acf882-0a72-5d71-b645-5b6e1a7f8ca1 # carrein-birthday
+    volumes:
+      # Shared with the host triage (capture.triage.service) — this bind IS the
+      # interface between the container and the AI half of the pipeline.
+      - ${ZPOOL_VOLUME}/capture/data:/data
+    # No ports: reached only through Caddy, like every other app container.
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e 'process.exit((await fetch(\"http://127.0.0.1:8080/healthz\")).ok ? 0 : 1)' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # No watchtower label: locally built, so there is no upstream image to poll.
 
   mitsume:
     container_name: mitsume

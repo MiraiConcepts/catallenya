@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly capture sweep
+
+[Timer]
+# Hourly rather than daily so the 24h re-notify lands within an hour of being due
+# rather than up to a day late. The sweep makes no API calls — it stats files and
+# posts to ntfy only — so running it often costs nothing.
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
