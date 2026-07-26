@@ -162,6 +162,11 @@ notify() { # $1=title $2=priority $3=tags $4=body
     # shellcheck source=/dev/null  # runtime-only file, not in the repo
     source "$root_env"
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
+    # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
+    # and POSTs that file's contents. The body starts with a filename from the root
+    # of master/documents (see documents.intake.daily.sh), so a synced file named
+    # "@/zpool/catallenya/.env" would exfiltrate that file to the ntfy topic.
+    # --data-raw is byte-identical except it never interprets a leading @.
     curl -sS -H "Title: $1" -H "Priority: $2" -H "Tags: $3" \
-         -d "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
+         --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
 }

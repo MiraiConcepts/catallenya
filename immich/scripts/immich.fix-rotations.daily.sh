@@ -33,8 +33,12 @@ BAKED="$(sed -n 's|^Planned/updated: \([0-9]*\).*|\1|p' <<<"${OUT}")"
 CONCERNS="$(grep -E '^  (SKIP|FAIL) ' <<<"${OUT}" | grep -vE 'SKIP_NON_ROTATE|SKIP_NET_ZERO' || true)"
 
 notify() { # $1=title $2=priority $3=tags $4=body
+    # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
+    # and POSTs that file's contents. The body starts with an asset filename, so a
+    # file named "@/zpool/catallenya/.env" would exfiltrate it to the ntfy topic.
+    # --data-raw is byte-identical except it never interprets a leading @.
     curl -sS -H "Title: $1" -H "Priority: $2" -H "Tags: $3" \
-         -d "$(tail -c 3500 <<<"$4")" "${NTFY_URL}/${TOPIC}" >/dev/null || true
+         --data-raw "$(tail -c 3500 <<<"$4")" "${NTFY_URL}/${TOPIC}" >/dev/null || true
 }
 
 # Human-readable summaries: "photo.jpg — rotated 90°" / "photo.jpg — needs a look (...)"
