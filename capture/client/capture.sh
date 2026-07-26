@@ -10,8 +10,15 @@
 # happens server-side, and the result arrives as an ntfy push.
 set -euo pipefail
 
-# The capture service on your tailnet. Port comes from CAPTURE_REVERSE_PROXY_PORT
-# in the server's .env; the host must be reachable over Tailscale.
+# The capture service on your tailnet. Port matches CAPTURE_REVERSE_PROXY_PORT in
+# the server's .env; the host must be reachable over Tailscale.
+#
+# The literal default is a deliberate exception to the repo's no-hardcoded-hosts
+# rule, which exists so SERVER config comes from .env. This script runs on a
+# laptop, which cannot read the server's .env, so the host has to live somewhere —
+# and requiring an env var would leave the hotkey silently broken until it is set.
+# Override with CAPTURE_URL if you run it from elsewhere. The name is not a secret:
+# .ts.net certificates are published in Certificate Transparency logs.
 CAPTURE_URL="${CAPTURE_URL:-https://catallenya.kamori-mulley.ts.net:10000/capture}"
 
 shot="$(mktemp --suffix=.png 2>/dev/null || mktemp -t capture)"

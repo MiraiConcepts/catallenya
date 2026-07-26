@@ -50,7 +50,7 @@ never talks to the API.
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/capture.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
 | `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, archive ignored ones |
-| `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape/VTIMEZONE) |
+| `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + hourly sweep `.timer` |
 | `client/capture.sh` | **laptop-side** hotkey script (see below) |
 
@@ -160,7 +160,7 @@ archive/<id>/
 rate over time is a one-liner:
 
 ```bash
-jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' data/decisions.jsonl
+jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' data/decisions.jsonl 2>/dev/null || echo 'no decisions recorded yet'
 ```
 
 A button tapped to exercise the plumbing is **not** a label — correct that record's
