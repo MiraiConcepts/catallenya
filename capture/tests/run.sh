@@ -125,6 +125,27 @@ is "unicode survives cleaning" "$(jq -r .title <<<"$out")" "Café ☕"
 out="$(clean_proposal "$(mut '.location=null|.description=null')")"
 is "nulls stay null" "$(jq -r '[.location,.description]|map(type)|join(",")' <<<"$out")" "null,null"
 
+# --------------------------------------------------------------- image sniffing
+# Android (ColorOS) screenshots are JPEG, not PNG. The spool filename is always
+# .png — it is the glob token capture.triage.path keys on — so format must come
+# from the bytes. A wrong media_type is an API-level error.
+echo "image_mime / image_ext"
+
+IMGD="$(mktemp -d)"
+mk() { printf "$2" > "${IMGD}/$1"; }
+mk png.bin      '\211PNG\r\n\032\n'
+mk jfif.bin     '\377\330\377\340\000\020JFIF'
+mk exif.bin     '\377\330\377\341\000\020Exif'   # what ColorOS actually emits
+mk garbage.bin  'not an image at all'
+
+is "PNG magic  -> image/png"  "$(image_mime "${IMGD}/png.bin")"     "image/png"
+is "JFIF JPEG  -> image/jpeg" "$(image_mime "${IMGD}/jfif.bin")"    "image/jpeg"
+is "Exif JPEG  -> image/jpeg" "$(image_mime "${IMGD}/exif.bin")"    "image/jpeg"
+is "unknown falls back to png" "$(image_mime "${IMGD}/garbage.bin")" "image/png"
+is "png extension"  "$(image_ext "${IMGD}/png.bin")"  "png"
+is "jpg extension"  "$(image_ext "${IMGD}/exif.bin")" "jpg"
+rm -rf "$IMGD"
+
 # ------------------------------------------------------------------ sweep args
 echo "capture.sweep.sh arguments"
 
@@ -144,6 +165,20 @@ has "unknown arg names itself"    "$out" "--nonsense"
 # about being a dry run is doing the real thing.
 out="$(bash "$sweep" --dry-run 2>&1)"
 has "--dry-run announces itself" "$out" "DRY RUN"
+
+# A JPEG record must be as visible to the sweep as a PNG one. The sweep used to
+# match screenshot.png literally, which would have made every Android capture
+# invisible here — never re-queued, never aged out, and silently, because this
+# only runs hourly and only on records that are already stale.
+sweep_sees() { # $1 = screenshot filename -> sweep's dry-run verdict
+    local d="${PENDING_DIR}/00000000-0000-4000-8000-0000000000ff"
+    mkdir -p "$d"; : > "${d}/$1"; touch -d '2 hours ago' "$d"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    [[ "$o" == *"would re-queue"* ]] && echo seen || echo invisible
+}
+is "sweep sees a PNG record"  "$(sweep_sees screenshot.png)" "seen"
+is "sweep sees a JPEG record" "$(sweep_sees screenshot.jpg)" "seen"
 
 # --------------------------------------------------------------- retry, live
 # Exercises the real ask() against a local sink. This is the only way to prove the

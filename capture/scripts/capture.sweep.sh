@@ -53,7 +53,13 @@ for rec in "${records[@]}"; do
     # --- no proposal: either mid-flight, or the triage gave up on a transient
     # API failure. These used to be skipped forever and accumulated silently.
     if [[ ! -f "${rec}/proposal.json" ]]; then
-        [[ -f "${rec}/screenshot.png" ]] || continue      # nothing to act on
+        # screenshot.* not screenshot.png: the triage names the claimed copy after
+        # its real format (Android uploads are JPEG), so matching .png literally
+        # would make every JPEG record invisible here — never re-queued, never
+        # aged out, and silently, since this only runs hourly on stale records.
+        shots=("${rec}"/screenshot.*)
+        (( ${#shots[@]} )) || continue                   # nothing to act on
+        shot="${shots[0]}"
         rec_age_h=$(( (now - $(stat -c %Y "${rec}" 2>/dev/null || echo "$now")) / 3600 ))
         (( rec_age_h >= REQUEUE_AFTER_HOURS )) || continue  # still in flight
 
@@ -69,7 +75,10 @@ for rec in "${records[@]}"; do
             # Marker first: if the mv succeeds and we die before writing it, the
             # next sweep would re-queue forever. Marker-then-move fails safe.
             : > "${rec}/requeued"
-            if mv -f "${rec}/screenshot.png" "${IN_DIR}/${id}.png"; then
+            # Destination keeps .png regardless of the source's real format — it is
+            # the queue token capture.triage.path globs on, and the triage sniffs
+            # the bytes rather than trusting it.
+            if mv -f "$shot" "${IN_DIR}/${id}.png"; then
                 requeued=$((requeued + 1)); log "re-queued ${id:0:8} (${rec_age_h}h)"
             else
                 log "  !! could not re-queue ${id:0:8}"
