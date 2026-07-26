@@ -10,32 +10,79 @@
 #      untouched afterwards, "ignored" is a label worth recording.
 #   2. ARCHIVE at IGNORE_AFTER_HOURS with outcome "ignored", so the screenshot and
 #      the model's proposal are preserved as data rather than deleted.
+#   3. RE-QUEUE a record the triage left behind when the API was unavailable. Such
+#      a record has a screenshot but no proposal.json; it is put back in incoming/
+#      once so the .path unit re-fires. If it comes back proposal-less a second
+#      time, it is archived as failed and the user is told.
 #
-# Makes no API calls — pure filesystem + ntfy, so it costs nothing to run often.
+# Makes no API calls itself — pure filesystem + ntfy, so it costs nothing to run
+# often. A re-queue causes the triage to make one, later.
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=capture.lib.sh
 source "${SELF_DIR}/capture.lib.sh"
 
-mkdir -p "$PENDING_DIR" "$ARCHIVE_DIR"
+# Argument parsing exists mainly so --dry-run is honoured. Every other script in
+# this repo takes it, so the muscle memory is that it is safe to try; this one
+# used to accept it silently and archive for real anyway.
+DRY=0
+usage() { printf 'usage: %s [--dry-run]\n' "${0##*/}" >&2; }
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; die "unknown argument: ${arg}" ;;
+    esac
+done
+(( DRY )) && log "DRY RUN — no records will be re-queued, archived or notified"
+
+mkdir -p "$PENDING_DIR" "$ARCHIVE_DIR" "$IN_DIR"
 
 shopt -s nullglob
 records=("$PENDING_DIR"/*/)
 (( ${#records[@]} )) || exit 0
 
 now=$(date +%s)
-renotified=0 ignored=0
+renotified=0 ignored=0 requeued=0 abandoned=0
 
 for rec in "${records[@]}"; do
     rec="${rec%/}"
     id="$(basename "$rec")"
-    [[ -f "${rec}/proposal.json" ]] || continue   # mid-write by triage; skip
+
+    # --- no proposal: either mid-flight, or the triage gave up on a transient
+    # API failure. These used to be skipped forever and accumulated silently.
+    if [[ ! -f "${rec}/proposal.json" ]]; then
+        [[ -f "${rec}/screenshot.png" ]] || continue      # nothing to act on
+        rec_age_h=$(( (now - $(stat -c %Y "${rec}" 2>/dev/null || echo "$now")) / 3600 ))
+        (( rec_age_h >= REQUEUE_AFTER_HOURS )) || continue  # still in flight
+
+        if [[ -f "${rec}/requeued" ]]; then
+            # Second time round and still no proposal — the outage is not passing.
+            (( DRY )) && { log "would abandon ${id:0:8} (re-queued once, still failing)"; continue; }
+            archive_record "$id" "$rec" failed "API unavailable across two attempts" \
+                && { abandoned=$((abandoned + 1)); log "abandoned ${id:0:8}"; }
+            notify "Capture gave up" high "warning,camera" \
+                   "Could not reach the API for that screenshot (id ${id:0:8}) across two attempts. Take it again once things are healthy."
+        else
+            (( DRY )) && { log "would re-queue ${id:0:8} (${rec_age_h}h, no proposal)"; continue; }
+            # Marker first: if the mv succeeds and we die before writing it, the
+            # next sweep would re-queue forever. Marker-then-move fails safe.
+            : > "${rec}/requeued"
+            if mv -f "${rec}/screenshot.png" "${IN_DIR}/${id}.png"; then
+                requeued=$((requeued + 1)); log "re-queued ${id:0:8} (${rec_age_h}h)"
+            else
+                log "  !! could not re-queue ${id:0:8}"
+            fi
+        fi
+        continue
+    fi
 
     age_h=$(( (now - $(stat -c %Y "${rec}/proposal.json")) / 3600 ))
 
     # --- expire ---
     if (( age_h >= IGNORE_AFTER_HOURS )); then
+        (( DRY )) && { log "would archive ${id:0:8} as ignored (${age_h}h)"; continue; }
         archive_record "$id" "$rec" ignored "no action within ${age_h}h" \
             && { ignored=$((ignored + 1)); log "ignored ${id:0:8} (${age_h}h)"; }
         continue
@@ -43,6 +90,7 @@ for rec in "${records[@]}"; do
 
     # --- one nudge ---
     if (( age_h >= RENOTIFY_AFTER_HOURS )) && [[ ! -f "${rec}/renotified" ]]; then
+        (( DRY )) && { log "would re-notify ${id:0:8} (${age_h}h)"; continue; }
         title="$(jq -r '.title // "Capture"' "${rec}/proposal.json")"
         when="$(jq -r 'if .all_day then .date + " (all day)" else .date + " " + (.start_time // "") end' \
                 "${rec}/proposal.json")"
@@ -57,5 +105,6 @@ for rec in "${records[@]}"; do
     fi
 done
 
-(( renotified || ignored )) && log "sweep: ${renotified} re-notified, ${ignored} archived as ignored"
+(( renotified || ignored || requeued || abandoned )) && \
+    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned"
 exit 0

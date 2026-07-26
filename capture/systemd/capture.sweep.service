@@ -2,6 +2,7 @@
 Description=Capture sweep (re-notify stale proposals, archive ignored ones)
 After=network-online.target
 Wants=network-online.target
+OnFailure=system-ntfy@capture.sweep.service
 
 [Service]
 Type=oneshot
