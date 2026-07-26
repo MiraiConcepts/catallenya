@@ -1,0 +1,34 @@
+[Unit]
+Description=Capture sweep (re-notify stale proposals, archive ignored ones)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/capture
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=5min
+
+# No ANTHROPIC_API_KEY here, deliberately: the sweep makes no API calls. It only
+# stats files and posts to ntfy, so it has no reason to hold the key.
+ExecStart=/zpool/catallenya/capture/scripts/capture.sweep.sh
+
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/zpool/catallenya/capture/data
+InaccessiblePaths=/zpool/catallenya/restic
+InaccessiblePaths=/zpool/catallenya/cloudflared
+InaccessiblePaths=/zpool/catallenya/rclone
+
+[Install]
+WantedBy=multi-user.target

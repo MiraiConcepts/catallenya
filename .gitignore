@@ -104,3 +104,35 @@ ntfy/.env
 !syncthing/scripts/documents.intake.classify.sh
 !syncthing/scripts/documents.intake.apply.sh
 !syncthing/scripts/documents.intake.daily.sh
+
+# Explicit includes inside capture folder — CODE/CONFIG ONLY, never data.
+# capture/data/ holds uploaded screenshots (whatever was on screen at capture) plus
+# pending events; the default `*` deny is what keeps it out of git. Do NOT add a
+# blanket `!capture/**` — same reasoning as syncthing/immich above.
+#
+# Every file is listed individually, and directory globs (`!capture/src/**`) are
+# deliberately NOT used: this is a public repo, and a `**` allowlist silently
+# auto-tracks whatever lands in that directory later. The earlier glob form would
+# have committed capture/scripts/.env or capture/client/id_rsa on sight. Adding a
+# file here is one line; the alternative is a leak with no review step.
+!capture/
+!capture/.gitignore
+!capture/.dockerignore
+!capture/Dockerfile
+!capture/README.md
+!capture/src/
+!capture/src/server.ts
+!capture/scripts/
+!capture/scripts/capture.lib.sh
+!capture/scripts/capture.triage.sh
+!capture/scripts/capture.sweep.sh
+!capture/scripts/render_ics.py
+!capture/systemd/
+!capture/systemd/capture.triage.path
+!capture/systemd/capture.triage.service
+!capture/systemd/capture.sweep.service
+!capture/systemd/capture.sweep.timer
+!capture/client/
+!capture/client/capture.sh
+!capture/tests/
+!capture/tests/run.sh

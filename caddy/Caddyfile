@@ -106,6 +106,18 @@ http://img.catallenya.com {
 	reverse_proxy ntfy:80
 }
 
+# Screenshot capture: the desktop hotkey POSTs here, and the ntfy Add/Discard
+# buttons POST back here. Tailnet-only like everything else; the unguessable
+# <id> in the callback paths is what gates the buttons.
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$CAPTURE_REVERSE_PROXY_PORT} {
+	import security_headers
+	# Screenshots are ~1-3MB; Caddy's default request body cap would reject them.
+	request_body {
+		max_size 16MB
+	}
+	reverse_proxy capture:8080
+}
+
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$ARCHIVEBOX_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy archivebox:8000
