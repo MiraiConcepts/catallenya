@@ -45,6 +45,11 @@ Rules:
 - If several times were discussed and the last one was proposed but never explicitly confirmed, USE THAT LAST PROPOSED TIME and set needs_human=false. The user reviews every event before it is added, so a stated-but-unconfirmed time is useful; note the uncertainty in description. Reserve needs_human=true for when NO usable time is stated at all (e.g. "sometime next week") — never invent one.
 - Read times from the image directly; do not trust a time you are unsure of.
 - date = YYYY-MM-DD; start_time = HH:MM 24h in the event's local timezone (null if all_day).
+- YEAR. When the image gives a day and month but no year, do NOT default to the current year — that quietly lands the event in the past, which is never worth adding. Decide from what kind of thing the image is:
+  * Something being ANNOUNCED or offered — poster, flyer, menu, promotion, listing, invitation, tickets on sale, opening hours: the date means the NEXT time that day/month occurs on or after ${1}. If it has already passed this year, it is next year.
+  * Something already COMPLETED — a receipt, an order confirmation, a past booking, an itinerary for a trip already taken: the date genuinely is in the past. There is nothing left to schedule, so is_event=false, and say so in reason.
+  Note a confirmation for a date still to come is a real event and should be proposed normally — it is the date being past that matters, not the document being a receipt.
+- Before returning, check the date against ${1}. A date earlier than ${1} is almost always a mistake: re-read the image for an explicit year, and re-decide which of the two cases above applies. Only return a past date when the image really is a record of something finished — and then is_event=false.
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
@@ -52,23 +57,25 @@ Rules:
 EOF
 }
 
-# ask <png> <now-human> -> structured JSON on stdout, non-zero on failure
+# ask <image> <now-human> -> structured JSON on stdout, non-zero on failure
 ask() {
-    local png="$1" now="$2" b64f msgf out
+    local png="$1" now="$2" b64f msgf out mime
     b64f="$(mktemp)"; msgf="$(mktemp)"
+    mime="$(image_mime "$png")"
     # Base64 goes via a FILE, never argv — a screenshot is ~1MB of base64, well
     # past ARG_MAX. (Same trap that bit documents.intake three times.)
     base64 -w0 "$png" > "$b64f"
 
     jq -n --rawfile b64 "$b64f" --arg prompt "$(triage_prompt "$now")" \
           --argjson schema "$CAPTURE_SCHEMA" --arg model "$MODEL" --arg effort "$EFFORT" \
+          --arg mime "$mime" \
         '{model: $model,
           max_tokens: 4096,
           thinking: {type: "adaptive"},
           output_config: {effort: $effort,
                           format: {type: "json_schema", schema: $schema}},
           messages: [{role: "user", content: [
-            {type: "image", source: {type: "base64", media_type: "image/png",
+            {type: "image", source: {type: "base64", media_type: $mime,
                                      data: ($b64|rtrimstr("\n"))}},
             {type: "text", text: $prompt}]}]}' > "$msgf"
     rm -f "$b64f"
@@ -125,13 +132,18 @@ for png in "${pngs[@]}"; do
     # crash, OOM, reboot or TimeoutStartSec kill mid-call re-billed the capture
     # on the next fire. Failing to claim is now fatal for this file, not silent.
     rec="${PENDING_DIR}/${id}"
-    if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.png"; then
+    # Name the claimed copy after its ACTUAL format, not the spool's .png token.
+    # This copy is what ends up in the archive, and the archive is retained as
+    # labelled dataset material — a JPEG called .png would mislead anything that
+    # trusts extensions. capture.sweep.sh globs screenshot.* for the same reason.
+    ext="$(image_ext "$png")"
+    if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
         notify "Capture stuck" high "warning,camera" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
         continue
     fi
-    png="${rec}/screenshot.png"
+    png="${rec}/screenshot.${ext}"
 
     ask_rc=0
     proposal="$(ask "$png" "$now_h")" || ask_rc=$?

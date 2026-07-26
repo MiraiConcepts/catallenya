@@ -150,7 +150,7 @@ example — screenshot, the model's proposal, and your verdict side by side:
 
 ```
 archive/<id>/
-  screenshot.png    what you captured
+  screenshot.png    what you captured (.jpg for Android uploads)
   proposal.json     what the model read
   event.ics         what would have been written
   decision.json     add | add_alt | discard | ignored | needs_human | not_event | failed

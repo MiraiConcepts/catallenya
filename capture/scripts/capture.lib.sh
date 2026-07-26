@@ -52,6 +52,23 @@ API_RETRY_BASE_S=5        # linear backoff: 5s, 10s
 # production; the default is the only value systemd ever runs with.
 API_URL="${API_URL:-https://api.anthropic.com/v1/messages}"
 
+# image_mime <file> -> image/png | image/jpeg   (by content, never by filename)
+# The spool name is always .png — it is the glob token capture.triage.path keys on —
+# so the extension says nothing about the bytes. A wrong media_type is an API-level
+# error, so this is sniffed. Anything unrecognised falls back to image/png; the
+# server has already rejected non-PNG/JPEG uploads by signature before this runs.
+image_mime() {
+    case "$(od -An -tx1 -N3 "$1" 2>/dev/null | tr -d ' \n')" in
+        ffd8ff) echo image/jpeg ;;
+        *)      echo image/png  ;;
+    esac
+}
+
+# image_ext <file> -> png | jpg
+image_ext() {
+    case "$(image_mime "$1")" in image/jpeg) echo jpg ;; *) echo png ;; esac
+}
+
 # api_class <http-status> -> ok | retry | fatal
 # "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
 # Lives here rather than inline in ask() so the tests assert the real mapping
