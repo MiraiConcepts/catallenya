@@ -21,24 +21,44 @@ if ! systemctl daemon-reload; then
     fail "daemon-reload failed"
 fi
 
-# --- Step 1b: Discover project timers ---
-# Don't hardcode the list. Any *.timer symlinked from this repo into systemd
-# is ours; vendor timers (logrotate, etc.) point elsewhere and are skipped.
-# Adding a service that ships a timer (+ running systemd/install.sh) makes it
-# show up here automatically — started below and counted in the ntfy message.
-log "Discovering project timers..."
+# --- Step 1b: Discover project timers and path units ---
+# Don't hardcode the list. Any *.timer or *.path symlinked from this repo into
+# systemd is ours; vendor units (logrotate, etc.) point elsewhere and are skipped.
+# Adding a service that ships one (+ running systemd/install.sh) makes it show up
+# here automatically — started below and counted in the ntfy message.
+#
+# Path units need this exactly as much as timers do, for the same reason the whole
+# orchestrator exists: a symlink into /zpool does not resolve when PID1 builds the
+# initial boot transaction, so paths.target drops the unit and nothing re-queues it
+# after the daemon-reload above. capture.triage.path is what fires the screenshot
+# triage — without this loop the capture pipeline is silently dead after every
+# reboot, container healthy and Caddy routing, while this script still reports
+# "All systems nominal."
+log "Discovering project units..."
 TIMERS=()
-for unit in "${SYSTEMD_DIR}"/*.timer; do
+PATHS=()
+for unit in "${SYSTEMD_DIR}"/*.timer "${SYSTEMD_DIR}"/*.path; do
     [[ -L "$unit" ]] || continue
-    [[ "$(readlink "$unit")" == "${COMPOSE_DIR}/"* ]] && TIMERS+=("$(basename "$unit")")
+    [[ "$(readlink "$unit")" == "${COMPOSE_DIR}/"* ]] || continue
+    case "$unit" in
+        *.timer) TIMERS+=("$(basename "$unit")") ;;
+        *.path)  PATHS+=("$(basename "$unit")") ;;
+    esac
 done
 if [[ ${#TIMERS[@]} -eq 0 ]]; then
     fail "No project timers found under ${SYSTEMD_DIR} (expected symlinks into ${COMPOSE_DIR})"
 else
-    log "  Found ${#TIMERS[@]}: ${TIMERS[*]}"
+    log "  Found ${#TIMERS[@]} timer(s): ${TIMERS[*]}"
+fi
+# Zero path units is a legitimate state (they are newer and optional), so unlike
+# timers this is not a failure.
+if [[ ${#PATHS[@]} -gt 0 ]]; then
+    log "  Found ${#PATHS[@]} path unit(s): ${PATHS[*]}"
+else
+    log "  No path units found"
 fi
 
-# --- Step 2: Start all project timers ---
+# --- Step 2: Start all project timers and path units ---
 log "Starting project timers..."
 for timer in "${TIMERS[@]}"; do
     if systemctl start "$timer" 2>/dev/null; then
@@ -47,6 +67,16 @@ for timer in "${TIMERS[@]}"; do
         fail "Failed to start $timer"
     fi
 done
+if [[ ${#PATHS[@]} -gt 0 ]]; then
+    log "Starting project path units..."
+    for pathunit in "${PATHS[@]}"; do
+        if systemctl start "$pathunit" 2>/dev/null; then
+            log "  Started $pathunit"
+        else
+            fail "Failed to start $pathunit"
+        fi
+    done
+fi
 
 # --- Step 3: Bring up Docker Compose ---
 log "Starting Docker Compose services..."
@@ -78,6 +108,13 @@ NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_POR
 TOPIC="boot"
 
 TIMER_COUNT=$(systemctl list-timers "${TIMERS[@]}" --no-pager 2>/dev/null | grep -c "\.timer" || true)
+# Path units have no list-timers equivalent, so ask systemd directly. Guarded on a
+# non-empty array: a bare `systemctl is-active` with no arguments would report on
+# every unit on the box.
+PATH_COUNT=0
+if [[ ${#PATHS[@]} -gt 0 ]]; then
+    PATH_COUNT=$(systemctl is-active "${PATHS[@]}" 2>/dev/null | grep -c '^active$' || true)
+fi
 CONTAINER_TOTAL=$(runuser -u carrein -- docker compose -f "${COMPOSE_DIR}/docker-compose.yml" ps -q 2>/dev/null | wc -l)
 
 if [[ ${#ERRORS[@]} -eq 0 ]]; then
@@ -86,6 +123,7 @@ if [[ ${#ERRORS[@]} -eq 0 ]]; then
     PRIORITY="default"
     BODY="All systems nominal.
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
+Paths: ${PATH_COUNT}/${#PATHS[@]} active
 Containers: ${CONTAINER_TOTAL} running"
 else
     TITLE="Boot Failure"
@@ -94,6 +132,7 @@ else
     BODY="Errors:
 $(printf '  - %s\n' "${ERRORS[@]}")
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
+Paths: ${PATH_COUNT}/${#PATHS[@]} active
 Containers: ${CONTAINER_TOTAL} running"
 fi
 
