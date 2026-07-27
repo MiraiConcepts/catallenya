@@ -59,7 +59,8 @@ Rules:
   2. A year ANYWHERE else in the image -> use it. It is often not next to the date: in the event or festival name ("Seaweed Fest 2025"), a footer or copyright line, a URL, a hashtag, a ticket link, an edition or season label. Look before you assume.
   3. A weekday given with the day and month ("Fri 31 Jul", "5.14 (Wed)") -> CALCULATE the year. A given day and month only falls on a given weekday roughly one year in six, so this is determinate, not a guess. Pick the nearest matching year, preferring one on or after ${1}.
   4. A yearly recurring event (a birthday, an anniversary) -> use the NEXT occurrence on or after ${1}, since that is the one worth putting in a calendar.
-  5. Nothing above applies -> assume the CURRENT year. Do not invent a future one: a poster showing a date that has already passed is far more often stale than an announcement a year out. One exception, at the turn of the year — if the current year puts it in the past AND ${1} is within about three weeks of 1 January, use the next year (a date read in late December as "5 Jan" means the coming January).
+  5. Nothing above applies — the year is genuinely UNKNOWABLE from the image, so do not pretend otherwise. Take the nearest candidate that is still ahead of ${1}: the current year if that date has not yet passed, otherwise the next year. When BOTH the current and the next year are still ahead (a date late in the year, read earlier in it), the reading is truly ambiguous, so put the other year in alternatives so the user can pick with one tap. Note in description that no year was shown.
+     Do not reject a date merely because the current year's version has passed: that is what makes an undated tour poster or flyer unusable. The user discards it if the poster was stale.
 - ALREADY PAST. Work out the full start (date, plus start_time if one is shown) and compare it with ${1}. If the whole thing is behind ${1}, the event is over: there is nothing left to schedule, so is_event=false and say so in reason. This applies to a time earlier TODAY just as much as to an earlier date — a listing read at 22:00 for a 19:15 show tonight is finished. An all-day event is past only once its whole day has gone.
   Note a receipt or confirmation for a date still to come is a real event and should be proposed normally; it is being past that matters, not the kind of document.
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
@@ -314,6 +315,14 @@ for png in "${pngs[@]}"; do
                 "$(jq -r '.start_time // ""' <<<"$alt_json")" \
                 "$(jq -r '.all_day'          <<<"$alt_json")" \
                 "$ev_date")"
+            # When the two candidates differ only by YEAR, the primary must show its
+            # year too or the pair reads "[All day] [15 Nov 27]" and the choice is
+            # invisible. Only the year-ambiguous case needs this symmetry; a
+            # different day or a different time already reads fine as-is.
+            alt_date="$(jq -r '.date' <<<"$alt_json")"
+            if [[ "${alt_date%%-*}" != "${ev_date%%-*}" ]]; then
+                primary="$(date -d "$ev_date" '+%-d %b %y' 2>/dev/null || printf 'Add')"
+            fi
             # Backstop only: both strings are now built by button_label, but a
             # comma or CRLF here would still splice the Actions list.
             [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"

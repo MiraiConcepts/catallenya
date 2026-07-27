@@ -205,9 +205,16 @@ has "needs_human is date-only now"   "$PROMPT" "no resolvable DATE"
 has "looks for a year anywhere"      "$PROMPT" "ANYWHERE else in the image"
 has "calculates from a weekday"      "$PROMPT" "CALCULATE the year"
 has "recurring resolves forward"     "$PROMPT" "NEXT occurrence on or after"
-has "falls back to the current year" "$PROMPT" "assume the CURRENT year"
-has "year-boundary exception"        "$PROMPT" "1 January"
-hasnt "no longer resolves forward by default" "$PROMPT" "NEXT time that day/month occurs"
+# When no step can determine the year, the system says so and offers both rather
+# than guessing. A tour poster read in July used to be rejected outright.
+has "admits the year is unknowable" "$PROMPT" "genuinely UNKNOWABLE"
+has "offers the other year"         "$PROMPT" "put the other year in alternatives"
+has "does not reject a stale-looking date" "$PROMPT" "Do not reject a date merely because"
+# The old January special-case is gone and deliberately not replaced: "nearest
+# candidate still ahead of now" already covers it. A poster read on 27 Dec saying
+# "5 Jan" finds this year's 5 Jan has passed and takes next year, with no clause.
+has "boundary handled by the general rule" "$PROMPT" "otherwise the next year"
+
 
 # The live failure: a 19:15 show proposed at 22:16 the same evening.
 has "past check includes the time"   "$PROMPT" "ALREADY PAST"
@@ -229,6 +236,10 @@ is "all-day says so"              "$(button_label 2026-07-31 ''    true  2026-07
 is "null start is all-day"        "$(button_label 2026-07-31 null  false 2026-07-31)" "All day"
 is "different day shows the date" "$(button_label 2026-08-02 20:15 false 2026-07-31)" "2 Aug"
 is "unparseable time is safe"     "$(button_label 2026-07-31 '8.15pm' false 2026-07-31)" "Alternative"
+# Year-ambiguous proposals offer both candidates, so the label must carry the year
+# or both buttons read "15 Nov" and the choice is unreadable.
+is "differing year shows the year" "$(button_label 2027-11-15 '' true 2026-11-15)" "15 Nov 27"
+is "same year omits it"            "$(button_label 2026-08-02 20:15 false 2026-07-31)" "2 Aug"
 
 # Whatever it produces must survive the Actions-header whitelist, or the button
 # silently degrades to a generic label.
