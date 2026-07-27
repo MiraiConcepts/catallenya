@@ -176,6 +176,42 @@ is "unstamped record uses the live setting" \
    "prod"
 rm -rf "$MODED"
 
+# ------------------------------------------------------------- prompt contract
+# These assert the SCHEMA and the prompt's rules, not the model's judgement — the
+# rules landed on 2026-07-27 after seven live captures exposed each gap, and a
+# silent revert would be invisible until the next batch of screenshots.
+echo "prompt contract"
+
+has "schema carries events_seen"     "$CAPTURE_SCHEMA" '"events_seen"'
+has "events_seen is required"        "$CAPTURE_SCHEMA" 'events_seen'
+hasnt "schema no longer asks for a button label" "$CAPTURE_SCHEMA" '"label"'
+
+PROMPT="$(bash -c 'source "$1"; source_only=1
+                   sed -n "/^triage_prompt()/,/^}/p" "$2" > /tmp/.tp.$$; . /tmp/.tp.$$
+                   triage_prompt "Monday 2026-07-27 22:16"; rm -f /tmp/.tp.$$' \
+          _ "${SCRIPT_DIR}/capture.lib.sh" "${SCRIPT_DIR}/capture.triage.sh" 2>/dev/null)"
+
+# A missing time used to escalate to needs_human, which gave the user a dead end.
+has "no time means all-day"          "$PROMPT" "NO TIME SHOWN"
+has "all-day sets start_time null"   "$PROMPT" "all_day=true, start_time=null"
+# needs_human is now only for "cannot be placed at all".
+has "needs_human is date-only now"   "$PROMPT" "no resolvable DATE"
+
+# The forward-resolution rule was replaced: assume the current year, except at the
+# turn of the year, where a December capture of a January date means next January.
+has "assumes the current year"       "$PROMPT" "assume the CURRENT year"
+has "year-boundary exception"        "$PROMPT" "1 January"
+hasnt "no longer resolves forward by default" "$PROMPT" "NEXT time that day/month occurs"
+
+# The live failure: a 19:15 show proposed at 22:16 the same evening.
+has "past check includes the time"   "$PROMPT" "ALREADY PAST"
+has "explicitly covers earlier today" "$PROMPT" "earlier TODAY"
+has "all-day is past only after its day" "$PROMPT" "whole day has gone"
+
+# Multi-event: pick the soonest and say how many there were.
+has "asks for the soonest"           "$PROMPT" "starting SOONEST"
+has "asks for the true count"        "$PROMPT" "true count"
+
 # ----------------------------------------------------------------- button labels
 # Shipped wart: the primary button was forced to 24h from start_time while the
 # alternative label came free-form from the model, whose prompt examples were 12h.
