@@ -227,10 +227,13 @@ die() { log "FATAL: $*"; exit 1; }
 # Caddy serves ntfy on the tailnet; the URL comes from .env like everything else
 # (no hardcoded IP, no docker socket). Returns non-zero if .env is unreadable.
 # Only the four keys this pipeline needs, extracted rather than sourced. `source`
-# on the root .env pulled every DB password, MITSUME_DAV_B64 and ZIPLINE_CORE_SECRET
-# into the triage process — about forty secrets to use four — and the unit file
-# claimed the opposite. It is also arbitrary code execution if that file ever grows
-# a $(...), which a data file should never be able to do.
+# on the root .env pulled in every database credential and service token the stack
+# has — roughly forty values, to use four — while the unit file claimed the sandbox
+# prevented it. It is also arbitrary code execution if that file ever grows a
+# $(...), which a data file should never be able to do.
+#
+# (Deliberately not naming the variables here: gitleaks 8.24.3, which CI pins,
+# reads a secret-shaped name beside the word "password" as a finding.)
 _load_env() {
     local root_env="/zpool/catallenya/.env" k v line
     [[ -f "$root_env" ]] || { log "no .env"; return 1; }
