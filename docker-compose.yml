@@ -476,6 +476,10 @@ services:
       # constants like `reverse_proxy radicale:5232`, not secrets.
       CAL_GENERAL: ac0fbe63-a775-4603-97cb-03020b239ae3 # carrein-calendar
       CAL_BIRTHDAY: 28acf882-0a72-5d71-b645-5b6e1a7f8ca1 # carrein-birthday
+      # The ONE browser origin allowed to satisfy the X-Capture preflight. The ntfy
+      # web UI taps buttons via browser fetch, so CORS applies to it; the phone app
+      # does native HTTP and never sees this. Any other page is still refused.
+      NTFY_ORIGIN: https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}
     # The Radicale password comes in as a file, not an env var: `docker inspect`
     # and /proc/1/environ both expose environment, and this credential is good for
     # read/write/delete across the whole /carrein/ tree. Same pattern as immich's

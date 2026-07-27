@@ -199,7 +199,13 @@ has "needs_human is date-only now"   "$PROMPT" "no resolvable DATE"
 
 # The forward-resolution rule was replaced: assume the current year, except at the
 # turn of the year, where a December capture of a January date means next January.
-has "assumes the current year"       "$PROMPT" "assume the CURRENT year"
+# Year resolution is a hierarchy: only the last step is a guess. Each step below
+# came from a real capture — the year in an event NAME, the weekday the model used
+# spontaneously on a flyer, and a birthday that must resolve forward.
+has "looks for a year anywhere"      "$PROMPT" "ANYWHERE else in the image"
+has "calculates from a weekday"      "$PROMPT" "CALCULATE the year"
+has "recurring resolves forward"     "$PROMPT" "NEXT occurrence on or after"
+has "falls back to the current year" "$PROMPT" "assume the CURRENT year"
 has "year-boundary exception"        "$PROMPT" "1 January"
 hasnt "no longer resolves forward by default" "$PROMPT" "NEXT time that day/month occurs"
 

@@ -26,6 +26,13 @@ const DAV_B64 = (() => {
   try { return readFileSync("/run/secrets/capture-dav-secret", "utf8").trim(); }
   catch { return process.env.MITSUME_DAV_B64 ?? ""; }
 })();
+// The ntfy web UI fires the action buttons with browser fetch(), so the custom
+// X-Capture header triggers a CORS preflight. Refusing every preflight — which is
+// what shipped this morning — blocks the web client entirely: the tap surfaces as
+// "TypeError: NetworkError". Allowing exactly this one origin keeps the control
+// intact, because browsers set Origin and a page cannot forge it, so an arbitrary
+// tab still cannot reach these callbacks. The phone app is unaffected either way.
+const NTFY_ORIGIN = process.env.NTFY_ORIGIN ?? "";
 const CAL: Record<string, string> = {
   general: process.env.CAL_GENERAL ?? "",
   birthday: process.env.CAL_BIRTHDAY ?? "",
@@ -243,6 +250,22 @@ Bun.serve({
     const url = new URL(req.url);
     if (url.pathname === "/healthz") return new Response("ok");
 
+    // Answer the preflight for the ntfy web UI, and only for it.
+    const origin = req.headers.get("origin") ?? "";
+    const originOk = NTFY_ORIGIN !== "" && origin === NTFY_ORIGIN;
+    if (req.method === "OPTIONS") {
+      if (!originOk) return json({ error: "origin not allowed" }, 403);
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": origin,
+          "access-control-allow-methods": "POST",
+          "access-control-allow-headers": "X-Capture, Content-Type",
+          "access-control-max-age": "86400",
+        },
+      });
+    }
+
     const m = url.pathname.match(/^\/capture(?:\/([^/]+)\/(add|drop))?\/?$/);
     if (!m) return json({ error: "not found" }, 404);
 
@@ -273,9 +296,13 @@ Bun.serve({
     if (!UUID.test(id)) return json({ error: "bad id" }, 400); // reject path traversal
     if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-    return action === "add"
-      ? handleAdd(id, url.searchParams.get("alt") === "1")
-      : handleDrop(id);
+    const res = action === "add"
+      ? await handleAdd(id, url.searchParams.get("alt") === "1")
+      : await handleDrop(id);
+    // Without this the browser blocks the caller from reading its own response, so
+    // a tap that actually worked still reports a network error.
+    if (originOk) res.headers.set("access-control-allow-origin", origin);
+    return res;
   },
 });
 
