@@ -103,6 +103,25 @@ is "null start treated as all-day" "$(past 2026-07-27 null false)" "upcoming"
 # A date the shell cannot parse must not be called past — that would drop a real event.
 is "unparseable date is not past"  "$(past 'not-a-date' 19:15 false)" "upcoming"
 
+# The partition the fan-out runs on: N upcoming notifications plus ONE note covering
+# everything already over, whatever N is. Eight events with five gone is three pings
+# and a note, not eight pings.
+split() { # $1 = space-separated "date,time" list -> "<upcoming> up, <past> past"
+    local u=0 p=0 e d t
+    for e in $1; do d="${e%%,*}"; t="${e##*,}"
+        event_is_past "$d" "$t" false "$NOWE" && p=$((p+1)) || u=$((u+1)); done
+    echo "${u} up, ${p} past"
+}
+is "8 events, 1 gone" \
+   "$(split '2026-07-27,19:15 2026-07-28,19:15 2026-07-29,19:15 2026-07-30,19:15 2026-07-31,19:00 2026-07-31,19:15 2026-07-31,20:00 2026-07-31,21:15')" \
+   "7 up, 1 past"
+is "8 events, 5 gone" \
+   "$(split '2026-07-25,19:15 2026-07-26,19:15 2026-07-27,08:00 2026-07-27,12:00 2026-07-27,19:15 2026-07-28,19:15 2026-07-29,19:15 2026-07-30,19:15')" \
+   "3 up, 5 past"
+is "all gone means no upcoming" \
+   "$(split '2026-07-26,19:15 2026-07-27,19:15')" \
+   "0 up, 2 past"
+
 # --------------------------------------------------------------- fan-out
 # One screenshot, several events: each gets its own record, sharing one image.
 echo "fork_record"
