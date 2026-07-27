@@ -80,6 +80,29 @@ out="$(mut 'del(.is_event, .needs_human, .alternatives)' | render)"
 has "renders a bare event object" "$out" "DTSTART:20260726T050000Z"
 hasnt "no is_event complaint"     "$out" "not an event"
 
+# --------------------------------------------------------------- past events
+# A page of eight used to yield seven notifications, because the eighth had already
+# started and was silently omitted. Past-ness is computed here, never asked of the
+# model, and a passed event is shown marked rather than dropped.
+echo "event_is_past"
+
+# Built in EVENT_TZ, not the host's. The box runs PDT and the calendar is SGT, so a
+# bare `date -d` here makes "now" 15 hours late and today's later events read as past.
+# Production is unaffected — it uses the screenshot's mtime, which is a real epoch.
+NOWE=$(TZ="$EVENT_TZ" date -d '2026-07-27 23:49' +%s)
+past() { event_is_past "$1" "$2" "$3" "$NOWE" && echo past || echo upcoming; }
+
+is "earlier today is past"        "$(past 2026-07-27 19:15 false)" "past"
+is "later today is upcoming"      "$(past 2026-07-27 23:55 false)" "upcoming"
+is "tomorrow is upcoming"         "$(past 2026-07-28 19:15 false)" "upcoming"
+is "yesterday is past"            "$(past 2026-07-26 19:15 false)" "past"
+# An all-day event is not over until its whole day is.
+is "all-day today is upcoming"    "$(past 2026-07-27 '' true)"     "upcoming"
+is "all-day yesterday is past"    "$(past 2026-07-26 '' true)"     "past"
+is "null start treated as all-day" "$(past 2026-07-27 null false)" "upcoming"
+# A date the shell cannot parse must not be called past — that would drop a real event.
+is "unparseable date is not past"  "$(past 'not-a-date' 19:15 false)" "upcoming"
+
 # --------------------------------------------------------------- fan-out
 # One screenshot, several events: each gets its own record, sharing one image.
 echo "fork_record"
@@ -270,8 +293,10 @@ has "boundary handled by the general rule" "$PROMPT" "otherwise the next year"
 
 # The live failure: a 19:15 show proposed at 22:16 the same evening.
 has "past check includes the time"   "$PROMPT" "ALREADY PAST"
-has "explicitly covers earlier today" "$PROMPT" "earlier TODAY"
-has "all-day is past only after its day" "$PROMPT" "whole day has gone"
+# "earlier today" and "an all-day event is not over until its day is" used to be
+# asserted against the PROMPT. They are now properties of event_is_past and tested
+# directly above — a computed guarantee rather than a wording the model might read
+# differently. Deliberately not re-asserted here.
 
 # Multi-event: pick the soonest and say how many there were.
 # Backticks in this prompt are command substitution — see the note on the heredoc.

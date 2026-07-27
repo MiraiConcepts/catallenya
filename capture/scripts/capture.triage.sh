@@ -69,8 +69,8 @@ Rules:
      A year alternative belongs to THIS STEP ONLY. If any of steps 1-4 gave you the year, the year is settled — do not offer another one. A weekday that pins the year settles it: "Friday 4 December" is 2026 and nothing else, so 2025 is not a candidate, it is a different weekday.
      NEVER put a date in the past into alternatives. Every option offered must be one the user could still attend.
      Do not reject a date merely because the current year's version has passed: that is what makes an undated tour poster or flyer unusable. The user discards it if the poster was stale.
-- ALREADY PAST. Work out the full start (date, plus start_time if one is shown) and compare it with ${1}. If the whole thing is behind ${1}, the event is over: there is nothing left to schedule, so is_event=false and say so in reason. This applies to a time earlier TODAY just as much as to an earlier date — a listing read at 22:00 for a 19:15 show tonight is finished. An all-day event is past only once its whole day has gone.
-  Note a receipt or confirmation for a date still to come is a real event and should be proposed normally; it is being past that matters, not the kind of document.
+- ALREADY PAST. List every event the image shows, INCLUDING ones whose time has gone — do not silently leave them out. Whether an event is over is worked out from its date and time, not by you, and the user is shown it marked as passed so a page of eight events never yields seven notifications with no explanation.
+  is_event=false belongs to a different case: the image describes nothing schedulable at all, or everything it describes is a record of something finished (a receipt, an order confirmation, an itinerary for a trip already taken) with nothing left to put in a calendar. A confirmation for a date still to come is a real event and is listed normally.
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
@@ -132,7 +132,7 @@ ask() {
 # One event, one notification, one set of buttons — the record it points at holds
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
-    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" seen="$6"
+    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" seen="$6" past="${7:-0}"
     local title ev_date ev_start ev_end ev_loc ev_cal all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
@@ -174,11 +174,15 @@ notify_event() {
     fi
     [[ -n "$ev_loc" ]] && body+=$'\n'"${ev_loc}"
     body+=$'\n'"${ev_cal^}"
-    # Say where this sits among the rest, so a lone notification from a busy page is
-    # never mistaken for the whole story.
+    # An event that has already happened is still shown, marked — leaving it out is
+    # what made a page of eight produce seven notifications with no explanation.
+    (( past )) && body+=$'\n'"⚠ Already passed"
+    # Where this sits among the rest, so one notification from a busy page is never
+    # mistaken for the whole story. The page total is mentioned ONLY when the cap
+    # actually held something back; every other event is in front of you.
     if (( of > 1 )); then
         body+=$'\n'"Event ${n} of ${of} from one screenshot"
-        (( seen > of )) && body+=" (${seen} on the page)"
+        (( seen > of )) && body+=" — ${seen} on the page, $(( seen - of )) not shown"
     fi
 
     if ! base="$(capture_base_url)"; then
@@ -210,7 +214,11 @@ notify_event() {
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
-    notify "${title}" default "calendar" "$body" "$actions"
+    if (( past )); then
+        notify "${title}" low "hourglass" "$body" "$actions"
+    else
+        notify "${title}" default "calendar" "$body" "$actions"
+    fi
 }
 
 # --- drain incoming/ -------------------------------------------------------
@@ -234,6 +242,7 @@ for png in "${pngs[@]}"; do
     # Read BEFORE the move, since mv preserves mtime but the path changes.
     now_h="$(TZ="$EVENT_TZ" date -r "$png" '+%A %Y-%m-%d %H:%M')"
     now_z="$(date -u +%Y%m%dT%H%M%SZ)"
+    now_epoch="$(stat -c %Y "$png")"
 
     # CLAIM THE FILE FIRST — this is what makes the hard invariant real.
     # Everything below operates on the moved copy, so incoming/ is drained before
@@ -316,6 +325,25 @@ for png in "${pngs[@]}"; do
     # than teaching the container about indexes means the container, the sweep, the
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
+    # If EVERY event on the page is over there is nothing to act on, so say it once
+    # rather than sending N "already passed" pings. This is also what keeps the
+    # single-capture behaviour intact: one finished show still reads "no event".
+    past_count=0
+    for (( ei = 0; ei < ev_count; ei++ )); do
+        pe="$(jq -c --argjson i "$ei" '.events[$i]' <<<"$proposal")"
+        event_is_past "$(jq -r '.date' <<<"$pe")" "$(jq -r '.start_time // ""' <<<"$pe")" \
+                      "$(jq -r '.all_day' <<<"$pe")" "$now_epoch" && past_count=$((past_count + 1))
+    done
+    if (( past_count == ev_count )); then
+        OK=$((OK + 1))
+        jq -c . <<<"$proposal" > "${rec}/proposal.json" 2>/dev/null || true
+        archive_record "$id" "$rec" not_event "all ${ev_count} event(s) have already passed"
+        log "  all ${ev_count} event(s) already passed"
+        notify "Nothing to add" low "hourglass" \
+               "Everything on that screenshot has already happened.$( (( ev_count > 1 )) && printf ' (%s events)' "$ev_count" )"
+        continue
+    fi
+
     # Keep the WHOLE reply before fanning out. Each record otherwise holds only its
     # own event, so a truncated capture could not afterwards be told apart from one
     # the model simply read short — which is what happened on 2026-07-27.
@@ -369,7 +397,15 @@ for png in "${pngs[@]}"; do
             continue
         fi
 
-        notify_event "$eid" "$erec" "$ev" "$((ei + 1))" "$ev_count" "$ev_seen"
+        # Past-ness is computed, never taken from the model. A passed event still
+        # gets its own notification — a page of eight must not quietly yield seven.
+        if event_is_past "$(jq -r '.date' <<<"$ev")" "$(jq -r '.start_time // ""' <<<"$ev")" \
+                         "$(jq -r '.all_day' <<<"$ev")" "$now_epoch"; then
+            ev_past=1
+        else
+            ev_past=0
+        fi
+        notify_event "$eid" "$erec" "$ev" "$((ei + 1))" "$ev_count" "$ev_seen" "$ev_past"
         OK=$((OK + 1)); emitted=$((emitted + 1))
     done
 
