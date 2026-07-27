@@ -35,13 +35,35 @@ Two halves, sharing only the `capture/data/` spool:
 The split exists so the triage stays a reusable API-caller for future non-capture
 consumers, not because the container needs it.
 
-The model answers with one schema-constrained object — is-it-an-event, title, date,
-`start_time`, `end_time`, all-day, timezone, recurrence, location, description, which
-calendar, and at most one alternative reading. `end_time` is filled only when the image
-actually shows a range or a duration (`5:00 PM - 7:00 PM`, `2hrs`, `90 min`); when only
-a start is visible the renderer applies a 60-minute default rather than letting the
-model guess. Everything downstream of that object is deterministic — `render_ics.py`
-never talks to the API.
+The model answers with one schema-constrained object holding a LIST of events, each
+with title, date, `start_time`, `end_time`, all-day, timezone, recurrence, location,
+description, which calendar, and at most one alternative reading of that same event.
+Most screenshots yield one; a festival day or a tour poster yields several.
+`end_time` is filled only when the image actually shows a range or a duration
+(`5:00 PM - 7:00 PM`, `2hrs`, `90 min`); when only a start is visible the renderer
+applies a 60-minute default rather than letting the model guess. Everything
+downstream of that object is deterministic — `render_ics.py` never talks to the API.
+
+**One screenshot, several events.** The triage fans a multi-event reply into one
+RECORD PER EVENT — each with its own id, `.ics`, notification and buttons, all
+sharing a single hardlinked screenshot. Nothing downstream knows about this: each
+record is exactly the one-event shape the container, the sweep, the archive and the
+ledger already handle, which is why there is no indexed callback. `MAX_EVENTS_PER_CAPTURE`
+bounds the ping storm; `events_seen` records the true page total, and a truncated
+list says so in the body.
+
+**What the model decides, and what code decides.** The model reads the image and
+lists what it sees, past events included. Whether an event is *over* is computed by
+`event_is_past()` from its date, start time and the capture moment in `EVENT_TZ` —
+never asked of the model. Upcoming events each get a notification; everything already
+finished is collapsed into a single "Already passed" note listing the titles. A page
+where nothing is left produces just that one note.
+
+**Year resolution** is a hierarchy, and only the last step is a guess: an explicit
+year beside the date, then a year anywhere else in the image (event name, footer,
+URL, hashtag), then *calculated* from a stated weekday — a date falls on a given
+weekday about one year in six — then the next occurrence for a yearly recurring
+event, and only then the current year, taking the nearest candidate still ahead.
 
 ## Components
 
@@ -49,7 +71,9 @@ never talks to the API.
 |---|---|
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/capture.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
-| `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, archive ignored ones |
+| `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots |
+| `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `event_is_past`, `api_post` retry, `button_label`, `fork_record` |
+| `tests/run.sh` | offline regression suite — every case is a bug that shipped |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + hourly sweep `.timer` |
 | `client/capture.sh` | **laptop-side** hotkey script (see below) |
@@ -134,11 +158,30 @@ sudo chmod 600 /etc/capture.env
 
 Then:
 
+The container also needs the Radicale credential as a docker secret — the same
+`base64(carrein:<app pw>)` Caddy injects for mitsume. It is a file, not an env var,
+because `docker inspect` and `/proc/1/environ` both expose environment, and that
+credential is good for read, write and delete across the whole `/carrein/` tree:
+
+```bash
+grep -m1 '^MITSUME_DAV_B64=' .env | cut -d= -f2- > capture/dav-secret
+chmod 600 capture/dav-secret
+```
+
+Then:
+
 ```bash
 docker compose up -d --build capture
 docker compose up -d --force-recreate caddy   # new port needs a recreate, not restart
 sudo bash systemd/install.sh                  # symlinks + enables the .path and .timer
 ```
+
+`NTFY_ORIGIN` is set in compose from the tailnet vars. It is the ONE browser origin
+allowed to satisfy the `X-Capture` preflight: the ntfy web UI taps buttons with
+browser `fetch()`, so CORS applies to it, and refusing every preflight — which
+shipped briefly on 2026-07-27 — breaks the web client with an opaque
+`TypeError: NetworkError`. The phone app does native HTTP and never sees this. Any
+other page is still refused, because browsers set `Origin` and a page cannot forge it.
 
 Last step is subscribing a device to the `capture` topic (below). Everything else can
 be green and you will still never see a proposal without it.
@@ -156,9 +199,13 @@ archive/<id>/
   screenshot.png    what you captured (.jpg for Android uploads)
   context.json      model, effort, the full prompt + its hash, capture time, tokens
   mode              off | test | prod, as of when the capture was taken
-  proposal.json     what the model read
+  capture.json      the WHOLE model reply, so a capped or partial capture stays
+                    diagnosable after the fan-out has split it up
+  mode              off | test | prod, as of when the capture was taken
+  proposal.json     the one event this record is about
   event.ics         what would have been written
-  decision.json     add | add_alt | discard | ignored | needs_human | not_event | failed
+  decision.json     add | add_alt | add_duplicate | undone | discard | ignored |
+                    needs_human | not_event | failed
 ```
 
 `data/decisions.jsonl` is the same verdicts as an append-only ledger, so accept
@@ -199,7 +246,24 @@ ones (you keep more than you meant, and the metric does not move). The pre-2026-
 `.recording-disabled` flag still works as a synonym for `off`.
 
 Note that outside `off`, **Discard no longer deletes** — every screenshot you tap
-away is retained, including ones captured by accident.
+away is retained, including ones captured by accident. Discard on a capture that was
+already ADDED is different again: it undoes it, deleting the event from Radicale and
+recording the outcome as `undone`.
+
+**Screenshots are pruned, the rest is not.** After `PRUNE_IMAGE_AFTER_DAYS` the sweep
+deletes the IMAGE from an archived record and leaves a `screenshot.pruned` marker;
+the proposal, the `.ics`, the context and the verdict stay, because they are
+text-sized and carry the analysis value. Records the model got *wrong*
+(`PRUNE_KEEP_IMAGE_OUTCOMES`) keep their image indefinitely — those are the ones
+worth looking at again. Set the interval to 0 to disable pruning.
+
+The archive is an **eval** set, not training data: these models cannot be fine-tuned
+here. Its uses are replaying a new model against recorded verdicts, iterating the
+prompt against real failures, and few-shot examples. `context.json` is what makes
+that possible — without the prompt that produced a proposal, a difference between
+two records could be the prompt, the model or the screenshot, with no way to tell.
+The prompt is hashed as a TEMPLATE, with the capture time substituted out, so
+records group by prompt version rather than every capture hashing differently.
 ```
 
 **It is currently OFF** (nothing is being kept) while the pipeline is being exercised.
