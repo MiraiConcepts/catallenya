@@ -86,6 +86,9 @@ DURATION_MIN=60           # default length when only a start time is known
 # so nothing here is copied off-box. ZFS + sanoid still cover disk failure and
 # rollback. Do NOT add capture/ to restic without revisiting that decision — a
 # screenshot can contain anything that was on screen.
+# A festival page can list a dozen acts. Each becomes its own notification, so this
+# caps the ping storm; events_seen still records the true count and the body says so.
+MAX_EVENTS_PER_CAPTURE=4
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
@@ -277,11 +280,12 @@ clean_proposal() {
       def clean: if type == "string"
                  then (explode | map(select(. >= 32 and . != 127)) | implode | .[0:500])
                  else . end;
-        .title       |= clean
-      | .location    |= clean
-      | .description |= clean
-      | .reason      |= clean
-      | .alternatives = [ .alternatives[]? | .label |= clean | .location |= clean ]
+        .reason |= clean
+      | .events = [ .events[]?
+                    | .title       |= clean
+                    | .location    |= clean
+                    | .description |= clean
+                    | .alternatives = [ .alternatives[]? | .location |= clean ] ]
     ' <<<"$1"
 }
 
@@ -484,33 +488,42 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
     "is_event":    {"type": "boolean"},
     "needs_human": {"type": "boolean"},
     "events_seen": {"type": "integer"},
-    "calendar":    {"type": "string", "enum": ["general", "birthday"]},
-    "title":       {"type": "string"},
-    "date":        {"type": "string"},
-    "start_time":  {"type": ["string", "null"]},
-    "end_time":    {"type": ["string", "null"]},
-    "all_day":     {"type": "boolean"},
-    "timezone":    {"type": "string"},
-    "recurrence":  {"type": "string", "enum": ["none","yearly","monthly","weekly","daily"]},
-    "location":    {"type": ["string", "null"]},
-    "description": {"type": ["string", "null"]},
     "reason":      {"type": ["string", "null"]},
-    "alternatives": {
+    "events": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "date":       {"type": "string"},
-          "start_time": {"type": ["string", "null"]},
-          "location":   {"type": ["string", "null"]}
+          "calendar":    {"type": "string", "enum": ["general", "birthday"]},
+          "title":       {"type": "string"},
+          "date":        {"type": "string"},
+          "start_time":  {"type": ["string", "null"]},
+          "end_time":    {"type": ["string", "null"]},
+          "all_day":     {"type": "boolean"},
+          "timezone":    {"type": "string"},
+          "recurrence":  {"type": "string", "enum": ["none","yearly","monthly","weekly","daily"]},
+          "location":    {"type": ["string", "null"]},
+          "description": {"type": ["string", "null"]},
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "date":       {"type": "string"},
+                "start_time": {"type": ["string", "null"]},
+                "location":   {"type": ["string", "null"]}
+              },
+              "required": ["date", "start_time", "location"]
+            }
+          }
         },
-        "required": ["date", "start_time", "location"]
+        "required": ["calendar","title","date","start_time","end_time","all_day",
+                     "timezone","recurrence","location","description","alternatives"]
       }
     }
   },
-  "required": ["is_event","needs_human","events_seen","calendar","title","date","start_time",
-               "end_time","all_day","timezone","recurrence","location","description","reason",
-               "alternatives"]
+  "required": ["is_event","needs_human","events_seen","reason","events"]
 }
 JSON

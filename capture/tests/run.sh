@@ -112,19 +112,28 @@ echo "clean_proposal"
 # The not_event branch sends the model's `reason` to notify() as the entire body.
 # curl -d would read a leading "@" as a filename; --data-raw plus this stripping is
 # belt and braces.
-out="$(clean_proposal "$(mut ".title=\"AB${CR}C\" | .reason=\"line1${CR}line2\"")")"
-hasnt "control chars stripped from title"  "$(jq -r .title  <<<"$out")" "$CR"
+# clean_proposal reaches inside events[], since that is the shape the model returns.
+# Built with jq --arg, not raw JSON text: a literal CR inside a JSON string literal
+# is invalid JSON and jq would refuse to parse it.
+ev() { # $1 = title -> a whole proposal carrying one event with that title
+    jq -cn --arg t "$1" '{is_event:true, needs_human:false, events_seen:1, reason:"r",
+        events:[{title:$t, location:null, description:null, alternatives:[]}]}'
+}
+
+out="$(clean_proposal "$(ev "AB${CR}C")")"
+hasnt "control chars stripped from title" "$(jq -r '.events[0].title' <<<"$out")" "$CR"
+is    "title otherwise intact"            "$(jq -r '.events[0].title' <<<"$out")" "ABC"
+
+out="$(clean_proposal "$(ev "$(printf 'x%.0s' {1..600})")")"
+is "long title capped at 500" "$(jq -r '.events[0].title|length' <<<"$out")" "500"
+
+out="$(clean_proposal "$(ev 'Café ☕')")"
+is "unicode survives cleaning" "$(jq -r '.events[0].title' <<<"$out")" "Café ☕"
+is "nulls stay null" "$(jq -r '[.events[0].location,.events[0].description]|map(type)|join(",")' <<<"$out")" "null,null"
+
+# reason lives at the top level and is what the not_event notification sends.
+out="$(clean_proposal "$(jq -cn --arg r "line1${CR}line2" '{reason:$r, events:[]}')")"
 hasnt "control chars stripped from reason" "$(jq -r .reason <<<"$out")" "$CR"
-is    "title otherwise intact"             "$(jq -r .title  <<<"$out")" "ABC"
-
-out="$(clean_proposal "$(mut '.title="'"$(printf 'x%.0s' {1..600})"'"')")"
-is "long title capped at 500" "$(jq -r '.title|length' <<<"$out")" "500"
-
-out="$(clean_proposal "$(mut '.title="Café ☕"')")"
-is "unicode survives cleaning" "$(jq -r .title <<<"$out")" "Café ☕"
-
-out="$(clean_proposal "$(mut '.location=null|.description=null')")"
-is "nulls stay null" "$(jq -r '[.location,.description]|map(type)|join(",")' <<<"$out")" "null,null"
 
 # -------------------------------------------------------------- recording mode
 echo "recording_mode / record_mode"
@@ -229,8 +238,8 @@ has "explicitly covers earlier today" "$PROMPT" "earlier TODAY"
 has "all-day is past only after its day" "$PROMPT" "whole day has gone"
 
 # Multi-event: pick the soonest and say how many there were.
-has "asks for the soonest"           "$PROMPT" "starting SOONEST"
-has "asks for the true count"        "$PROMPT" "true count"
+# Backticks in this prompt are command substitution — see the note on the heredoc.
+hasnt "prompt contains no backticks" "$PROMPT" '`' 
 
 # ----------------------------------------------------------------- button labels
 # Shipped wart: the primary button was forced to 24h from start_time while the
