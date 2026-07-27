@@ -18,13 +18,60 @@ ARCHIVE_DIR="${DATA_DIR}/archive"
 # Append-only ledger of the same verdicts, one JSON object per line, for analysis
 # without walking the archive (accept rate over time, alt-tap rate, etc).
 DECISIONS_LOG="${DATA_DIR}/decisions.jsonl"
-# Presence of this file switches recording OFF: resolved captures are deleted
-# outright instead of being archived, and nothing is appended to the ledger. Use
-# it while exercising the pipeline so test taps don't get counted as verdicts.
-#   touch  capture/data/.recording-disabled   -> off (nothing kept)
-#   rm     capture/data/.recording-disabled   -> on  (screenshots + verdicts kept)
-# Checked at write time, so toggling needs no restart of anything.
-RECORDING_OFF_FLAG="${DATA_DIR}/.recording-disabled"
+# Test taps land here instead. Kept rather than discarded because while a prompt is
+# being iterated on, the test verdicts ARE the signal — "did the year fix work" is
+# answered from these. A separate file beats one file plus a filter: there is no
+# filter to get wrong later, and the production accept rate cannot be contaminated.
+DECISIONS_TEST_LOG="${DATA_DIR}/decisions.test.jsonl"
+
+# --- recording mode --------------------------------------------------------
+# One word in one file, rather than a pair of negatively-named flags whose
+# combinations nobody can hold in their head:
+#
+#   off    resolved captures are DELETED; nothing is counted
+#   test   captures are KEPT; verdicts go to decisions.test.jsonl
+#   prod   captures are KEPT; verdicts go to decisions.jsonl
+#
+#   printf 'test\n' > capture/data/recording-mode
+#   cat capture/data/recording-mode      # answers "what am I in" in one line
+#
+# Read at use time, so changing it needs no restart of anything.
+MODE_FILE="${DATA_DIR}/recording-mode"
+# Pre-2026-07-27 flag. Kept as a synonym for `off` so that if it ever reappears —
+# from a snapshot rollback, an old runbook — it still does the conservative thing
+# rather than silently promoting the box to prod and retaining everything.
+LEGACY_OFF_FLAG="${DATA_DIR}/.recording-disabled"
+
+# recording_mode -> off | test | prod
+# Missing file means prod: retention is the documented policy (user, 2026-07-25),
+# and a fresh install silently recording nothing is exactly the failure this
+# replaces. The triage logs the active mode every run so it is never invisible.
+#
+# An unreadable or misspelt value falls back to TEST, not to either extreme. A typo
+# landing on prod would silently contaminate the accept rate — the precise harm this
+# exists to prevent — and one landing on off would silently destroy records, which
+# is unrecoverable. test is the only value whose failure modes are both reversible:
+# you keep more than you meant to, and the metric does not move.
+recording_mode() {
+    [[ -e "$LEGACY_OFF_FLAG" ]] && { echo off; return; }
+    [[ -f "$MODE_FILE" ]] || { echo prod; return; }
+    local m
+    m="$(tr -d '[:space:]' < "$MODE_FILE" 2>/dev/null)"
+    case "$m" in
+        off|test|prod) echo "$m" ;;
+        *) log "  !! unrecognised recording-mode '${m}' — falling back to test"; echo test ;;
+    esac
+}
+
+# record_mode <record-dir> -> off | test | prod
+# The mode a record was CAPTURED under, not the mode in force when the button was
+# finally tapped. Without this, ten test captures tapped after a switch to prod are
+# counted as production data. Records predating the stamp fall back to the current
+# mode, which is the best available answer for them.
+record_mode() {
+    local f="${1}/mode"
+    [[ -f "$f" ]] && tr -d '[:space:]' < "$f" || recording_mode
+}
 SCRIPT_DIR="${CAPTURE_DIR}/scripts"
 
 NTFY_TOPIC="capture"
@@ -256,10 +303,13 @@ archive_record() {
     local dest="${ARCHIVE_DIR}/${id}"
     [[ -d "$src" ]] || return 1
 
-    # Recording off: bin the whole record, log the outcome to the journal only.
-    if [[ -e "$RECORDING_OFF_FLAG" ]]; then
+    # The mode the capture was TAKEN under, not the one in force now.
+    local mode; mode="$(record_mode "$src")"
+
+    # off: bin the whole record, log the outcome to the journal only.
+    if [[ "$mode" == "off" ]]; then
         rm -rf "$src"
-        log "  [not recorded: ${outcome}] recording is disabled"
+        log "  [not recorded: ${outcome}] recording-mode is off"
         return 0
     fi
 
@@ -272,14 +322,18 @@ archive_record() {
     proposed="$(date -u -r "$src" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$decided")"
     latency=$(( $(date +%s) - $(stat -c %Y "$src" 2>/dev/null || date +%s) ))
 
-    jq -n --arg id "$id" --arg outcome "$outcome" --arg note "$note" \
+    jq -n --arg id "$id" --arg outcome "$outcome" --arg note "$note" --arg mode "$mode" \
           --arg decided "$decided" --arg proposed "$proposed" --argjson latency "$latency" \
-        '{id:$id, outcome:$outcome, note:$note, proposed_at:$proposed,
+        '{id:$id, outcome:$outcome, note:$note, mode:$mode, proposed_at:$proposed,
           decided_at:$decided, latency_s:$latency}' > "${src}/decision.json"
 
     rm -rf "$dest"
     mv "$src" "$dest" || return 1
-    jq -c . "${dest}/decision.json" >> "$DECISIONS_LOG"
+    # test verdicts go to their own ledger, so the production accept rate can never
+    # be contaminated by a tap made while exercising the pipeline.
+    local ledger="$DECISIONS_LOG"
+    [[ "$mode" == "test" ]] && ledger="$DECISIONS_TEST_LOG"
+    jq -c . "${dest}/decision.json" >> "$ledger"
 }
 
 # The capture service's own tailnet URL — the Add/Discard buttons POST back here,

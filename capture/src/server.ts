@@ -12,7 +12,7 @@
 // the owner. That's the same trust model as every other service here.
 
 import { mkdir, rename, rm, readFile, stat, appendFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const DATA = process.env.CAPTURE_DATA ?? "/data";
 const PORT = Number(process.env.CAPTURE_PORT ?? 8080);
@@ -26,21 +26,40 @@ const CAL: Record<string, string> = {
 
 const spool = (...p: string[]) => [DATA, ...p].join("/");
 
+// The mode a record was CAPTURED under — the triage stamps it when it claims the
+// screenshot. Falls back to the live setting for records predating the stamp, then
+// to the legacy flag, then to prod. Mirrors recording_mode()/record_mode() in
+// capture.lib.sh; the two halves are kept in step by hand, so change both.
+function recordMode(src: string): "off" | "test" | "prod" {
+  const read = (p: string) => {
+    try { return readFileSync(p, "utf8").trim(); } catch { return ""; }
+  };
+  const stamped = read(`${src}/mode`);
+  if (stamped === "off" || stamped === "test" || stamped === "prod") return stamped;
+  if (existsSync(spool(".recording-disabled"))) return "off";     // legacy synonym
+  const live = read(spool("recording-mode"));
+  if (live === "off" || live === "test" || live === "prod") return live;
+  // Unrecognised falls to test, not to either extreme: prod would silently
+  // contaminate the accept rate, off would silently destroy the record.
+  return existsSync(spool("recording-mode")) ? "test" : "prod";
+}
+
 // Resolve a capture: stamp the verdict into the record, move the whole thing
 // (screenshot + proposal + .ics) to the archive, and append one line to the
-// ledger. Nothing is deleted — the screenshot plus the model's proposal plus the
-// human verdict is a labelled example, and that dataset is the point of keeping
-// captures indefinitely. Mirrors archive_record() in capture.lib.sh.
+// ledger. Outside `off`, nothing is deleted — the screenshot plus the model's
+// proposal plus the human verdict is a labelled example, and that dataset is the
+// point of keeping captures. Mirrors archive_record() in capture.lib.sh.
 async function archive(id: string, outcome: string, note = ""): Promise<void> {
   const src = spool("pending", id);
   if (!existsSync(src)) return;
 
-  // Recording off (data/.recording-disabled present): delete the record instead
-  // of archiving it, and write nothing to the ledger. Checked per request, so the
-  // flag can be toggled without restarting the container. Mirrors capture.lib.sh.
-  if (existsSync(spool(".recording-disabled"))) {
+  const mode = recordMode(src);
+
+  // off: delete the record instead of archiving it, and write nothing. Read per
+  // request, so the mode can be changed without restarting the container.
+  if (mode === "off") {
     await rm(src, { recursive: true, force: true });
-    console.log(`[not recorded: ${outcome}] ${id} — recording is disabled`);
+    console.log(`[not recorded: ${outcome}] ${id} — recording-mode is off`);
     return;
   }
   const dest = spool("archive", id);
@@ -53,7 +72,7 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
     latency = Math.round((Date.now() - st.mtimeMs) / 1000);
   } catch { /* record may predate proposal.json; fall back to now */ }
 
-  const decision = { id, outcome, note, proposed_at: proposedAt, decided_at: decidedAt, latency_s: latency };
+  const decision = { id, outcome, note, mode, proposed_at: proposedAt, decided_at: decidedAt, latency_s: latency };
   await Bun.write(`${src}/decision.json`, JSON.stringify(decision));
   await mkdir(spool("archive"), { recursive: true });
   await rm(dest, { recursive: true, force: true });
@@ -61,7 +80,10 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
   // Genuinely append (O_APPEND), not read-concat-write: the previous form lost a
   // line when two callbacks raced, and truncated the whole ledger if it crashed
   // mid-write. capture.lib.sh has always used >> — this now matches it.
-  await appendFile(spool("decisions.jsonl"), JSON.stringify(decision) + "\n");
+  // test verdicts go to their own ledger so the production accept rate can never be
+  // contaminated by a tap made while exercising the pipeline. Mirrors capture.lib.sh.
+  const ledger = mode === "test" ? "decisions.test.jsonl" : "decisions.jsonl";
+  await appendFile(spool(ledger), JSON.stringify(decision) + "\n");
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47]; // \x89PNG — the macOS client

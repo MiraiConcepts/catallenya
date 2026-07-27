@@ -167,14 +167,34 @@ A button tapped to exercise the plumbing is **not** a label — correct that rec
 `outcome` (or leave a `note` saying it was a test) before it gets counted, or the
 ledger measures your workarounds instead of the model.
 
-**Recording can be switched off.** While `capture/data/.recording-disabled` exists, a
-resolved capture is deleted outright instead of archived, and nothing is written to
-`decisions.jsonl` — so test taps never enter the dataset. The flag is checked at write
-time by both the triage and the container, so it toggles instantly with no restart:
+**Recording has three modes**, set by one word in `capture/data/recording-mode`
+and read at use time, so changing it needs no restart:
+
+| mode | resolved captures | verdict goes to |
+|---|---|---|
+| `off` | deleted | nowhere |
+| `test` | kept in `archive/` | `decisions.test.jsonl` |
+| `prod` | kept in `archive/` | `decisions.jsonl` |
 
 ```bash
-touch /zpool/catallenya/capture/data/.recording-disabled   # off — keep nothing
-rm    /zpool/catallenya/capture/data/.recording-disabled   # on  — keep screenshots + verdicts
+printf 'test\n' > /zpool/catallenya/capture/data/recording-mode
+cat /zpool/catallenya/capture/data/recording-mode   # what am I in right now
+```
+
+Test verdicts are kept rather than discarded because while a prompt is being
+iterated on they are the signal — "did that change help" is answered from them.
+A separate ledger means there is no filter to get wrong later and the production
+accept rate cannot be contaminated.
+
+The mode is stamped into each record when the capture is claimed, and that stamp
+decides what happens when you tap — so a test capture tapped after a switch to
+`prod` is still counted as a test. A missing file means `prod`; an unreadable or
+misspelt one falls back to `test`, whose failure modes are the only reversible
+ones (you keep more than you meant, and the metric does not move). The pre-2026-07-27
+`.recording-disabled` flag still works as a synonym for `off`.
+
+Note that outside `off`, **Discard no longer deletes** — every screenshot you tap
+away is retained, including ones captured by accident.
 ```
 
 **It is currently OFF** (nothing is being kept) while the pipeline is being exercised.
