@@ -30,6 +30,3 @@ ReadWritePaths=/zpool/catallenya/capture/data
 InaccessiblePaths=/zpool/catallenya/restic
 InaccessiblePaths=/zpool/catallenya/cloudflared
 InaccessiblePaths=/zpool/catallenya/rclone
-
-[Install]
-WantedBy=multi-user.target

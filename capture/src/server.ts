@@ -18,7 +18,14 @@ const DATA = process.env.CAPTURE_DATA ?? "/data";
 const PORT = Number(process.env.CAPTURE_PORT ?? 8080);
 const RADICALE = process.env.RADICALE_URL ?? "http://radicale:5232";
 const DAV_USER = process.env.CAPTURE_DAV_USER ?? "carrein";
-const DAV_B64 = process.env.MITSUME_DAV_B64 ?? ""; // base64(carrein:<app pw>)
+// base64(carrein:<app pw>). Read from a docker secret rather than the environment:
+// `docker inspect` and /proc/1/environ both expose env, and this credential is good
+// for read/write/delete across the whole /carrein/ tree. Env is kept as a fallback
+// so the container still starts if the secret is not mounted.
+const DAV_B64 = (() => {
+  try { return readFileSync("/run/secrets/capture-dav-secret", "utf8").trim(); }
+  catch { return process.env.MITSUME_DAV_B64 ?? ""; }
+})();
 const CAL: Record<string, string> = {
   general: process.env.CAL_GENERAL ?? "",
   birthday: process.env.CAL_BIRTHDAY ?? "",
@@ -76,7 +83,18 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
   await Bun.write(`${src}/decision.json`, JSON.stringify(decision));
   await mkdir(spool("archive"), { recursive: true });
   await rm(dest, { recursive: true, force: true });
-  await rename(src, dest);
+  try {
+    await rename(src, dest);
+  } catch (e: any) {
+    // Add and Discard tapped together: both passed the existsSync gate above, and
+    // the loser finds the record already moved. That is a resolved capture, not an
+    // error — rethrowing surfaced a 500 to a caller whose event had in fact landed.
+    if (e?.code === "ENOENT") {
+      console.log(`[already resolved] ${id} — concurrent callback won the race`);
+      return;
+    }
+    throw e;
+  }
   // Genuinely append (O_APPEND), not read-concat-write: the previous form lost a
   // line when two callbacks raced, and truncated the whole ledger if it crashed
   // mid-write. capture.lib.sh has always used >> — this now matches it.
@@ -86,7 +104,9 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
   await appendFile(spool(ledger), JSON.stringify(decision) + "\n");
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const PNG_SIG = [0x89, 0x50, 0x4e, 0x47]; // \x89PNG — the macOS client
+// Full 8-byte signature, not just the first four: the trailing \r\n\x1a\n is what
+// makes it a PNG rather than any file that happens to start with those bytes.
+const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]; // the macOS client
 // SOI + marker only: the fourth byte varies by variant (e0 = JFIF, e1 = Exif,
 // which is what ColorOS emits), so matching four would reject real screenshots.
 const JPEG_SIG = [0xff, 0xd8, 0xff];      // Android screenshots are JPEG, not PNG
@@ -95,6 +115,19 @@ const MAX_BYTES = 15 * 1024 * 1024;
 for (const d of ["incoming", "pending", "archive"]) {
   await mkdir(spool(d), { recursive: true });
 }
+
+// Clear partial uploads from a previous life. `.part-<uuid>` is deliberately named
+// so neither capture.triage.path's *.png glob nor the triage's own scan can see it,
+// which also means nothing else would ever clean it up.
+try {
+  const { readdir, unlink } = await import("node:fs/promises");
+  for (const f of await readdir(spool("incoming"))) {
+    if (f.startsWith(".part-")) {
+      await unlink(spool("incoming", f));
+      console.log(`removed stale partial upload ${f}`);
+    }
+  }
+} catch { /* best effort at startup; never block serving */ }
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -106,6 +139,13 @@ const json = (body: unknown, status = 200) =>
 // The host triage's .path unit fires on the new file; this container does no
 // more work until an Add/Discard callback arrives.
 async function handleUpload(req: Request): Promise<Response> {
+  // Reject on the declared length FIRST. arrayBuffer() pulls the whole body into
+  // memory at ~2.3x its size in RSS, so checking afterwards means a large POST is
+  // fully buffered purely to be refused — which is how a single ~48MB request used
+  // to OOM-kill this container. A lying Content-Length is still bounded by the
+  // check below and by the container memory limit.
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > MAX_BYTES) return json({ error: "bad size" }, 413);
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.length === 0 || buf.length > MAX_BYTES) return json({ error: "bad size" }, 413);
   const sigOk = (sig: number[]) => sig.every((b, i) => buf[i] === b);
@@ -167,9 +207,14 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
   });
 
   if (res.status === 201 || res.status === 204 || res.status === 412) {
-    // 412 = If-None-Match tripped, i.e. a duplicate Add tap. The event already
-    // exists, so treat it as success and still record the verdict.
-    await archive(id, alt ? "add_alt" : "add", `caldav ${res.status}`);
+    // 412 = If-None-Match tripped: the item already exists, so this PUT wrote
+    // nothing. Idempotent from the caller's point of view, but recording it as an
+    // "add" would count one acceptance twice in the ledger. Its own outcome keeps
+    // the accept rate honest.
+    const outcome = res.status === 412
+      ? "add_duplicate"
+      : (alt ? "add_alt" : "add");
+    await archive(id, outcome, `caldav ${res.status}`);
     return json({ ok: true, status: res.status });
   }
   // Non-2xx: leave the record in pending/ so a retry is possible; the host
@@ -188,6 +233,12 @@ async function handleDrop(id: string): Promise<Response> {
 
 Bun.serve({
   port: PORT,
+  // A throw inside a handler would otherwise surface as an opaque 500 with the
+  // stack on stdout and no record of which request caused it.
+  error(e: Error) {
+    console.error(`unhandled: ${e?.message}`);
+    return json({ error: "internal" }, 500);
+  },
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === "/healthz") return new Response("ok");

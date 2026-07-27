@@ -176,6 +176,30 @@ is "unstamped record uses the live setting" \
    "prod"
 rm -rf "$MODED"
 
+# ----------------------------------------------------------------- button labels
+# Shipped wart: the primary button was forced to 24h from start_time while the
+# alternative label came free-form from the model, whose prompt examples were 12h.
+# A real notification showed "19:00" beside "8.15pm". Both are now derived.
+echo "button_label"
+
+is "same day shows the time"      "$(button_label 2026-07-31 20:15 false 2026-07-31)" "20:15"
+is "all-day says so"              "$(button_label 2026-07-31 ''    true  2026-07-31)" "All day"
+is "null start is all-day"        "$(button_label 2026-07-31 null  false 2026-07-31)" "All day"
+is "different day shows the date" "$(button_label 2026-08-02 20:15 false 2026-07-31)" "2 Aug"
+is "unparseable time is safe"     "$(button_label 2026-07-31 '8.15pm' false 2026-07-31)" "Alternative"
+
+# Whatever it produces must survive the Actions-header whitelist, or the button
+# silently degrades to a generic label.
+for c in "$(button_label 2026-07-31 20:15 false 2026-07-31)" \
+         "$(button_label 2026-08-02 20:15 false 2026-07-31)" \
+         "$(button_label 2026-07-31 '' true 2026-07-31)"; do
+    [[ "$c" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] && ok "label '$c' passes the whitelist" \
+        || bad "label whitelist" "matches ^[A-Za-z0-9 :.-]{1,12}$" "$c"
+done
+
+# The model no longer names buttons at all — one less untrusted string in a header.
+hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'
+
 # ------------------------------------------------------------------ context.json
 # Without this a proposal cannot be attributed: the prompt changed twice on
 # 2026-07-27 alone, so a difference between two records could be the prompt, the

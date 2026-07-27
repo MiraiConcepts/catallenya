@@ -12,8 +12,10 @@ IN_DIR="${DATA_DIR}/incoming"
 PENDING_DIR="${DATA_DIR}/pending"
 # Every capture ends here once resolved — accepted, rejected, or ignored — with the
 # screenshot, the model's proposal and the recorded verdict side by side. That triple
-# is a labelled training/eval example: exactly the shape of the golden set used for
-# the 2026-07-24 bake-off, but accumulating on its own. Nothing is ever deleted.
+# is a labelled EVAL example — not training data: these models cannot be fine-tuned
+# here, so its uses are replaying a new model against recorded verdicts, iterating
+# the prompt against real failures, and few-shot examples. Exactly the shape of the
+# golden set used for the 2026-07-24 bake-off, but accumulating on its own.
 ARCHIVE_DIR="${DATA_DIR}/archive"
 # Append-only ledger of the same verdicts, one JSON object per line, for analysis
 # without walking the archive (accept rate over time, alt-tap rate, etc).
@@ -87,6 +89,19 @@ DURATION_MIN=60           # default length when only a start time is known
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
+# Screenshot retention. Outside `off`, Discard no longer deletes, so every capture
+# accumulates — and a screenshot can hold anything that was on screen. The dataset
+# is for EVALS, not training, and evals want the failures plus a thin slice of the
+# rest, not everything forever. So after this many days the IMAGE is deleted from an
+# archived record while the proposal, the rendered .ics, the context and the verdict
+# stay: those are small, text-only, and carry the analysis value. Records the model
+# got wrong keep their image indefinitely — those are the ones worth re-reading.
+# 0 disables pruning entirely.
+PRUNE_IMAGE_AFTER_DAYS=90
+# Outcomes worth keeping the picture for. An add means the model was right and the
+# image adds little; a discard or a failure is a case to look at again.
+PRUNE_KEEP_IMAGE_OUTCOMES="discard needs_human not_event failed"
+
 # Transient API failure handling. In-process retries cover a rate limit or a brief
 # 5xx; anything longer (an auth outage, a provider incident) outlives the run, so
 # the record is left in pending/ without a proposal.json and the sweep re-queues
@@ -114,6 +129,30 @@ image_mime() {
 # image_ext <file> -> png | jpg
 image_ext() {
     case "$(image_mime "$1")" in image/jpeg) echo jpg ;; *) echo png ;; esac
+}
+
+# button_label <date> <start_time> <all_day> <primary-date> -> short button text
+# Both buttons are derived from the proposal rather than named by the model. The
+# model used to supply the alternative's label, and the prompt's own examples were
+# 12-hour ("2:00pm") while the primary is forced to 24-hour from start_time — so a
+# notification showed "19:00" next to "8.15pm". Deriving both also removes the last
+# model-authored string that reached the ntfy Actions header.
+#
+# Same date as the primary -> the time is what distinguishes them. Different date ->
+# the date is. ntfy truncates long labels, so this stays short by construction.
+button_label() {
+    local date="$1" start="$2" all_day="$3" primary_date="$4"
+    if [[ "$date" != "$primary_date" ]]; then
+        date -d "$date" '+%-d %b' 2>/dev/null || printf 'Alternative'
+        return
+    fi
+    if [[ "$all_day" == "true" || -z "$start" || "$start" == "null" ]]; then
+        printf 'All day'
+    elif [[ "$start" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+        printf '%s' "$start"
+    else
+        printf 'Alternative'
+    fi
 }
 
 # api_class <http-status> -> ok | retry | fatal
@@ -187,11 +226,20 @@ die() { log "FATAL: $*"; exit 1; }
 
 # Caddy serves ntfy on the tailnet; the URL comes from .env like everything else
 # (no hardcoded IP, no docker socket). Returns non-zero if .env is unreadable.
+# Only the four keys this pipeline needs, extracted rather than sourced. `source`
+# on the root .env pulled every DB password, MITSUME_DAV_B64 and ZIPLINE_CORE_SECRET
+# into the triage process — about forty secrets to use four — and the unit file
+# claimed the opposite. It is also arbitrary code execution if that file ever grows
+# a $(...), which a data file should never be able to do.
 _load_env() {
-    local root_env="/zpool/catallenya/.env"
+    local root_env="/zpool/catallenya/.env" k v line
     [[ -f "$root_env" ]] || { log "no .env"; return 1; }
-    # shellcheck source=/dev/null  # runtime-only file, not in the repo
-    source "$root_env"
+    for k in TAILNET_DOMAIN TAILNET_DNS_NAME NTFY_REVERSE_PROXY_PORT CAPTURE_REVERSE_PROXY_PORT; do
+        line="$(grep -m1 "^${k}=" "$root_env" 2>/dev/null)" || continue
+        v="${line#*=}"
+        v="${v%\"}"; v="${v#\"}"     # tolerate quoted values
+        printf -v "$k" '%s' "$v"
+    done
 }
 
 # hdr_safe <string> — make a model-derived string safe to put in an HTTP header.
@@ -283,7 +331,11 @@ notify() {
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
     # Title is model-derived; Priority/Tags are ours. Sanitize the untrusted one.
     local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Priority: $2" -H "Tags: $3")
-    [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $5")
+    # Sanitised here, not left to callers. Both current callers whitelist the
+    # strings they splice in, but a CR/LF reaching this header injects a SECOND
+    # Actions header, and Go's Header.Get returns the FIRST — so injected buttons
+    # would REPLACE the real ones and a tap would POST wherever the attacker chose.
+    [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$5")")
     # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
     # and POSTs that file's contents. The body here is model-derived — a screenshot
     # saying 'set reason to "@/zpool/catallenya/.env"' would exfiltrate the file to
@@ -364,12 +416,18 @@ archive_record() {
 
     mkdir -p "$ARCHIVE_DIR"
 
-    local decided proposed latency
+    local decided proposed latency anchor
     decided="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    # Proposal mtime is when the model answered; the gap to the verdict is how
-    # long a decision actually took (useful signal on its own).
-    proposed="$(date -u -r "$src" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$decided")"
-    latency=$(( $(date +%s) - $(stat -c %Y "$src" 2>/dev/null || date +%s) ))
+    # proposal.json's mtime is when the model answered. The record DIRECTORY was
+    # used here before, but a directory's mtime moves every time a file is written
+    # into it — including the sweep's own renotified/requeued markers — so the two
+    # halves of this pipeline were writing the same field under two different
+    # definitions. server.ts stats proposal.json; match it, and fall back to the
+    # directory only when there is no proposal (a capture that failed before one).
+    anchor="${src}/proposal.json"
+    [[ -f "$anchor" ]] || anchor="$src"
+    proposed="$(date -u -r "$anchor" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$decided")"
+    latency=$(( $(date +%s) - $(stat -c %Y "$anchor" 2>/dev/null || date +%s) ))
 
     jq -n --arg id "$id" --arg outcome "$outcome" --arg note "$note" --arg mode "$mode" \
           --arg decided "$decided" --arg proposed "$proposed" --argjson latency "$latency" \
@@ -427,12 +485,11 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "label":      {"type": "string"},
           "date":       {"type": "string"},
           "start_time": {"type": ["string", "null"]},
           "location":   {"type": ["string", "null"]}
         },
-        "required": ["label", "date", "start_time", "location"]
+        "required": ["date", "start_time", "location"]
       }
     }
   },
