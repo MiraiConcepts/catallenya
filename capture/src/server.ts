@@ -232,10 +232,60 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
 // POST /capture/:id/drop — the Discard button. A rejection is as much a labelled
 // example as an acceptance ("the model proposed this and I said no"), so the
 // record is archived with the verdict rather than deleted.
+// POST /capture/:id/drop — the Discard button.
+//
+// If the capture is still pending this is a plain rejection. If it has ALREADY been
+// added, Discard means undo: delete the event from Radicale and record that.
+// Previously this branch found no pending record, returned early, and answered
+// {ok:true} — so a tap reported success while the event stayed in the calendar,
+// and the only way to remove it was by hand (2026-07-27).
 async function handleDrop(id: string): Promise<Response> {
+  if (!existsSync(spool("pending", id))) {
+    const undone = await undoAdd(id);
+    if (undone) return undone;
+  }
   await archive(id, "discard");
   await rm(spool("incoming", `${id}.png`), { force: true });
   return json({ ok: true });
+}
+
+// Undo an add: DELETE the calendar item and restamp the record.
+// Returns a Response if this record was an add, or null if it was not (so the
+// caller falls through to ordinary discard handling).
+async function undoAdd(id: string): Promise<Response | null> {
+  const rec = spool("archive", id);
+  let decision: { outcome?: string; mode?: string };
+  let proposal: { calendar?: string };
+  try {
+    decision = JSON.parse(readFileSync(`${rec}/decision.json`, "utf8"));
+    proposal = JSON.parse(readFileSync(`${rec}/proposal.json`, "utf8"));
+  } catch { return null; }
+  if (decision.outcome !== "add" && decision.outcome !== "add_alt") return null;
+
+  const collection = proposal.calendar === "birthday" ? CAL.birthday : CAL.general;
+  if (!collection) return json({ error: "collection not configured" }, 500);
+
+  const res = await fetch(`${RADICALE}/${DAV_USER}/${collection}/${id}.ics`, {
+    method: "DELETE",
+    headers: { authorization: `Basic ${DAV_B64}` },
+  });
+  // 404 means it is already gone — removed by hand or on a previous tap. That is
+  // the state the caller asked for, so it counts as done.
+  if (!(res.ok || res.status === 404)) {
+    return json({ error: "caldav delete failed", status: res.status }, 502);
+  }
+
+  const now = new Date().toISOString();
+  const updated = { ...decision, outcome: "undone", undone_from: decision.outcome,
+                    note: `caldav delete ${res.status}`, decided_at: now };
+  await Bun.write(`${rec}/decision.json`, JSON.stringify(updated));
+  // The ledger is append-only, so the add line stays and this is a second entry
+  // for the same id. Anything computing an accept rate should take the LAST line
+  // per id, not every line.
+  const ledger = decision.mode === "test" ? "decisions.test.jsonl" : "decisions.jsonl";
+  await appendFile(spool(ledger), JSON.stringify(updated) + "\n");
+  console.log(`[undone] ${id} — removed from calendar (caldav ${res.status})`);
+  return json({ ok: true, undone: true, status: res.status });
 }
 
 Bun.serve({

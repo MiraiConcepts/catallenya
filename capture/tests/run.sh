@@ -422,6 +422,29 @@ is "backoff is non-zero"       "$(( API_RETRY_BASE_S > 0 ))" "1"
 # record while the triage is still working on it and re-queue it underneath.
 is "requeue waits out a live run" "$(( REQUEUE_AFTER_HOURS >= 1 ))" "1"
 
+# ------------------------------------------------------- container integration
+# Not automated: the undo path lives in server.ts and needs the running container
+# plus a real Radicale, so a test here would write to the live calendar. Verified
+# by hand on 2026-07-27 and repeatable with this procedure:
+#
+#   TID=deadbeef-0000-4000-8000-000000000001
+#   B64=$(cat capture/dav-secret); CAL=<general collection uuid>
+#   # 1. seed an event exactly as an Add would
+#   docker run --rm --network catallenya_default -v /tmp/undo.ics:/e.ics curlimages/curl \
+#     -X PUT -H "Authorization: Basic ${B64}" -H 'Content-Type: text/calendar' \
+#     --data-binary @/e.ics "http://radicale:5232/carrein/${CAL}/${TID}.ics"
+#   # 2. fake the archived record an Add would have left
+#   mkdir -p capture/data/archive/$TID
+#   echo '{"calendar":"general"}' > capture/data/archive/$TID/proposal.json
+#   echo "{\"id\":\"$TID\",\"outcome\":\"add\",\"mode\":\"test\"}" \
+#     > capture/data/archive/$TID/decision.json
+#   # 3. tap Discard, then assert: event gone, decision.json outcome=undone
+#   curl -X POST -H 'X-Capture: 1' "http://<ip>:8080/capture/${TID}/drop"
+#
+# Expected: {"ok":true,"undone":true,"status":200}. REMOVE the archive record AND
+# the appended ledger line afterwards — the ledger is append-only, so a test run
+# leaves a fake verdict behind that would otherwise skew the accept rate.
+
 # --------------------------------------------------------------------- result
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
