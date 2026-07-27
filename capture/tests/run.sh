@@ -125,6 +125,56 @@ is "unicode survives cleaning" "$(jq -r .title <<<"$out")" "Café ☕"
 out="$(clean_proposal "$(mut '.location=null|.description=null')")"
 is "nulls stay null" "$(jq -r '[.location,.description]|map(type)|join(",")' <<<"$out")" "null,null"
 
+# -------------------------------------------------------------- recording mode
+echo "recording_mode / record_mode"
+
+MODED="$(mktemp -d)"
+mode_is() { # $1 = file contents (or __none__) -> resolved mode
+    local d="$MODED"
+    rm -f "${d}/recording-mode" "${d}/.recording-disabled"
+    [[ "$1" != "__none__" ]] && printf '%s' "$1" > "${d}/recording-mode"
+    MODE_FILE="${d}/recording-mode" LEGACY_OFF_FLAG="${d}/.recording-disabled" \
+        bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG="$3"; recording_mode' \
+        _ "${SCRIPT_DIR}/capture.lib.sh" "${d}/recording-mode" "${d}/.recording-disabled" 2>/dev/null
+}
+is "off is honoured"          "$(mode_is off)"      "off"
+is "test is honoured"         "$(mode_is test)"     "test"
+is "prod is honoured"         "$(mode_is prod)"     "prod"
+is "trailing newline is fine" "$(mode_is 'prod
+')"                                                 "prod"
+# Missing file means prod: retention is the documented policy, and a fresh install
+# silently recording nothing is the failure this replaces.
+is "no file means prod"       "$(mode_is __none__)" "prod"
+# A typo must not land on either extreme — prod would silently contaminate the
+# accept rate, off would silently destroy records. Both are the harms this exists
+# to prevent; test is the only value whose failure modes are reversible.
+is "typo falls back to test"  "$(mode_is prd)"      "test"
+is "empty falls back to test" "$(mode_is '')"       "test"
+
+# The legacy flag must keep meaning `off`, so a snapshot rollback or an old runbook
+# cannot silently promote the box to prod and start retaining everything.
+: > "${MODED}/.recording-disabled"; printf 'prod' > "${MODED}/recording-mode"
+is "legacy flag still wins" \
+   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG="$3"; recording_mode' \
+      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/.recording-disabled" 2>/dev/null)" \
+   "off"
+rm -f "${MODED}/.recording-disabled"
+
+# A record carries the mode it was CAPTURED under. Without this, test captures
+# tapped after a switch to prod would be counted as production data.
+printf 'prod' > "${MODED}/recording-mode"
+mkdir -p "${MODED}/rec"; printf 'test\n' > "${MODED}/rec/mode"
+is "stamped mode beats the live setting" \
+   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG=/nonexistent; record_mode "$3"' \
+      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/rec")" \
+   "test"
+rm -f "${MODED}/rec/mode"
+is "unstamped record uses the live setting" \
+   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG=/nonexistent; record_mode "$3"' \
+      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/rec")" \
+   "prod"
+rm -rf "$MODED"
+
 # --------------------------------------------------------------- image sniffing
 # Android (ColorOS) screenshots are JPEG, not PNG. The spool filename is always
 # .png — it is the glob token capture.triage.path keys on — so format must come

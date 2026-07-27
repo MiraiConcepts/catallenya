@@ -62,8 +62,9 @@ bash syncthing/scripts/documents.intake.daily.sh --dry-run             # whole p
 # capture/data/incoming/. Laptop hotkey client + notification format in capture/README.md.
 sudo systemctl start capture.triage.service   # drain incoming/ now (systemd injects the API key)
 bash capture/scripts/capture.sweep.sh         # re-notify stale proposals, archive ignored ones
-# Accept rate. Empty while data/.recording-disabled exists (currently set, testing) —
-# with the flag on, resolved captures are deleted and nothing reaches the ledger.
+# Accept rate. capture/data/recording-mode holds one word — off | test | prod.
+# Currently `test`: captures are kept, but verdicts go to decisions.test.jsonl so
+# they cannot contaminate the production rate. `off` deletes resolved captures.
 jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' capture/data/decisions.jsonl 2>/dev/null || echo 'no decisions recorded yet'
 ```
 

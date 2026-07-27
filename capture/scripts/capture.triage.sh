@@ -107,7 +107,8 @@ ask() {
 shopt -s nullglob
 pngs=("$IN_DIR"/*.png)
 (( ${#pngs[@]} )) || { log "nothing to do"; exit 0; }
-log "draining ${#pngs[@]} capture(s)"
+MODE="$(recording_mode)"
+log "draining ${#pngs[@]} capture(s) [recording-mode: ${MODE}]"
 
 # Tallied so the unit can exit non-zero when nothing worked. A oneshot that always
 # exits 0 is invisible to systemd, so OnFailure= would never fire no matter how
@@ -144,6 +145,9 @@ for png in "${pngs[@]}"; do
         continue
     fi
     png="${rec}/screenshot.${ext}"
+    # Stamp the mode NOW. archive_record reads this rather than the live setting,
+    # so a test capture tapped after a switch to prod is still counted as a test.
+    printf '%s\n' "$MODE" > "${rec}/mode"
 
     ask_rc=0
     proposal="$(ask "$png" "$now_h")" || ask_rc=$?
