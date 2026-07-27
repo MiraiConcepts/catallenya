@@ -316,7 +316,21 @@ for png in "${pngs[@]}"; do
     # than teaching the container about indexes means the container, the sweep, the
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
-    (( ev_count > MAX_EVENTS_PER_CAPTURE )) && ev_count=$MAX_EVENTS_PER_CAPTURE
+    # Keep the WHOLE reply before fanning out. Each record otherwise holds only its
+    # own event, so a truncated capture could not afterwards be told apart from one
+    # the model simply read short — which is what happened on 2026-07-27.
+    jq -c . <<<"$proposal" > "${rec}/capture.json" 2>/dev/null || true
+
+    if (( ev_count > MAX_EVENTS_PER_CAPTURE )); then
+        log "  !! ${ev_count} events found, sending the ${MAX_EVENTS_PER_CAPTURE} soonest (cap)"
+        ev_truncated=$ev_count
+        ev_count=$MAX_EVENTS_PER_CAPTURE
+    else
+        ev_truncated=0
+    fi
+    # events_seen is the model's count of the page; the cap is ours. Report whichever
+    # is larger, so the body never understates what the user is not being shown.
+    (( ev_truncated > ev_seen )) && ev_seen=$ev_truncated
     # Materialise every record FIRST. Event 1 reuses the capture's own record, and
     # archive_record MOVES that directory — so a failure on event 1 used to delete
     # the screenshot events 2..N were still copying from, losing the whole capture.

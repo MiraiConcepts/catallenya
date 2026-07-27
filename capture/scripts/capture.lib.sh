@@ -86,9 +86,11 @@ DURATION_MIN=60           # default length when only a start time is known
 # so nothing here is copied off-box. ZFS + sanoid still cover disk failure and
 # rollback. Do NOT add capture/ to restic without revisiting that decision — a
 # screenshot can contain anything that was on screen.
-# A festival page can list a dozen acts. Each becomes its own notification, so this
-# caps the ping storm; events_seen still records the true count and the body says so.
-MAX_EVENTS_PER_CAPTURE=4
+# A festival page can list a dozen acts, and each becomes its own notification, so
+# this bounds the ping storm. Raised from 4 on 2026-07-27: a real Esplanade day
+# listing had six and two were dropped. Truncating is now logged and surfaced in the
+# notification body — silently discarding a user's events is worse than a few pings.
+MAX_EVENTS_PER_CAPTURE=8
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
@@ -178,6 +180,8 @@ fork_record() {
     ln "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" 2>/dev/null \
         || cp "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" || return 1
     cp "${src}/mode" "${dst}/mode" 2>/dev/null
+    # The whole model reply, so any record can answer "what else was on that page".
+    cp "${src}/capture.json" "${dst}/capture.json" 2>/dev/null
     jq -c --arg g "$group" '. + {capture_group:$g}' "${src}/context.json" \
         > "${dst}/context.json" 2>/dev/null || cp "${src}/context.json" "${dst}/context.json" 2>/dev/null
     return 0
