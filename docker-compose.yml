@@ -453,6 +453,11 @@ services:
       context: ./capture
     restart: unless-stopped
     user: "1000:1000" # writes the spool, which is host-owned 1000:1000
+    # The image now sets USER bun itself, so this is belt-and-braces rather than
+    # the only thing keeping the process off root.
+    read_only: true
+    tmpfs:
+      - /tmp
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -460,15 +465,23 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          # Bun buffers the whole request body before the size check can run, at
+          # roughly 2.3x the body in RSS. At 128M a single ~48MB POST from inside
+          # the compose network OOM-killed the container; 15MB uploads now have
+          # headroom for several concurrent. Caddy caps external requests at 16MB,
+          # but container-to-container traffic never passes through Caddy.
+          memory: 384M
     environment:
-      # Radicale app password, reused rather than duplicated — this is the same
-      # base64(carrein:<app pw>) that Caddy injects for mitsume.
-      MITSUME_DAV_B64: ${MITSUME_DAV_B64}
       # Calendar collection IDs. Literals, not .env vars: they are stack-defining
       # constants like `reverse_proxy radicale:5232`, not secrets.
       CAL_GENERAL: ac0fbe63-a775-4603-97cb-03020b239ae3 # carrein-calendar
       CAL_BIRTHDAY: 28acf882-0a72-5d71-b645-5b6e1a7f8ca1 # carrein-birthday
+    # The Radicale password comes in as a file, not an env var: `docker inspect`
+    # and /proc/1/environ both expose environment, and this credential is good for
+    # read/write/delete across the whole /carrein/ tree. Same pattern as immich's
+    # DB_PASSWORD_FILE. The value is identical to the MITSUME_DAV_B64 Caddy injects.
+    secrets:
+      - capture-dav-secret
     volumes:
       # Shared with the host triage (capture.triage.service) — this bind IS the
       # interface between the container and the AI half of the pipeline.
@@ -846,6 +859,8 @@ secrets:
     file: archivebox/password.txt
   postgres-secret:
     file: postgres/password.txt
+  capture-dav-secret: # base64(carrein:<radicale app pw>) — same value as MITSUME_DAV_B64
+    file: capture/dav-secret
 
 volumes:
   model-cache:

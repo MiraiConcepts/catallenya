@@ -114,6 +114,31 @@ for rec in "${records[@]}"; do
     fi
 done
 
-(( renotified || ignored || requeued || abandoned )) && \
-    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned"
+# --- prune old screenshots -------------------------------------------------
+# Discard stops deleting once recording-mode leaves `off`, so images accumulate
+# indefinitely — and a screenshot can hold anything that was on screen. Only the
+# IMAGE is dropped; proposal, .ics, context and verdict stay, because they are
+# text-sized and carry the analysis value. Cases the model got wrong keep their
+# image, since those are the ones worth looking at again.
+pruned=0
+if (( PRUNE_IMAGE_AFTER_DAYS > 0 )); then
+    for rec in "$ARCHIVE_DIR"/*/; do
+        rec="${rec%/}"
+        shots=("${rec}"/screenshot.*)
+        (( ${#shots[@]} )) || continue
+        outcome="$(jq -r '.outcome // ""' "${rec}/decision.json" 2>/dev/null)"
+        [[ " ${PRUNE_KEEP_IMAGE_OUTCOMES} " == *" ${outcome} "* ]] && continue
+        age_d=$(( (now - $(stat -c %Y "${shots[0]}" 2>/dev/null || echo "$now")) / 86400 ))
+        (( age_d >= PRUNE_IMAGE_AFTER_DAYS )) || continue
+        if (( DRY )); then
+            log "would prune image from $(basename "$rec" | cut -c1-8) (${outcome}, ${age_d}d)"
+        elif rm -f "${shots[@]}"; then
+            : > "${rec}/screenshot.pruned"
+            pruned=$((pruned + 1))
+        fi
+    done
+fi
+
+(( renotified || ignored || requeued || abandoned || pruned )) && \
+    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned, ${pruned} images pruned"
 exit 0

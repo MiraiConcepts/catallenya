@@ -34,8 +34,15 @@ StandardError=journal
 # no tools, so the model has no tool surface and no path to the filesystem. This
 # sandbox is insurance against a future edit that adds tool use, and it also
 # bounds the blast radius of the API key sitting in this unit's environment:
-# even with the key, the process cannot read restic.pwd, .env secrets it does
-# not need, or anything outside the capture spool.
+# even with the key, the process cannot read restic.pwd (InaccessiblePaths) and
+# cannot WRITE anywhere outside the capture spool (ReadWritePaths).
+#
+# It can still READ /zpool/catallenya/.env — ProtectSystem=strict makes the tree
+# read-only, not inaccessible, and .env is owned by the same user this runs as.
+# What changed is that the script no longer loads it wholesale: _load_env extracts
+# the four keys it needs instead of sourcing forty secrets into the process. An
+# earlier version of this comment claimed the sandbox prevented the read. It does
+# not, and never did.
 #
 # Verify the sandbox actually ENGAGED (not merely that the job succeeded):
 #   sudo systemd-run --wait --pipe --uid=carrein \
@@ -57,6 +64,3 @@ ReadWritePaths=/zpool/catallenya/capture/data
 InaccessiblePaths=/zpool/catallenya/restic
 InaccessiblePaths=/zpool/catallenya/cloudflared
 InaccessiblePaths=/zpool/catallenya/rclone
-
-[Install]
-WantedBy=multi-user.target

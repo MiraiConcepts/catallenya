@@ -21,6 +21,14 @@ source "${SELF_DIR}/capture.lib.sh"
 
 : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/capture.env)}"
 
+# Fail loudly and up front. Without this a missing jq or python3 fails every capture
+# individually — each archived as "failed", each deleted under recording-mode off —
+# while the unit still exits 0 and systemd stays green. Same gate documents.intake
+# and immich.lib.sh use.
+for _bin in jq python3 curl base64 od sha256sum; do
+    command -v "$_bin" >/dev/null || die "missing required command: ${_bin}"
+done
+
 mkdir -p "$IN_DIR" "$PENDING_DIR" "$ARCHIVE_DIR"
 
 # Nothing is purged here: screenshots are retained indefinitely as dataset
@@ -42,7 +50,7 @@ Rules:
 - Not a specific event (receipt, article, ad, meme, general chat, a contact card with no request) -> is_event=false.
 - timezone: infer from context; if unclear use ${EVENT_TZ}.
 - calendar: "birthday" ONLY for a person's birthday/DOB -> then title="<Name> Birthday", all_day=true, recurrence="yearly". Otherwise "general".
-- If several times were discussed and the last one was proposed but never explicitly confirmed, USE THAT LAST PROPOSED TIME and set needs_human=false. The user reviews every event before it is added, so a stated-but-unconfirmed time is useful; note the uncertainty in description. Reserve needs_human=true for when NO usable time is stated at all (e.g. "sometime next week") — never invent one.
+- If several times were discussed and the last one was proposed but never explicitly confirmed, USE THAT LAST PROPOSED TIME and set needs_human=false. The user reviews every event before it is added, so a stated-but-unconfirmed time is useful; note the uncertainty in description. Reserve needs_human=true for when NO usable time is stated at all (e.g. "sometime next week") — never invent one. The same applies to the date: if the image gives a time but no date that can be resolved even by the YEAR rule below (e.g. a listing showing "8pm" with the day only visible on another screen), set needs_human=true rather than guessing a day.
 - Read times from the image directly; do not trust a time you are unsure of.
 - date = YYYY-MM-DD; start_time = HH:MM 24h in the event's local timezone (null if all_day).
 - YEAR. When the image gives a day and month but no year, do NOT default to the current year — that quietly lands the event in the past, which is never worth adding. Decide from what kind of thing the image is:
@@ -53,7 +61,7 @@ Rules:
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
-- alternatives: when the screenshot genuinely supports more than one reading (two times discussed, a corrected date, two possible venues), list the ONE next-most-likely reading here so the user can pick it with a single tap. Each needs a short button label (<=12 chars, e.g. "2:00pm" or "Sat 25 Jul"). Give an empty array when the reading is unambiguous — do not invent alternatives. Only the first is used.
+- alternatives: when the screenshot genuinely supports more than one reading (two times discussed, a corrected date, two possible venues), list the ONE next-most-likely reading here so the user can pick it with a single tap. Give an empty array when the reading is unambiguous — do not invent alternatives. Only the first is used, and its button is labelled automatically from its date and time.
 EOF
 }
 
@@ -230,7 +238,7 @@ for png in "${pngs[@]}"; do
     # render it too so the alternative button writes a real event rather than
     # kicking off another round-trip. ntfy caps actions at 3, so exactly one
     # alternative can be shown alongside Discard.
-    alt_label=""
+    has_alt=0
     if [[ "$(jq -r '.alternatives | length' <<<"$proposal")" -gt 0 ]]; then
         # end_time MUST be reset: the alternatives sub-schema has no end_time, so
         # without this the primary reading's end survives into the alternative. An
@@ -242,7 +250,7 @@ for png in "${pngs[@]}"; do
         if "${SCRIPT_DIR}/render_ics.py" --uid "$id" --now "$now_z" \
                --duration-min "$DURATION_MIN" <<<"$alt_json" > "${rec}/event.alt.ics" 2>/dev/null; then
             jq -c . <<<"$alt_json" > "${rec}/proposal.alt.json"
-            alt_label="$(jq -r '.alternatives[0].label' <<<"$proposal")"
+            has_alt=1
         else
             rm -f "${rec}/event.alt.ics"   # unrenderable alternative: fall back to Add/Discard
         fi
@@ -284,13 +292,20 @@ for png in "${pngs[@]}"; do
 
     OK=$((OK + 1))
     if base="$(capture_base_url)"; then
-        if [[ -n "$alt_label" ]]; then
+        if (( has_alt )); then
             # Primary reading first, then the alternative, then Discard (3 = the cap).
-            # Button labels are spliced into a comma/semicolon-delimited Actions
-            # header, so a comma or CRLF in either would splice the action list.
-            # Whitelist rather than escape: anything unexpected falls back to "Add".
-            primary="$(jq -r 'if .all_day then "Add" else (.start_time // "Add") end' <<<"$proposal")"
-            [[ "$primary" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || primary="Add"
+            # Both labels are derived from the proposal by button_label, so they
+            # cannot disagree in format the way "19:00" next to "8.15pm" did when the
+            # model named the alternative itself.
+            primary="$(button_label "$ev_date" "$ev_start" "$all_day" "$ev_date")"
+            alt_label="$(button_label \
+                "$(jq -r '.date'             <<<"$alt_json")" \
+                "$(jq -r '.start_time // ""' <<<"$alt_json")" \
+                "$(jq -r '.all_day'          <<<"$alt_json")" \
+                "$ev_date")"
+            # Backstop only: both strings are now built by button_label, but a
+            # comma or CRLF here would still splice the Actions list.
+            [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"
             [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || alt_label="Alternative"
             actions="http, ${primary}, ${base}/capture/${id}/add, method=POST, headers.X-Capture=1, clear=true; http, ${alt_label}, ${base}/capture/${id}/add?alt=1, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${id}/drop, method=POST, headers.X-Capture=1, clear=true"
             notify "${title}" default "calendar" "$body" "$actions"
