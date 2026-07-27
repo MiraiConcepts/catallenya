@@ -132,7 +132,7 @@ ask() {
 # One event, one notification, one set of buttons — the record it points at holds
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
-    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" seen="$6" past="${7:-0}"
+    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" seen="$6"
     local title ev_date ev_start ev_end ev_loc ev_cal all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
@@ -174,9 +174,6 @@ notify_event() {
     fi
     [[ -n "$ev_loc" ]] && body+=$'\n'"${ev_loc}"
     body+=$'\n'"${ev_cal^}"
-    # An event that has already happened is still shown, marked — leaving it out is
-    # what made a page of eight produce seven notifications with no explanation.
-    (( past )) && body+=$'\n'"⚠ Already passed"
     # Where this sits among the rest, so one notification from a busy page is never
     # mistaken for the whole story. The page total is mentioned ONLY when the cap
     # actually held something back; every other event is in front of you.
@@ -214,11 +211,7 @@ notify_event() {
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
-    if (( past )); then
-        notify "${title}" low "hourglass" "$body" "$actions"
-    else
-        notify "${title}" default "calendar" "$body" "$actions"
-    fi
+    notify "${title}" default "calendar" "$body" "$actions"
 }
 
 # --- drain incoming/ -------------------------------------------------------
@@ -325,66 +318,69 @@ for png in "${pngs[@]}"; do
     # than teaching the container about indexes means the container, the sweep, the
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
-    # If EVERY event on the page is over there is nothing to act on, so say it once
-    # rather than sending N "already passed" pings. This is also what keeps the
-    # single-capture behaviour intact: one finished show still reads "no event".
-    past_count=0
+    # Split the page into what is still ahead and what is over. Every upcoming event
+    # gets its own notification; the past ones are collapsed into a single note
+    # rather than one ping each — five stale pings to surface three real ones is
+    # noise, and the count is what the user actually wants to know.
+    upcoming=(); past_titles=()
     for (( ei = 0; ei < ev_count; ei++ )); do
         pe="$(jq -c --argjson i "$ei" '.events[$i]' <<<"$proposal")"
-        event_is_past "$(jq -r '.date' <<<"$pe")" "$(jq -r '.start_time // ""' <<<"$pe")" \
-                      "$(jq -r '.all_day' <<<"$pe")" "$now_epoch" && past_count=$((past_count + 1))
+        if event_is_past "$(jq -r '.date' <<<"$pe")" "$(jq -r '.start_time // ""' <<<"$pe")" \
+                         "$(jq -r '.all_day' <<<"$pe")" "$now_epoch"; then
+            past_titles+=("$(jq -r '.title // "Untitled"' <<<"$pe")")
+        else
+            upcoming+=("$ei")
+        fi
     done
-    if (( past_count == ev_count )); then
+    n_past=${#past_titles[@]}
+    n_up=${#upcoming[@]}
+
+    # past_note <record-or-empty> — one notification covering everything already over.
+    past_note() {
+        local body t
+        body="$(printf '%s event%s on that screenshot %s already passed:' \
+                "$n_past" "$( (( n_past == 1 )) || printf s )" "$( (( n_past == 1 )) && printf has || printf have )")"
+        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"· ${t}"; done
+        (( n_past > 5 )) && body+=$'\n'"· … and $(( n_past - 5 )) more"
+        notify "Already passed" low "hourglass" "$body"
+    }
+
+    # Nothing left to act on: the capture resolves here, with one note.
+    if (( n_up == 0 )); then
         OK=$((OK + 1))
         jq -c . <<<"$proposal" > "${rec}/proposal.json" 2>/dev/null || true
-        archive_record "$id" "$rec" not_event "all ${ev_count} event(s) have already passed"
-        log "  all ${ev_count} event(s) already passed"
-        notify "Nothing to add" low "hourglass" \
-               "Everything on that screenshot has already happened.$( (( ev_count > 1 )) && printf ' (%s events)' "$ev_count" )"
+        archive_record "$id" "$rec" not_event "all ${n_past} event(s) have already passed"
+        log "  all ${n_past} event(s) already passed"
+        past_note
         continue
     fi
 
-    # Keep the WHOLE reply before fanning out. Each record otherwise holds only its
-    # own event, so a truncated capture could not afterwards be told apart from one
-    # the model simply read short — which is what happened on 2026-07-27.
-    jq -c . <<<"$proposal" > "${rec}/capture.json" 2>/dev/null || true
-
-    if (( ev_count > MAX_EVENTS_PER_CAPTURE )); then
-        log "  !! ${ev_count} events found, sending the ${MAX_EVENTS_PER_CAPTURE} soonest (cap)"
-        ev_truncated=$ev_count
-        ev_count=$MAX_EVENTS_PER_CAPTURE
-    else
-        ev_truncated=0
-    fi
-    # events_seen is the model's count of the page; the cap is ours. Report whichever
-    # is larger, so the body never understates what the user is not being shown.
-    (( ev_truncated > ev_seen )) && ev_seen=$ev_truncated
-    # Materialise every record FIRST. Event 1 reuses the capture's own record, and
-    # archive_record MOVES that directory — so a failure on event 1 used to delete
-    # the screenshot events 2..N were still copying from, losing the whole capture.
+    # Materialise every record FIRST. The capture's own record goes to the first
+    # UPCOMING event, and archive_record MOVES that directory — so a failure on it
+    # would otherwise delete the screenshot the rest are still being built from.
     eids=(); erecs=()
-    for (( ei = 0; ei < ev_count; ei++ )); do
-        if (( ei == 0 )); then
+    for (( k = 0; k < n_up; k++ )); do
+        if (( k == 0 )); then
             eids+=("$id"); erecs+=("$rec"); continue
         fi
         eid="$(cat /proc/sys/kernel/random/uuid)"
         erec="${PENDING_DIR}/${eid}"
         if ! fork_record "$rec" "$erec" "$ext" "$id"; then
-            log "  !! cannot create record for event $((ei+1))"; continue
+            log "  !! cannot create record for event $((k+1))"; continue
         fi
         eids+=("$eid"); erecs+=("$erec")
     done
 
     emitted=0
-    for (( ei = 0; ei < ${#eids[@]}; ei++ )); do
-        ev="$(jq -c --argjson i "$ei" '.events[$i]' <<<"$proposal")"
-        eid="${eids[$ei]}"; erec="${erecs[$ei]}"
+    for (( k = 0; k < ${#eids[@]}; k++ )); do
+        ev="$(jq -c --argjson i "${upcoming[$k]}" '.events[$i]' <<<"$proposal")"
+        eid="${eids[$k]}"; erec="${erecs[$k]}"
 
         if ! gate_reason="$(validate_proposal "$ev")"; then
             FAILED=$((FAILED + 1))
             jq -c . <<<"$ev" > "${erec}/proposal.json" 2>/dev/null || true
             archive_record "$eid" "$erec" failed "rejected at gate: ${gate_reason}"
-            log "  event $((ei+1))/${ev_count} rejected at gate: ${gate_reason}"
+            log "  event $((k+1))/${n_up} rejected at gate: ${gate_reason}"
             continue
         fi
 
@@ -393,24 +389,15 @@ for png in "${pngs[@]}"; do
                  --duration-min "$DURATION_MIN" <<<"$ev" > "${erec}/event.ics"; then
             FAILED=$((FAILED + 1))
             archive_record "$eid" "$erec" failed "could not render .ics"
-            log "  event $((ei+1))/${ev_count} failed to render"
+            log "  event $((k+1))/${n_up} failed to render"
             continue
         fi
 
-        # Past-ness is computed, never taken from the model. A passed event still
-        # gets its own notification — a page of eight must not quietly yield seven.
-        if event_is_past "$(jq -r '.date' <<<"$ev")" "$(jq -r '.start_time // ""' <<<"$ev")" \
-                         "$(jq -r '.all_day' <<<"$ev")" "$now_epoch"; then
-            ev_past=1
-        else
-            ev_past=0
-        fi
-        notify_event "$eid" "$erec" "$ev" "$((ei + 1))" "$ev_count" "$ev_seen" "$ev_past"
+        notify_event "$eid" "$erec" "$ev" "$((k + 1))" "$n_up" "$ev_seen"
         OK=$((OK + 1)); emitted=$((emitted + 1))
     done
 
-    # Every event failed its gate: the capture's own record was archived inside the
-    # loop, so there is nothing left to clean up here.
+    (( n_past )) && { past_note; log "  ${n_past} event(s) already passed, collapsed into one note"; }
     (( emitted )) || log "  no usable events from this capture"
 done
 
