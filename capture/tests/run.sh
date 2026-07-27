@@ -143,6 +143,16 @@ echo '{"events_seen":6,"events":[1,2,3]}' > "${FD}/src/capture.json"
 fork_record "${FD}/src" "${FD}/e4" png CAPGROUP
 is "sibling keeps the whole reply" "$(jq -r .events_seen "${FD}/e4/capture.json")" "6"
 
+# fork_record COPYING capture.json was tested; nothing asserted the triage ever
+# WRITES it — so a restructure deleted the write and every test still passed. These
+# assert the source lines exist, which is weak, but catches silent removal.
+TRI="${SCRIPT_DIR}/capture.triage.sh"
+has "triage writes capture.json"    "$(cat "$TRI")" 'capture.json'
+has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
+has "truncation is logged"          "$(cat "$TRI")" 'keeping the ${MAX_EVENTS_PER_CAPTURE} soonest'
+has "triage partitions past events" "$(cat "$TRI")" 'event_is_past'
+has "past events get one note"      "$(cat "$TRI")" 'past_note' 
+
 # The bug: archive_record MOVES the source record. Siblings must already exist and
 # must survive it, or a failure on event 1 takes the whole capture with it.
 fork_record "${FD}/src" "${FD}/e3" png CAPGROUP
