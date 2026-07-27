@@ -164,6 +164,25 @@ button_label() {
     fi
 }
 
+# fork_record <src-record> <dst-record> <ext> <capture-group-id>
+# Copy one capture's record into a sibling for another event from the same
+# screenshot. The image is HARDLINKED, so N events off one screenshot cost one
+# image on disk.
+#
+# Every sibling must exist before any event is processed: archive_record MOVES the
+# record directory, so a failure on the first event once deleted the screenshot the
+# remaining events were still being built from, losing the whole capture.
+fork_record() {
+    local src="$1" dst="$2" ext="$3" group="$4"
+    mkdir -p "$dst" || return 1
+    ln "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" 2>/dev/null \
+        || cp "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" || return 1
+    cp "${src}/mode" "${dst}/mode" 2>/dev/null
+    jq -c --arg g "$group" '. + {capture_group:$g}' "${src}/context.json" \
+        > "${dst}/context.json" 2>/dev/null || cp "${src}/context.json" "${dst}/context.json" 2>/dev/null
+    return 0
+}
+
 # api_class <http-status> -> ok | retry | fatal
 # "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
 # Lives here rather than inline in ask() so the tests assert the real mapping
