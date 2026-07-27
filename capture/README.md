@@ -146,11 +146,16 @@ be green and you will still never see a proposal without it.
 ## Data and privacy
 
 Every capture is retained indefinitely under `data/archive/<id>/` as a labelled
-example — screenshot, the model's proposal, and your verdict side by side:
+example — screenshot, the model's proposal, and your verdict side by side.
+`context.json` is what makes it comparable later: without the prompt that produced
+a proposal, a difference between two records could be the prompt, the model or the
+screenshot, with no way to tell which.
 
 ```
 archive/<id>/
   screenshot.png    what you captured (.jpg for Android uploads)
+  context.json      model, effort, the full prompt + its hash, capture time, tokens
+  mode              off | test | prod, as of when the capture was taken
   proposal.json     what the model read
   event.ics         what would have been written
   decision.json     add | add_alt | discard | ignored | needs_human | not_event | failed

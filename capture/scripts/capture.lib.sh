@@ -294,6 +294,55 @@ notify() {
         --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
 }
 
+# write_context <record-dir> <mode> <now-local> <image> <prompt>
+# Everything needed to interpret this record later, written when the capture is
+# claimed so it survives an API failure too.
+#
+# The prompt is stored in full, not just hashed. A record has to be readable on its
+# own — without checking out the commit the repo happened to be on that day — and
+# 2KB of text next to a 2MB screenshot costs nothing. The hash is there so records
+# can be grouped by prompt version without diffing text. The schema is hashed only,
+# since it is long and rarely the thing you are asking about.
+#
+# Without this, a proposal cannot be attributed: the prompt changed twice on
+# 2026-07-27 alone, so a difference between two records could be the prompt, the
+# model, or the screenshot, with no way to tell which.
+write_context() {
+    local rec="$1" mode="$2" now_local="$3" img="$4" prompt="$5"
+    local psha ssha bytes
+    psha="$(printf '%s' "$prompt" | sha256sum | cut -d' ' -f1)"
+    ssha="$(printf '%s' "$CAPTURE_SCHEMA" | sha256sum | cut -d' ' -f1)"
+    bytes="$(stat -c %s "$img" 2>/dev/null || echo 0)"
+
+    jq -n --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --arg captured_at_local "$now_local" --arg event_tz "$EVENT_TZ" \
+          --arg mode "$mode" --arg model "$MODEL" --arg effort "$EFFORT" \
+          --arg prompt "$prompt" --arg prompt_sha256 "$psha" \
+          --arg schema_sha256 "$ssha" --arg mime "$(image_mime "$img")" \
+          --argjson bytes "$bytes" --argjson duration_min "$DURATION_MIN" \
+        '{captured_at:$captured_at, captured_at_local:$captured_at_local,
+          event_tz:$event_tz, mode:$mode,
+          model:$model, effort:$effort, duration_min:$duration_min,
+          prompt_sha256:$prompt_sha256, schema_sha256:$schema_sha256,
+          image:{mime:$mime, bytes:$bytes},
+          prompt:$prompt}' > "${rec}/context.json"
+}
+
+# add_usage <record-dir> <api-response>
+# Fold the API's token counts into context.json once the call has returned. This is
+# what answers "would a cheaper model do" without re-running anything.
+add_usage() {
+    local rec="$1" resp="$2" tmp
+    [[ -f "${rec}/context.json" ]] || return 0
+    tmp="$(mktemp)"
+    if jq --argjson usage "$(jq -c '.usage // {}' <<<"$resp" 2>/dev/null || echo '{}')" \
+          '. + {usage:$usage}' "${rec}/context.json" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "${rec}/context.json"
+    else
+        rm -f "$tmp"
+    fi
+}
+
 # archive_record <id> <src-dir> <outcome> [note]
 # Resolve a capture: stamp the verdict, move the whole record (screenshot +
 # proposal + rendered .ics) into the archive, and append one line to the ledger.

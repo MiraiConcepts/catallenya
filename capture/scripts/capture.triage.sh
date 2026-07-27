@@ -57,9 +57,9 @@ Rules:
 EOF
 }
 
-# ask <image> <now-human> -> structured JSON on stdout, non-zero on failure
+# ask <image> <now-human> <record-dir> -> structured JSON on stdout, non-zero on failure
 ask() {
-    local png="$1" now="$2" b64f msgf out mime
+    local png="$1" now="$2" rec="$3" b64f msgf out mime
     b64f="$(mktemp)"; msgf="$(mktemp)"
     mime="$(image_mime "$png")"
     # Base64 goes via a FILE, never argv — a screenshot is ~1MB of base64, well
@@ -97,6 +97,8 @@ ask() {
         max_tokens) log "  !! truncated (max_tokens)"; return 1 ;;
         *)          log "  !! unexpected stop_reason=$stop"; return 1 ;;
     esac
+
+    add_usage "$rec" "$out"
 
     # With output_config.format the first text block IS the JSON object.
     jq -e -c 'first(.content[]? | select(.type=="text") | .text) | fromjson' <<<"$out" 2>/dev/null \
@@ -148,9 +150,12 @@ for png in "${pngs[@]}"; do
     # Stamp the mode NOW. archive_record reads this rather than the live setting,
     # so a test capture tapped after a switch to prod is still counted as a test.
     printf '%s\n' "$MODE" > "${rec}/mode"
+    # Same reasoning for the context: written before the call, so a record is
+    # attributable even when the API never answers.
+    write_context "$rec" "$MODE" "$now_h" "$png" "$(triage_prompt "$now_h")"
 
     ask_rc=0
-    proposal="$(ask "$png" "$now_h")" || ask_rc=$?
+    proposal="$(ask "$png" "$now_h" "$rec")" || ask_rc=$?
     if (( ask_rc == 2 )); then
         # Transient. Leave the record in pending/ with no proposal.json: that is
         # exactly the shape capture.sweep.sh adopts and re-queues. Deliberately
