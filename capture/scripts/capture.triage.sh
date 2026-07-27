@@ -74,7 +74,7 @@ Rules:
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
-- events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most 4 in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
+- events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
 - alternatives: per event, for a genuinely ambiguous reading of THAT SAME event — two possible times for it, a corrected date, two possible venues. Two different acts are two entries in events, never an alternative. List the ONE next-most-likely reading here so the user can pick it with a single tap. Give an empty array when the reading is unambiguous — do not invent alternatives. Only the first is used, and its button is labelled automatically from its date and time.
 EOF
 }
