@@ -23,6 +23,7 @@ bad()  { FAIL=$((FAIL+1)); printf '  FAIL  %s\n     expected: %s\n     actual:  
 is()   { [[ "$2" == "$3" ]] && ok "$1" || bad "$1" "$3" "$2"; }
 has()  { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "contains $3" "$2"; }
 hasnt(){ [[ "$2" != *"$3"* ]] && ok "$1" || bad "$1" "must not contain $3" "$2"; }
+isnt() { [[ "$2" != "$3" ]] && ok "$1" || bad "$1" "anything but $3" "$2"; }
 
 # A valid proposal. Cases mutate one field off this baseline.
 BASE='{"is_event":true,"needs_human":false,"calendar":"general","title":"Lunch",
@@ -174,6 +175,44 @@ is "unstamped record uses the live setting" \
       _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/rec")" \
    "prod"
 rm -rf "$MODED"
+
+# ------------------------------------------------------------------ context.json
+# Without this a proposal cannot be attributed: the prompt changed twice on
+# 2026-07-27 alone, so a difference between two records could be the prompt, the
+# model, or the screenshot, with no way to tell which.
+echo "write_context / add_usage"
+
+CTXD="$(mktemp -d)"; mkdir -p "${CTXD}/rec"
+printf '\211PNG\r\n\032\n' > "${CTXD}/shot.png"
+write_context "${CTXD}/rec" test "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT ONE"
+ctx="${CTXD}/rec/context.json"
+
+is "context.json is valid json" "$(jq -e . "$ctx" >/dev/null 2>&1 && echo yes)" "yes"
+is "records the model"          "$(jq -r .model "$ctx")"             "claude-opus-5"
+is "records the effort"         "$(jq -r .effort "$ctx")"            "medium"
+is "records the mode"           "$(jq -r .mode "$ctx")"              "test"
+is "records the local anchor"   "$(jq -r .captured_at_local "$ctx")" "Monday 2026-07-27 21:50"
+is "records the event tz"       "$(jq -r .event_tz "$ctx")"          "Asia/Singapore"
+is "stores the prompt in full"  "$(jq -r .prompt "$ctx")"            "PROMPT ONE"
+is "records the image mime"     "$(jq -r .image.mime "$ctx")"        "image/png"
+is "records image size"         "$(jq -r '.image.bytes > 0' "$ctx")" "true"
+is "hashes the schema"          "$(jq -r '.schema_sha256|length' "$ctx")" "64"
+
+# The hash is what lets records be grouped by prompt version without diffing text.
+h1="$(jq -r .prompt_sha256 "$ctx")"
+write_context "${CTXD}/rec" test "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT TWO"
+h2="$(jq -r .prompt_sha256 "${CTXD}/rec/context.json")"
+is  "prompt hash is 64 hex" "${#h1}" "64"
+isnt "a changed prompt changes the hash" "$h1" "$h2"
+
+# Token counts answer "would a cheaper model do" without re-running anything.
+add_usage "${CTXD}/rec" '{"usage":{"input_tokens":1234,"output_tokens":56}}'
+is "usage folded in"        "$(jq -r .usage.input_tokens "${CTXD}/rec/context.json")" "1234"
+is "prompt survives merge"  "$(jq -r .prompt "${CTXD}/rec/context.json")"             "PROMPT TWO"
+# A malformed response must not destroy the context that is already there.
+add_usage "${CTXD}/rec" 'not json at all'
+is "bad response leaves context intact" "$(jq -r .model "${CTXD}/rec/context.json")" "claude-opus-5"
+rm -rf "$CTXD"
 
 # --------------------------------------------------------------- image sniffing
 # Android (ColorOS) screenshots are JPEG, not PNG. The spool filename is always
