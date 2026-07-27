@@ -95,6 +95,11 @@ is "image is hardlinked"       "$(stat -c %h "${FD}/src/screenshot.png")" "2"
 is "sibling carries the mode"  "$(cat "${FD}/e2/mode")" "test"
 is "sibling is linked to the capture" "$(jq -r .capture_group "${FD}/e2/context.json")" "CAPGROUP"
 is "sibling keeps the context" "$(jq -r .model "${FD}/e2/context.json")" "claude-opus-5"
+# Each record holds only its own event, so without the whole reply a truncated
+# capture cannot afterwards be distinguished from one the model read short.
+echo '{"events_seen":6,"events":[1,2,3]}' > "${FD}/src/capture.json"
+fork_record "${FD}/src" "${FD}/e4" png CAPGROUP
+is "sibling keeps the whole reply" "$(jq -r .events_seen "${FD}/e4/capture.json")" "6"
 
 # The bug: archive_record MOVES the source record. Siblings must already exist and
 # must survive it, or a failure on event 1 takes the whole capture with it.
