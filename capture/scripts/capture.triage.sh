@@ -318,6 +318,20 @@ for png in "${pngs[@]}"; do
     # than teaching the container about indexes means the container, the sweep, the
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
+    # Keep the WHOLE reply before anything narrows it. Each record ends up holding
+    # only its own event, so without this a capture that was capped cannot afterwards
+    # be told apart from one the model read short — the exact question that could not
+    # be answered from disk on 2026-07-27.
+    jq -c . <<<"$proposal" > "${rec}/capture.json" 2>/dev/null || true
+
+    # Ours, not the model's: it is told the same number, but a reply that ignores it
+    # must still be bounded. Truncating is logged and surfaced, never silent.
+    if (( ev_count > MAX_EVENTS_PER_CAPTURE )); then
+        log "  !! ${ev_count} events returned, keeping the ${MAX_EVENTS_PER_CAPTURE} soonest (cap)"
+        (( ev_count > ev_seen )) && ev_seen=$ev_count
+        ev_count=$MAX_EVENTS_PER_CAPTURE
+    fi
+
     # Split the page into what is still ahead and what is over. Every upcoming event
     # gets its own notification; the past ones are collapsed into a single note
     # rather than one ping each — five stale pings to surface three real ones is
