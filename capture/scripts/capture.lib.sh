@@ -365,7 +365,13 @@ notify() {
 write_context() {
     local rec="$1" mode="$2" now_local="$3" img="$4" prompt="$5"
     local psha ssha bytes
-    psha="$(printf '%s' "$prompt" | sha256sum | cut -d' ' -f1)"
+    # Hash the TEMPLATE, not the rendered prompt. The prompt embeds the capture
+    # time, so hashing the rendered text gave every capture a unique digest — seven
+    # captures produced five hashes on 2026-07-27 — which defeats the only thing the
+    # field is for: grouping records by prompt version. Substituting the timestamp
+    # back out makes the digest stable across captures and change only when the
+    # wording does.
+    psha="$(printf '%s' "${prompt//${now_local}/<NOW>}" | sha256sum | cut -d' ' -f1)"
     ssha="$(printf '%s' "$CAPTURE_SCHEMA" | sha256sum | cut -d' ' -f1)"
     bytes="$(stat -c %s "$img" 2>/dev/null || echo 0)"
 
@@ -471,6 +477,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
   "properties": {
     "is_event":    {"type": "boolean"},
     "needs_human": {"type": "boolean"},
+    "events_seen": {"type": "integer"},
     "calendar":    {"type": "string", "enum": ["general", "birthday"]},
     "title":       {"type": "string"},
     "date":        {"type": "string"},
@@ -496,8 +503,8 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
       }
     }
   },
-  "required": ["is_event","needs_human","calendar","title","date","start_time","end_time",
-               "all_day","timezone","recurrence","location","description","reason",
+  "required": ["is_event","needs_human","events_seen","calendar","title","date","start_time",
+               "end_time","all_day","timezone","recurrence","location","description","reason",
                "alternatives"]
 }
 JSON

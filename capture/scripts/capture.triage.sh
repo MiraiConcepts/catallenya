@@ -50,17 +50,17 @@ Rules:
 - Not a specific event (receipt, article, ad, meme, general chat, a contact card with no request) -> is_event=false.
 - timezone: infer from context; if unclear use ${EVENT_TZ}.
 - calendar: "birthday" ONLY for a person's birthday/DOB -> then title="<Name> Birthday", all_day=true, recurrence="yearly". Otherwise "general".
-- If several times were discussed and the last one was proposed but never explicitly confirmed, USE THAT LAST PROPOSED TIME and set needs_human=false. The user reviews every event before it is added, so a stated-but-unconfirmed time is useful; note the uncertainty in description. Reserve needs_human=true for when NO usable time is stated at all (e.g. "sometime next week") — never invent one. The same applies to the date: if the image gives a time but no date that can be resolved even by the YEAR rule below (e.g. a listing showing "8pm" with the day only visible on another screen), set needs_human=true rather than guessing a day.
+- If several times were discussed and the last one was proposed but never explicitly confirmed, USE THAT LAST PROPOSED TIME and set needs_human=false. The user reviews every event before it is added, so a stated-but-unconfirmed time is useful; note the uncertainty in description.
+- NO TIME SHOWN -> all_day=true, start_time=null. Never invent a clock time and never escalate merely because one is missing: a dated poster with no time is a perfectly good all-day entry. needs_human=true is only for when the event cannot be placed on a calendar AT ALL — chiefly when there is no resolvable DATE (e.g. "sometime next week", or a listing whose day is only visible on another screen).
 - Read times from the image directly; do not trust a time you are unsure of.
 - date = YYYY-MM-DD; start_time = HH:MM 24h in the event's local timezone (null if all_day).
-- YEAR. When the image gives a day and month but no year, do NOT default to the current year — that quietly lands the event in the past, which is never worth adding. Decide from what kind of thing the image is:
-  * Something being ANNOUNCED or offered — poster, flyer, menu, promotion, listing, invitation, tickets on sale, opening hours: the date means the NEXT time that day/month occurs on or after ${1}. If it has already passed this year, it is next year.
-  * Something already COMPLETED — a receipt, an order confirmation, a past booking, an itinerary for a trip already taken: the date genuinely is in the past. There is nothing left to schedule, so is_event=false, and say so in reason.
-  Note a confirmation for a date still to come is a real event and should be proposed normally — it is the date being past that matters, not the document being a receipt.
-- Before returning, check the date against ${1}. A date earlier than ${1} is almost always a mistake: re-read the image for an explicit year, and re-decide which of the two cases above applies. Only return a past date when the image really is a record of something finished — and then is_event=false.
+- YEAR. When the image gives a day and month but no year, assume the CURRENT year. Do not invent a future one — a poster showing a date that has already passed is far more often stale than an announcement a year out. The one exception is the turn of the year: if assuming the current year puts the event in the past AND ${1} is within about three weeks of 1 January, use the next year instead (a date seen in late December reading "5 Jan" means the coming January).
+- ALREADY PAST. Work out the full start (date, plus start_time if one is shown) and compare it with ${1}. If the whole thing is behind ${1}, the event is over: there is nothing left to schedule, so is_event=false and say so in reason. This applies to a time earlier TODAY just as much as to an earlier date — a listing read at 22:00 for a 19:15 show tonight is finished. An all-day event is past only once its whole day has gone.
+  Note a receipt or confirmation for a date still to come is a real event and should be proposed normally; it is being past that matters, not the kind of document.
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
+- events_seen: how many DISTINCT events the image describes — different acts, sessions, or dates, not the same event at two possible times. 1 for an ordinary screenshot. When it is more than 1, propose the one starting SOONEST after ${1} and set events_seen to the true count, so the notification can say the user is being shown one of several rather than pretending there was only one.
 - alternatives: when the screenshot genuinely supports more than one reading (two times discussed, a corrected date, two possible venues), list the ONE next-most-likely reading here so the user can pick it with a single tap. Give an empty array when the reading is unambiguous — do not invent alternatives. Only the first is used, and its button is labelled automatically from its date and time.
 EOF
 }
@@ -289,6 +289,12 @@ for png in "${pngs[@]}"; do
     [[ -n "$ev_loc" ]] && body+=$'\n'"${ev_loc}"
     # Capitalise the calendar name for display: general -> General
     body+=$'\n'"${ev_cal^}"
+    # Say when the page held more than this. A festival listing used to yield one
+    # confident proposal with no hint that five other acts existed — the choice was
+    # defensible, looking certain about it was not.
+    ev_seen="$(jq -r '.events_seen // 1' <<<"$proposal")"
+    [[ "$ev_seen" =~ ^[0-9]+$ ]] && (( ev_seen > 1 )) && \
+        body+=$'\n'"Soonest of ${ev_seen} on this page"
 
     OK=$((OK + 1))
     if base="$(capture_base_url)"; then
