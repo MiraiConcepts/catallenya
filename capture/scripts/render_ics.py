@@ -10,8 +10,12 @@ Timed events are emitted in **UTC** (converted from the inferred timezone via
 zoneinfo) rather than TZID + a hand-rolled VTIMEZONE: UTC is DST-safe for any
 IANA zone and displays correctly in every client. All-day events use VALUE=DATE.
 
-Proposal fields consumed (see capture.lib.sh for the schema):
-  is_event, calendar, title, date (YYYY-MM-DD), start_time (HH:MM|null),
+Input is ONE EVENT object from the proposal's events[] array, not the whole
+proposal. is_event lives at the top level of the proposal and is checked by the
+triage before it ever gets here.
+
+Event fields consumed (see capture.lib.sh for the schema):
+  calendar, title, date (YYYY-MM-DD), start_time (HH:MM|null),
   all_day, timezone (IANA), recurrence (none|yearly|monthly|weekly|daily),
   location, description
 """
@@ -135,8 +139,9 @@ def main():
     ap.add_argument("--duration-min", type=int, default=60)
     a = ap.parse_args()
     p = json.load(sys.stdin)
-    if not p.get("is_event"):
-        sys.exit("render_ics: proposal is not an event")
+    # No is_event check: this receives a single event from events[], which by
+    # construction is one. The flag is a property of the proposal, not the event,
+    # and the triage gates on it before the fan-out.
     sys.stdout.write(build(p, a.uid, a.now, a.duration_min))
 
 

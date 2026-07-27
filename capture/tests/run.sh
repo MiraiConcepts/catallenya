@@ -73,6 +73,37 @@ has "comma and semicolon escaped" "$out" 'SUMMARY:Tea\, cake\; more'
 out="$(mut '.all_day=true | .start_time=null | .end_time=null' | render)"
 has "all-day uses VALUE=DATE" "$out" "DTSTART;VALUE=DATE:20260726"
 
+# render_ics receives ONE EVENT from events[], which carries no is_event field —
+# that lives on the proposal. It used to exit "proposal is not an event" on every
+# event of a multi-event capture, so nothing rendered at all.
+out="$(mut 'del(.is_event, .needs_human, .alternatives)' | render)"
+has "renders a bare event object" "$out" "DTSTART:20260726T050000Z"
+hasnt "no is_event complaint"     "$out" "not an event"
+
+# --------------------------------------------------------------- fan-out
+# One screenshot, several events: each gets its own record, sharing one image.
+echo "fork_record"
+
+FD="$(mktemp -d)"; mkdir -p "${FD}/src"
+printf '\211PNG\r\n\032\n' > "${FD}/src/screenshot.png"
+printf 'test\n' > "${FD}/src/mode"
+echo '{"model":"claude-opus-5"}' > "${FD}/src/context.json"
+
+fork_record "${FD}/src" "${FD}/e2" png CAPGROUP && ok "fork_record succeeds" || bad "fork_record" 0 1
+is "sibling has the image"     "$([ -f "${FD}/e2/screenshot.png" ] && echo yes)" "yes"
+is "image is hardlinked"       "$(stat -c %h "${FD}/src/screenshot.png")" "2"
+is "sibling carries the mode"  "$(cat "${FD}/e2/mode")" "test"
+is "sibling is linked to the capture" "$(jq -r .capture_group "${FD}/e2/context.json")" "CAPGROUP"
+is "sibling keeps the context" "$(jq -r .model "${FD}/e2/context.json")" "claude-opus-5"
+
+# The bug: archive_record MOVES the source record. Siblings must already exist and
+# must survive it, or a failure on event 1 takes the whole capture with it.
+fork_record "${FD}/src" "${FD}/e3" png CAPGROUP
+mv "${FD}/src" "${FD}/archived"
+is "sibling survives the source being archived" "$([ -f "${FD}/e2/screenshot.png" ] && echo yes)" "yes"
+is "second sibling survives too"                "$([ -f "${FD}/e3/screenshot.png" ] && echo yes)" "yes"
+rm -rf "$FD"
+
 # ---------------------------------------------------------------------- gate
 echo "validate_proposal"
 

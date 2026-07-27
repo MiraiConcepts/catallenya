@@ -317,24 +317,26 @@ for png in "${pngs[@]}"; do
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
     (( ev_count > MAX_EVENTS_PER_CAPTURE )) && ev_count=$MAX_EVENTS_PER_CAPTURE
-    emitted=0
+    # Materialise every record FIRST. Event 1 reuses the capture's own record, and
+    # archive_record MOVES that directory — so a failure on event 1 used to delete
+    # the screenshot events 2..N were still copying from, losing the whole capture.
+    eids=(); erecs=()
     for (( ei = 0; ei < ev_count; ei++ )); do
-        ev="$(jq -c --argjson i "$ei" '.events[$i]' <<<"$proposal")"
-
-        # First event keeps the capture's own record; the rest get fresh ones.
         if (( ei == 0 )); then
-            erec="$rec"; eid="$id"
-        else
-            eid="$(cat /proc/sys/kernel/random/uuid)"
-            erec="${PENDING_DIR}/${eid}"
-            mkdir -p "$erec" || { log "  !! cannot create record for event $((ei+1))"; continue; }
-            # Hardlink, not copy: same filesystem, so N events share one image.
-            ln "${rec}/screenshot.${ext}" "${erec}/screenshot.${ext}" 2>/dev/null \
-                || cp "${rec}/screenshot.${ext}" "${erec}/screenshot.${ext}"
-            cp "${rec}/mode" "${erec}/mode"
-            jq -c --arg g "$id" '. + {capture_group:$g}' "${rec}/context.json" \
-                > "${erec}/context.json" 2>/dev/null || cp "${rec}/context.json" "${erec}/context.json"
+            eids+=("$id"); erecs+=("$rec"); continue
         fi
+        eid="$(cat /proc/sys/kernel/random/uuid)"
+        erec="${PENDING_DIR}/${eid}"
+        if ! fork_record "$rec" "$erec" "$ext" "$id"; then
+            log "  !! cannot create record for event $((ei+1))"; continue
+        fi
+        eids+=("$eid"); erecs+=("$erec")
+    done
+
+    emitted=0
+    for (( ei = 0; ei < ${#eids[@]}; ei++ )); do
+        ev="$(jq -c --argjson i "$ei" '.events[$i]' <<<"$proposal")"
+        eid="${eids[$ei]}"; erec="${erecs[$ei]}"
 
         if ! gate_reason="$(validate_proposal "$ev")"; then
             FAILED=$((FAILED + 1))
