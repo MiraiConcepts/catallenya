@@ -210,6 +210,13 @@ has "recurring resolves forward"     "$PROMPT" "NEXT occurrence on or after"
 has "admits the year is unknowable" "$PROMPT" "genuinely UNKNOWABLE"
 has "offers the other year"         "$PROMPT" "put the other year in alternatives"
 has "does not reject a stale-looking date" "$PROMPT" "Do not reject a date merely because"
+# It offered 2025-12-04 next to a 2026-12-04 primary whose year it had itself
+# derived from "Friday 4 December". Determined means settled; and 2025-12-04 is a
+# Thursday, so it was not even a candidate.
+has "year alt is step-5 only"        "$PROMPT" "THIS STEP ONLY"
+has "a weekday settles the year"     "$PROMPT" "is 2026 and nothing else"
+has "never offers a past option"     "$PROMPT" "NEVER put a date in the past"
+has "earlier candidate leads"        "$PROMPT" "EARLIER DATE FIRST"
 # The old January special-case is gone and deliberately not replaced: "nearest
 # candidate still ahead of now" already covers it. A poster read on 27 Dec saying
 # "5 Jan" finds this year's 5 Jan has passed and takes next year, with no clause.
@@ -252,6 +259,17 @@ done
 
 # The model no longer names buttons at all — one less untrusted string in a header.
 hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'
+
+# The prompt is asked not to produce a past alternative; this makes sure of it
+# regardless, because prompt rules were wrong three times on 2026-07-27 and the
+# guard was not.
+echo "past-alternative guard"
+guard() { # $1 = alt date, $2 = capture date -> kept | dropped
+    [[ "$1" < "$2" ]] && echo dropped || echo kept
+}
+is "past alternative dropped"   "$(guard 2025-12-04 2026-07-27)" "dropped"
+is "future alternative kept"    "$(guard 2027-12-04 2026-07-27)" "kept"
+is "same-day alternative kept"  "$(guard 2026-07-27 2026-07-27)" "kept"
 
 # ------------------------------------------------------------------ context.json
 # Without this a proposal cannot be attributed: the prompt changed twice on

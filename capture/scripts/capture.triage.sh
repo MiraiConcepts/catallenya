@@ -59,7 +59,9 @@ Rules:
   2. A year ANYWHERE else in the image -> use it. It is often not next to the date: in the event or festival name ("Seaweed Fest 2025"), a footer or copyright line, a URL, a hashtag, a ticket link, an edition or season label. Look before you assume.
   3. A weekday given with the day and month ("Fri 31 Jul", "5.14 (Wed)") -> CALCULATE the year. A given day and month only falls on a given weekday roughly one year in six, so this is determinate, not a guess. Pick the nearest matching year, preferring one on or after ${1}.
   4. A yearly recurring event (a birthday, an anniversary) -> use the NEXT occurrence on or after ${1}, since that is the one worth putting in a calendar.
-  5. Nothing above applies — the year is genuinely UNKNOWABLE from the image, so do not pretend otherwise. Take the nearest candidate that is still ahead of ${1}: the current year if that date has not yet passed, otherwise the next year. When BOTH the current and the next year are still ahead (a date late in the year, read earlier in it), the reading is truly ambiguous, so put the other year in alternatives so the user can pick with one tap. Note in description that no year was shown.
+  5. Nothing above applies — the year is genuinely UNKNOWABLE from the image, so do not pretend otherwise. Take the nearest candidate that is still ahead of ${1}: the current year if that date has not yet passed, otherwise the next year. When BOTH the current and the next year are still ahead (a date late in the year, read earlier in it), the reading is truly ambiguous, so put the other year in alternatives, EARLIER DATE FIRST as the primary. Note in description that no year was shown.
+     A year alternative belongs to THIS STEP ONLY. If any of steps 1-4 gave you the year, the year is settled — do not offer another one. A weekday that pins the year settles it: "Friday 4 December" is 2026 and nothing else, so 2025 is not a candidate, it is a different weekday.
+     NEVER put a date in the past into alternatives. Every option offered must be one the user could still attend.
      Do not reject a date merely because the current year's version has passed: that is what makes an undated tour poster or flyer unusable. The user discards it if the poster was stale.
 - ALREADY PAST. Work out the full start (date, plus start_time if one is shown) and compare it with ${1}. If the whole thing is behind ${1}, the event is over: there is nothing left to schedule, so is_event=false and say so in reason. This applies to a time earlier TODAY just as much as to an earlier date — a listing read at 22:00 for a 19:15 show tonight is finished. An all-day event is past only once its whole day has gone.
   Note a receipt or confirmation for a date still to come is a real event and should be proposed normally; it is being past that matters, not the kind of document.
@@ -253,7 +255,16 @@ for png in "${pngs[@]}"; do
         alt_json="$(jq -c '.alternatives[0] as $a | . + {date: $a.date, start_time: $a.start_time,
                            end_time: null,
                            location: ($a.location // .location)} | del(.alternatives)' <<<"$proposal")"
-        if "${SCRIPT_DIR}/render_ics.py" --uid "$id" --now "$now_z" \
+        # Drop an alternative that is already in the past, whatever the model says.
+        # It offered 2025-12-04 beside a 2026-12-04 primary on 2026-07-27 — a date
+        # 234 days gone, on a weekday that contradicted the poster. An option the
+        # user cannot attend is never worth a button.
+        alt_date_chk="$(jq -r '.date // ""' <<<"$alt_json")"
+        today_local="$(TZ="$EVENT_TZ" date -d "@$(stat -c %Y "$png")" +%Y-%m-%d)"
+        if [[ "$alt_date_chk" < "$today_local" ]]; then
+            log "  dropped past alternative (${alt_date_chk} < ${today_local})"
+            rm -f "${rec}/event.alt.ics"
+        elif "${SCRIPT_DIR}/render_ics.py" --uid "$id" --now "$now_z" \
                --duration-min "$DURATION_MIN" <<<"$alt_json" > "${rec}/event.alt.ics" 2>/dev/null; then
             jq -c . <<<"$alt_json" > "${rec}/proposal.alt.json"
             has_alt=1
