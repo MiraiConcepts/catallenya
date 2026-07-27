@@ -143,7 +143,13 @@ image_ext() {
 button_label() {
     local date="$1" start="$2" all_day="$3" primary_date="$4"
     if [[ "$date" != "$primary_date" ]]; then
-        date -d "$date" '+%-d %b' 2>/dev/null || printf 'Alternative'
+        # Include the year when the two candidates differ by it, or a year-ambiguous
+        # proposal renders "13 Mar" on both buttons and the choice is unreadable.
+        if [[ "${date%%-*}" != "${primary_date%%-*}" ]]; then
+            date -d "$date" "+%-d %b %y" 2>/dev/null || printf 'Alternative'
+        else
+            date -d "$date" '+%-d %b' 2>/dev/null || printf 'Alternative'
+        fi
         return
     fi
     if [[ "$all_day" == "true" || -z "$start" || "$start" == "null" ]]; then
