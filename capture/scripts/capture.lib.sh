@@ -187,6 +187,20 @@ fork_record() {
     return 0
 }
 
+# event_is_past <date> <start_time> <all_day> <now-epoch> -> true when it is over
+# Computed here, never asked of the model. An all-day event is past only once its
+# whole day has gone; a timed one the moment its start has.
+event_is_past() {
+    local d="$1" st="$2" ad="$3" now="$4" when
+    if [[ "$ad" == "true" || -z "$st" || "$st" == "null" ]]; then
+        when="$(TZ="$EVENT_TZ" date -d "${d} 23:59:59" +%s 2>/dev/null)" || return 1
+    else
+        when="$(TZ="$EVENT_TZ" date -d "${d} ${st}" +%s 2>/dev/null)" || return 1
+    fi
+    [[ -n "$when" ]] || return 1
+    (( when < now ))
+}
+
 # api_class <http-status> -> ok | retry | fatal
 # "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
 # Lives here rather than inline in ask() so the tests assert the real mapping
