@@ -43,8 +43,8 @@ render() { "${SCRIPT_DIR}/render_ics.py" --uid TESTUID --now 20260726T000000Z --
 echo "library surface"
 
 for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
-          image_mime image_ext button_label event_is_past api_class api_post \
-          clean_proposal validate_proposal write_context add_usage fork_record \
+          image_mime image_ext button_label diff_axis event_is_past api_class api_post \
+          clean_proposal validate_proposal triage_route write_context add_usage fork_record \
           recording_mode record_mode; do
     declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
 done
@@ -52,7 +52,7 @@ done
 # And that the scripts only call helpers that exist.
 for src in "${SCRIPT_DIR}/capture.triage.sh" "${SCRIPT_DIR}/capture.sweep.sh"; do
     missing=""
-    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|event_is_past|api_post|clean_proposal|validate_proposal|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
+    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|clean_proposal|validate_proposal|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
         declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
     done
     [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
@@ -185,6 +185,35 @@ mv "${FD}/src" "${FD}/archived"
 is "sibling survives the source being archived" "$([ -f "${FD}/e2/screenshot.png" ] && echo yes)" "yes"
 is "second sibling survives too"                "$([ -f "${FD}/e3/screenshot.png" ] && echo yes)" "yes"
 rm -rf "$FD"
+
+# --------------------------------------------------------------- routing
+# Which branch a reply lands in. The bug this covers: the "no events" test ran
+# BEFORE the needs_human test, so a reply meaning "this needs your attention but
+# I could not build an event" was reported as the quiet "No event found" rather
+# than the "Needs a human" warning — a capture asking for help filed as junk.
+# Found 2026-07-28 by replaying an archived capture through a different model.
+echo "triage routing"
+
+is "needs_human with NO events -> needs_human" \
+   "$(triage_route true true 0)" needs_human
+is "needs_human with events -> needs_human" \
+   "$(triage_route true true 3)" needs_human
+is "plain event -> events" \
+   "$(triage_route true false 1)" events
+is "no events, no flag -> not_event" \
+   "$(triage_route true false 0)" not_event
+# is_event=false settles it: the model says nothing schedulable is here, and a
+# needs_human beside that is noise, not a reason to page the user.
+is "is_event=false -> not_event" \
+   "$(triage_route false false 0)" not_event
+is "is_event=false outranks needs_human" \
+   "$(triage_route false true 2)" not_event
+# A malformed count must not fall through to the events path, where the fan-out
+# loop would run over a non-number.
+is "non-numeric count -> not_event" \
+   "$(triage_route true false null)" not_event
+is "empty count -> not_event" \
+   "$(triage_route true false '')" not_event
 
 # ---------------------------------------------------------------------- gate
 echo "validate_proposal"

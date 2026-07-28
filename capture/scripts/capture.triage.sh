@@ -323,22 +323,24 @@ for png in "${pngs[@]}"; do
     ev_count="$(jq -r '.events | length' <<<"$proposal")"
     ev_seen="$(jq -r '.events_seen // 1' <<<"$proposal")"
 
-    if [[ "$is_event" != "true" || "$ev_count" -eq 0 ]]; then
-        OK=$((OK + 1))
-        archive_record "$id" "$rec" not_event "${reason:-}"
-        log "  not an event: ${reason:-(no reason given)}"
-        notify "No event found" low "camera" "${reason:-That screenshot did not look like an event.}"
-        continue
-    fi
-
-    if [[ "$needs_human" == "true" ]]; then
-        OK=$((OK + 1))
-        archive_record "$id" "$rec" needs_human "${reason:-}"
-        log "  needs human: ${reason:-(no reason given)}"
-        notify "Needs a human" default "warning,calendar" \
-               "${reason:-Time or date unclear — not adding.} (id ${id:0:8})"
-        continue
-    fi
+    # Routing lives in capture.lib.sh so the tests can assert it directly. The
+    # order matters: needs_human must outrank an empty events list, or a reply
+    # asking for attention is reported as the quiet "No event found".
+    case "$(triage_route "$is_event" "$needs_human" "$ev_count")" in
+        not_event)
+            OK=$((OK + 1))
+            archive_record "$id" "$rec" not_event "${reason:-}"
+            log "  not an event: ${reason:-(no reason given)}"
+            notify "No event found" low "camera" "${reason:-That screenshot did not look like an event.}"
+            continue ;;
+        needs_human)
+            OK=$((OK + 1))
+            archive_record "$id" "$rec" needs_human "${reason:-}"
+            log "  needs human: ${reason:-(no reason given)}"
+            notify "Needs a human" default "warning,calendar" \
+                   "${reason:-Time or date unclear — not adding.} (id ${id:0:8})"
+            continue ;;
+    esac
 
     # One screenshot can describe several events — a festival day, a tour, a
     # schedule. Each becomes its OWN record with its own id, screenshot (hardlinked,

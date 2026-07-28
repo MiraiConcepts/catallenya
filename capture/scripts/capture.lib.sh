@@ -398,6 +398,31 @@ validate_proposal() {
     return 0
 }
 
+# triage_route <is_event> <needs_human> <event-count> -> not_event|needs_human|events
+# Which branch a model reply belongs in. Pure, and here rather than inline in
+# capture.triage.sh so the tests assert the REAL mapping instead of a copy of it
+# that drifts — same reasoning as api_class.
+#
+# THE ORDER IS THE WHOLE POINT, and it used to be wrong. The "no events" test ran
+# first, so a reply meaning "this needs your attention but I could not build an
+# event" — is_event=true, needs_human=true, events=[] — was reported as the quiet
+# "No event found" instead of the "Needs a human" warning. A capture asking for
+# help was filed as junk. Found 2026-07-28 replaying an archived capture through
+# a different model, which emits that shape where opus-5 emits a placeholder
+# event alongside; nothing guarantees opus-5 never will.
+#
+# is_event=false is still decided first: the model saying nothing schedulable is
+# here settles the question, and a needs_human beside it is noise.
+triage_route() {
+    local is_event="$1" needs_human="$2" n="$3"
+    [[ "$is_event"    != "true" ]] && { echo not_event;   return; }
+    [[ "$needs_human" == "true" ]] && { echo needs_human; return; }
+    # A non-numeric count is a malformed reply with nothing to add to a calendar.
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo not_event; return; }
+    (( n == 0 )) && { echo not_event; return; }
+    echo events
+}
+
 # notify <title> <priority> <tags> <body> [actions]
 # `actions` is a raw ntfy Actions header value; omit for a plain note.
 notify() {
