@@ -186,6 +186,60 @@ is "sibling survives the source being archived" "$([ -f "${FD}/e2/screenshot.png
 is "second sibling survives too"                "$([ -f "${FD}/e3/screenshot.png" ] && echo yes)" "yes"
 rm -rf "$FD"
 
+# ------------------------------------------------------- notify_event under -u
+# capture.triage.sh runs `set -uo pipefail`, and in bash `local x` leaves x UNSET
+# rather than null — so reading it aborts the shell. notify_event declared its
+# three alternative-display vars bare and then read $alt_date_h unconditionally,
+# which killed the whole run on any event with no alternative: no notification,
+# rest of the batch dropped. That is the COMMON case, and it shipped because the
+# only two captures processed after the change happened to have alternatives.
+#
+# notify_event cannot be sourced (capture.triage.sh runs its drain loop on load),
+# so it is extracted the same way and driven with notify() stubbed out. What is
+# asserted is only that it SURVIVES — the body's wording is covered elsewhere.
+echo "notify_event survives set -u"
+
+ne_run() { # ne_run <event-json> -> body on stdout, non-zero if the function died
+    # The event goes through the ENVIRONMENT, never spliced into the -c string:
+    # the JSON carries quotes and newlines, and interpolating it produced a
+    # syntax error that looked exactly like the crash being tested for.
+    NE_EV="$(jq -c . <<<"$1")" NE_DIR="$SCRIPT_DIR" bash -uo pipefail -c '
+        source "${NE_DIR}/capture.lib.sh"
+        SCRIPT_DIR="$NE_DIR"
+        now_z="20260728T000000Z"
+        notify() { printf "%s\n" "$4"; }
+        capture_base_url() { printf "https://example.invalid:10000"; }
+        '"$(sed -n '/^notify_event() {$/,/^}$/p' "${SCRIPT_DIR}/capture.triage.sh")"'
+        rec="$(mktemp -d)"; trap "rm -rf \"$rec\"" EXIT
+        notify_event "11111111-1111-1111-1111-111111111111" "$rec" "$NE_EV" 1 1 1
+    ' 2>&1
+}
+
+NOALT='{"calendar":"general","title":"Dinner","date":"2026-08-14","start_time":"19:30",
+        "end_time":"21:00","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
+        "location":"Candlenut","description":null,"alternatives":[]}'
+out="$(ne_run "$NOALT")"; rc=$?
+is   "no alternative does not abort"       "$rc" 0
+hasnt "no unbound-variable error"          "$out" "unbound variable"
+has  "body still carries the date"         "$out" "Friday, 14 August 2026"
+has  "body still carries the time"         "$out" "19:30 - 21:00"
+hasnt "no stray 'or' with nothing to offer" "$out" "or "
+
+ALLDAY='{"calendar":"general","title":"Fest","date":"2026-09-05","start_time":null,
+         "end_time":null,"all_day":true,"timezone":"Asia/Singapore","recurrence":"none",
+         "location":null,"description":null,"alternatives":[]}'
+out="$(ne_run "$ALLDAY")"; rc=$?
+is   "all-day, no alternative, no location" "$rc" 0
+has  "all-day body says so"                 "$out" "All day"
+
+WITHALT='{"calendar":"general","title":"Film","date":"2026-08-02","start_time":"19:15",
+          "end_time":"21:20","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
+          "location":"The Projector","description":null,
+          "alternatives":[{"date":"2026-08-02","start_time":"20:15","location":null}]}'
+out="$(ne_run "$WITHALT")"; rc=$?
+is  "with an alternative still works" "$rc" 0
+has "and offers the other time"       "$out" "or 20:15"
+
 # --------------------------------------------------------------- routing
 # Which branch a reply lands in. The bug this covers: the "no events" test ran
 # BEFORE the needs_human test, so a reply meaning "this needs your attention but
