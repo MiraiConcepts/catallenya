@@ -136,6 +136,23 @@ image_ext() {
     case "$(image_mime "$1")" in image/jpeg) echo jpg ;; *) echo png ;; esac
 }
 
+# diff_axis <this-event-json> <other-event-json> -> year|date|time|venue|none
+# Which single thing distinguishes two ways of attending the same event. Both the
+# button labels and the notification body read this, so they can never disagree
+# about what is being chosen — the body used to state "Wednesday, 31 March 2027" as
+# settled while the buttons offered [31 Mar] [1 Apr].
+diff_axis() {
+    local a="$1" b="$2" ad bd at bt al bl
+    ad="$(jq -r '.date // ""' <<<"$a")"; bd="$(jq -r '.date // ""' <<<"$b")"
+    [[ "${ad%%-*}" != "${bd%%-*}" ]] && { echo year;  return; }
+    [[ "$ad" != "$bd" ]]              && { echo date;  return; }
+    at="$(jq -r '.start_time // ""' <<<"$a")"; bt="$(jq -r '.start_time // ""' <<<"$b")"
+    [[ "$at" != "$bt" ]]              && { echo time;  return; }
+    al="$(jq -r '.location // ""' <<<"$a")";   bl="$(jq -r '.location // ""' <<<"$b")"
+    [[ -n "$al" && "$al" != "$bl" ]]  && { echo venue; return; }
+    echo none
+}
+
 # button_label <this-event-json> <other-event-json> -> short button text
 # Labels the axis that actually DIFFERS between the two choices, so a pair always
 # reads as a comparison rather than two unrelated facts:
@@ -153,40 +170,24 @@ image_ext() {
 # prompt examples were 12-hour while the primary is forced to 24-hour, which is how a
 # notification came to read "19:00" beside "8.15pm".
 button_label() {
-    local a="$1" b="$2" ad bd at bt al bl
-    ad="$(jq -r '.date // ""'       <<<"$a")"; bd="$(jq -r '.date // ""'       <<<"$b")"
-
-    if [[ "${ad%%-*}" != "${bd%%-*}" ]]; then          # different year
-        date -d "$ad" '+%-d %b %y' 2>/dev/null || printf 'Alternative'
-        return
-    fi
-    if [[ "$ad" != "$bd" ]]; then                      # different day, same year
-        date -d "$ad" '+%-d %b' 2>/dev/null || printf 'Alternative'
-        return
-    fi
-
-    at="$(jq -r '.start_time // ""' <<<"$a")"; bt="$(jq -r '.start_time // ""' <<<"$b")"
-    if [[ "$at" != "$bt" && "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-        printf '%s' "$at"                              # same day, different time
-        return
-    fi
-
-    al="$(jq -r '.location // ""'   <<<"$a")"; bl="$(jq -r '.location // ""'   <<<"$b")"
-    if [[ -n "$al" && "$al" != "$bl" ]]; then          # same day and time: the venue
-        # Strip to the Actions-header charset before truncating, so a venue with a
-        # comma or apostrophe shortens rather than failing the whitelist entirely.
-        printf '%s' "$(tr -cd 'A-Za-z0-9 :.-' <<<"$al" | cut -c1-12 | sed 's/ *$//')"
-        return
-    fi
-
-    # Nothing distinguishes them, or there is no alternative at all.
-    if [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
-        printf 'All day'
-    elif [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-        printf '%s' "$at"
-    else
-        printf 'Alternative'
-    fi
+    local a="$1" b="$2" at
+    at="$(jq -r '.start_time // ""' <<<"$a")"
+    case "$(diff_axis "$a" "$b")" in
+        year)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b %y' 2>/dev/null || printf 'Alternative' ;;
+        date)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b'    2>/dev/null || printf 'Alternative' ;;
+        time)
+            if [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then printf '%s' "$at"
+            else printf 'All day'; fi ;;
+        venue)
+            # Strip to the Actions-header charset before truncating, so a venue with
+            # a comma shortens rather than failing the whitelist outright.
+            printf '%s' "$(jq -r '.location' <<<"$a" | tr -cd 'A-Za-z0-9 :.-' | cut -c1-12 | sed 's/ *$//')" ;;
+        *)
+            if [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
+                printf 'All day'
+            elif [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then printf '%s' "$at"
+            else printf 'Alternative'; fi ;;
+    esac
 }
 
 # fork_record <src-record> <dst-record> <ext> <capture-group-id>
