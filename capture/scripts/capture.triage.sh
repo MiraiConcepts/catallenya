@@ -171,7 +171,13 @@ notify_event() {
     # Which axis the buttons are choosing between, so the body can say so instead of
     # stating one option as settled. The body used to read "Wednesday, 31 March 2027"
     # while the buttons offered [31 Mar] [1 Apr].
-    local axis=none alt_date_h alt_time_h alt_loc_h
+    # Empty DEFAULTS, not bare declarations. This script runs under `set -u`, and
+    # `local x` leaves x unset rather than null — so reading $alt_date_h below when
+    # there is no alternative aborts the whole script, killing the run before the
+    # notification is sent and taking the rest of the batch with it. The single
+    # event with no alternative is the COMMON case; it survived review only because
+    # both captures processed after the guard was introduced happened to have one.
+    local axis=none alt_date_h="" alt_time_h="" alt_loc_h=""
     if (( has_alt )); then
         axis="$(diff_axis "$ev" "$alt_json")"
         alt_date_h="$(date -d "$(jq -r '.date' <<<"$alt_json")" '+%A, %-d %B %Y' 2>/dev/null || true)"
