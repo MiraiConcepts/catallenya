@@ -90,17 +90,48 @@ gate before anything is written, so it has to be checkable at a glance:
     5 Everton Park
     General
 
-    [ Add ]   [ Discard ]
+    [ 13:00 ]   [ Discard ]
 ```
 
 Title is the event name; the body is one fact per line in 24-hour time, and empty
 fields are simply absent — an all-day event shows no time line, one with no venue
-shows no location line. When the model saw a second plausible reading the buttons
-become `[13:00] [15:00] [Discard]` and each writes that variant directly; both `.ics`
-files are pre-rendered, so either tap is a file read plus one PUT.
+shows no location line. The primary button is the event's own start time rather than
+the word "Add", so a glance at the buttons is enough to see what you are choosing
+between.
 
-**ntfy caps action buttons at 3**, which is why at most one alternative is ever
-offered — a rarer 3-way ambiguity shows the best two readings and drops the rest.
+When the model saw a second plausible reading of the SAME event the buttons become
+`[13:00] [15:00] [Discard]`, and each writes that variant directly; both `.ics` files
+are pre-rendered, so either tap is a file read plus one PUT. Both labels are derived
+from the proposal, never named by the model — that is what stops `[19:00]` appearing
+beside `[8.15pm]`. When the two readings differ by YEAR rather than by time, both
+carry it: `[15 Nov 26] [15 Nov 27]`.
+
+A screenshot holding several events sends one notification per event, each numbered:
+
+```
+📅  Asayake
+    Friday, 31 July 2026
+    19:15
+    General
+    Event 5 of 7 from one screenshot
+
+    [ 19:15 ]   [ 20:30 ]   [ Discard ]
+```
+
+Anything on the page that has already finished is not sent as its own notification —
+they are collapsed into one low-priority note, so a listing where three acts are over
+does not cost you three pings:
+
+```
+⏳  Already passed
+    1 event on that screenshot has already passed:
+    · Safety Off!
+```
+
+**ntfy caps action buttons at 3**, which is why at most one alternative per event is
+ever offered. Two different acts are two events, not two readings of one — that
+distinction is why a festival page fans out instead of proposing one act as though it
+were the only thing there.
 
 The 📅 is an emoji from the `Tags:` header. Custom icons are possible — an `Icon:`
 header pointing at a PNG/JPEG URL, fetched by the *phone* rather than the server and
