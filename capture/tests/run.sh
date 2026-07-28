@@ -360,7 +360,20 @@ hasnt "prompt contains no backticks" "$PROMPT" '`'
 # Shipped wart: the primary button was forced to 24h from start_time while the
 # alternative label came free-form from the model, whose prompt examples were 12h.
 # A real notification showed "19:00" beside "8.15pm". Both are now derived.
-echo "button_label"
+echo "diff_axis / button_label"
+
+# The body and the buttons both read diff_axis, so they cannot disagree about what is
+# being chosen. The body used to state "Wednesday, 31 March 2027" as settled while the
+# buttons offered [31 Mar] [1 Apr].
+AX() { jq -cn --arg d "$1" --arg t "$2" --arg l "$3" --argjson ad "${4:-false}" \
+  '{date:$d, start_time:(if $t=="" then null else $t end), all_day:$ad,
+    location:(if $l=="" then null else $l end)}'; }
+is "time axis"  "$(diff_axis "$(AX 2026-07-30 19:15 '')" "$(AX 2026-07-30 20:15 '')")" "time"
+is "date axis"  "$(diff_axis "$(AX 2027-03-31 '' '' true)" "$(AX 2027-04-01 '' '' true)")" "date"
+is "year axis"  "$(diff_axis "$(AX 2026-11-15 '' '' true)" "$(AX 2027-11-15 '' '' true)")" "year"
+is "venue axis" "$(diff_axis "$(AX 2027-03-13 '' 'Drip KL')" "$(AX 2027-03-13 '' 'Mix Mix TV')")" "venue"
+is "no axis"    "$(diff_axis "$(AX 2026-07-29 19:15 '')" "$(AX 2026-07-29 19:15 '')")" "none"
+
 
 # Both labels come from the PAIR, so a button always names the axis that differs and
 # the two can never disagree in format. The model used to name the alternative
@@ -409,10 +422,15 @@ hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'
 # events with no alternatives, so it produced two notifications instead of one with
 # two buttons. The prompt forbade merging different acts but never forbade splitting
 # one, so only half the rule existed.
-has "same title is one event"  "$PROMPT" "Never emit the same title twice"
-has "options are not ambiguity" "$PROMPT" "OTHER way to attend the SAME event"
-has "covers days and venues"   "$PROMPT" "the same show running Thursday and Friday"
-has "forbids splitting an act" "$PROMPT" "do not split one act into two events"
+# The rule used to be "the test is the title" — but the model WRITES the title, so it
+# split a tour by naming them "Kene — Seoul" and "Kene — Kuala Lumpur" and the test
+# passed. Keyed on the act now, with the title explicitly not an axis.
+has "keyed on the act, not the title" "$PROMPT" "same act, show, talk, screening or person"
+has "title carries no date or place"  "$PROMPT" "Do NOT write the city, the date or the time into it"
+has "names the tour case"             "$PROMPT" "Kuala Lumpur on the 13th and Seoul on the 19th"
+has "different means different act"   "$PROMPT" "stripped every date and place from their names"
+has "alternative carries its package" "$PROMPT" "tapping the Seoul date must write the Seoul venue"
+has "lists every option"              "$PROMPT" "List them all even though only the first becomes a button"
 
 # ------------------------------------------------------------------ context.json
 # Without this a proposal cannot be attributed: the prompt changed twice on

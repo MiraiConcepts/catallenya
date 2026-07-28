@@ -75,8 +75,9 @@ Rules:
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
 - events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
-- SAME THING vs DIFFERENT THING. The test is the title. If the image offers one thing more than once — the same act at 7pm and 8.15pm, the same show running Thursday and Friday, the same talk at two venues — that is ONE entry in events, with the other way to attend it in alternatives. Never emit the same title twice. Two entries in events means two genuinely different things, with different titles.
-- alternatives: the OTHER way to attend the SAME event. A second showtime, a second date, a second venue — a choice, not an ambiguity. List the ONE next-most-likely option; give an empty array when there is only one way to attend. Only the first is used, and its button is labelled automatically from whichever of date, time or venue actually differs. Do not put a different act in here, and do not split one act into two events to express two options.
+- SAME THING vs DIFFERENT THING. Ask whether it is the same act, show, talk, screening or person appearing more than once. If it is, that is ONE entry in events, however many times or places it appears — the same band at 7pm and 8.15pm, the same show running Thursday and Friday, the same tour playing Kuala Lumpur on the 13th and Seoul on the 19th. All of those are one thing you would attend once, so the other ways to attend go in alternatives.
+  The title is the act's name and nothing else. Do NOT write the city, the date or the time into it — "Kene — Seoul" and "Kene — Kuala Lumpur" are not two events, they are one act on tour, and titling them apart to justify a split is exactly the mistake to avoid. Two entries in events means two genuinely DIFFERENT acts or subjects, which would still be different if you stripped every date and place from their names.
+- alternatives: every OTHER way to attend that same event, soonest first — a second showtime, another date on the tour, another venue. Each carries its own date, start_time and location, so choosing one picks the whole package: tapping the Seoul date must write the Seoul venue, not the Kuala Lumpur one. List them all even though only the first becomes a button; the count is shown to the user. Give an empty array when there is only one way to attend. Never put a different act in here.
 EOF
 }
 
@@ -167,17 +168,44 @@ notify_event() {
         fi
     fi
 
+    # Which axis the buttons are choosing between, so the body can say so instead of
+    # stating one option as settled. The body used to read "Wednesday, 31 March 2027"
+    # while the buttons offered [31 Mar] [1 Apr].
+    local axis=none alt_date_h alt_time_h alt_loc_h
+    if (( has_alt )); then
+        axis="$(diff_axis "$ev" "$alt_json")"
+        alt_date_h="$(date -d "$(jq -r '.date' <<<"$alt_json")" '+%A, %-d %B %Y' 2>/dev/null || true)"
+        alt_time_h="$(jq -r '.start_time // ""' <<<"$alt_json")"
+        alt_loc_h="$(jq -r '.location // ""'   <<<"$alt_json")"
+    fi
+
+    # EVERY field that differs gets its "or", not just the one the button names. A
+    # tour differs by date AND venue: the button can only label one axis, but a body
+    # that showed Kuala Lumpur while offering the Seoul date would be lying about
+    # what the second button writes.
     body="$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")"
+    [[ -n "$alt_date_h" && "$alt_date_h" != "$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null)" ]] \
+        && body+="  ·  or ${alt_date_h}"
     if [[ "$all_day" == "true" ]]; then
         body+=$'\n'"All day"
     elif [[ -n "$ev_start" ]]; then
         [[ -n "$ev_end" ]] && body+=$'\n'"${ev_start} - ${ev_end}" || body+=$'\n'"${ev_start}"
+        [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] && body+="  ·  or ${alt_time_h}"
     fi
-    [[ -n "$ev_loc" ]] && body+=$'\n'"${ev_loc}"
+    if [[ -n "$ev_loc" ]]; then
+        body+=$'\n'"${ev_loc}"
+        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="  ·  or ${alt_loc_h}"
+    fi
     body+=$'\n'"${ev_cal^}"
     # Where this sits among the rest, so one notification from a busy page is never
     # mistaken for the whole story. The page total is mentioned ONLY when the cap
     # actually held something back; every other event is in front of you.
+    # Only the FIRST alternative becomes a button (ntfy caps actions at 3), so a
+    # five-date tour must say so rather than quietly offering two of five.
+    local n_alt; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
+    if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
+        body+=$'\n'"Showing 2 of $(( n_alt + 1 )) ${axis}s on this listing"
+    fi
     if (( of > 1 )); then
         body+=$'\n'"Event ${n} of ${of} from one screenshot"
         (( seen > of )) && body+=" — ${seen} on the page, $(( seen - of )) not shown"
@@ -283,6 +311,11 @@ for png in "${pngs[@]}"; do
     # This has to happen here, not just before the .ics render: the not_event branch
     # below sends the model's `reason` straight to notify().
     proposal="$(clean_proposal "$proposal")"
+    # The whole reply, written before ANY branch can resolve this record. Previously
+    # this sat after the not_event branch, so a not-an-event capture kept neither the
+    # reply nor a proposal — and proposal.json meant two different shapes depending
+    # on which branch wrote it, which any analysis over the archive had to unpick.
+    jq -c . <<<"$proposal" > "${rec}/capture.json" 2>/dev/null || true
 
     is_event="$(jq -r '.is_event' <<<"$proposal")"
     needs_human="$(jq -r '.needs_human' <<<"$proposal")"
@@ -292,7 +325,6 @@ for png in "${pngs[@]}"; do
 
     if [[ "$is_event" != "true" || "$ev_count" -eq 0 ]]; then
         OK=$((OK + 1))
-        jq -c . <<<"$proposal" > "${rec}/proposal.json" 2>/dev/null || true
         archive_record "$id" "$rec" not_event "${reason:-}"
         log "  not an event: ${reason:-(no reason given)}"
         notify "No event found" low "camera" "${reason:-That screenshot did not look like an event.}"
@@ -301,7 +333,6 @@ for png in "${pngs[@]}"; do
 
     if [[ "$needs_human" == "true" ]]; then
         OK=$((OK + 1))
-        jq -c . <<<"$proposal" > "${rec}/proposal.json" 2>/dev/null || true
         archive_record "$id" "$rec" needs_human "${reason:-}"
         log "  needs human: ${reason:-(no reason given)}"
         notify "Needs a human" default "warning,calendar" \
@@ -315,11 +346,8 @@ for png in "${pngs[@]}"; do
     # than teaching the container about indexes means the container, the sweep, the
     # archive and the ledger all keep working on exactly the shape they already
     # handle: one record, one event, one verdict.
-    # Keep the WHOLE reply before anything narrows it. Each record ends up holding
-    # only its own event, so without this a capture that was capped cannot afterwards
-    # be told apart from one the model read short — the exact question that could not
-    # be answered from disk on 2026-07-27.
-    jq -c . <<<"$proposal" > "${rec}/capture.json" 2>/dev/null || true
+    # capture.json is already written, above the not_event branch — every record
+    # carries the whole reply regardless of which branch resolves it.
 
     # Ours, not the model's: it is told the same number, but a reply that ignores it
     # must still be bounded. Truncating is logged and surfaced, never silent.
@@ -359,7 +387,6 @@ for png in "${pngs[@]}"; do
     # Nothing left to act on: the capture resolves here, with one note.
     if (( n_up == 0 )); then
         OK=$((OK + 1))
-        jq -c . <<<"$proposal" > "${rec}/proposal.json" 2>/dev/null || true
         archive_record "$id" "$rec" not_event "all ${n_past} event(s) have already passed"
         log "  all ${n_past} event(s) already passed"
         past_note
