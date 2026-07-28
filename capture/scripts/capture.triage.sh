@@ -75,7 +75,8 @@ Rules:
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
 - events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
-- alternatives: per event, for a genuinely ambiguous reading of THAT SAME event — two possible times for it, a corrected date, two possible venues. Two different acts are two entries in events, never an alternative. List the ONE next-most-likely reading here so the user can pick it with a single tap. Give an empty array when the reading is unambiguous — do not invent alternatives. Only the first is used, and its button is labelled automatically from its date and time.
+- SAME THING vs DIFFERENT THING. The test is the title. If the image offers one thing more than once — the same act at 7pm and 8.15pm, the same show running Thursday and Friday, the same talk at two venues — that is ONE entry in events, with the other way to attend it in alternatives. Never emit the same title twice. Two entries in events means two genuinely different things, with different titles.
+- alternatives: the OTHER way to attend the SAME event. A second showtime, a second date, a second venue — a choice, not an ambiguity. List the ONE next-most-likely option; give an empty array when there is only one way to attend. Only the first is used, and its button is labelled automatically from whichever of date, time or venue actually differs. Do not put a different act in here, and do not split one act into two events to express two options.
 EOF
 }
 
@@ -189,24 +190,20 @@ notify_event() {
         return
     fi
 
-    primary="$(button_label "$ev_date" "$ev_start" "$all_day" "$ev_date")"
+    # Both labels are derived from the PAIR, so they always name the axis that
+    # differs and can never disagree in format. With no alternative the event is
+    # compared with itself, which yields its own time.
     if (( has_alt )); then
-        alt_label="$(button_label \
-            "$(jq -r '.date'             <<<"$alt_json")" \
-            "$(jq -r '.start_time // ""' <<<"$alt_json")" \
-            "$(jq -r '.all_day'          <<<"$alt_json")" \
-            "$ev_date")"
-        # When the two differ only by YEAR the primary needs its year too, or the
-        # pair reads "[All day] [15 Nov 27]" and the choice is invisible.
-        local alt_date; alt_date="$(jq -r '.date' <<<"$alt_json")"
-        if [[ "${alt_date%%-*}" != "${ev_date%%-*}" ]]; then
-            primary="$(date -d "$ev_date" '+%-d %b %y' 2>/dev/null || printf 'Add')"
-        fi
+        primary="$(button_label "$ev" "$alt_json")"
+        alt_label="$(button_label "$alt_json" "$ev")"
+        # Backstop only: button_label already emits the whitelist charset, but a
+        # comma or CRLF here would splice the Actions list.
         [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"
         [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || alt_label="Alternative"
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, ${alt_label}, ${base}/capture/${eid}/add?alt=1, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day} (alt: ${alt_label})"
     else
+        primary="$(button_label "$ev" "$ev")"
         [[ "$primary" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"

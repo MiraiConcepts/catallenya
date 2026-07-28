@@ -136,31 +136,54 @@ image_ext() {
     case "$(image_mime "$1")" in image/jpeg) echo jpg ;; *) echo png ;; esac
 }
 
-# button_label <date> <start_time> <all_day> <primary-date> -> short button text
-# Both buttons are derived from the proposal rather than named by the model. The
-# model used to supply the alternative's label, and the prompt's own examples were
-# 12-hour ("2:00pm") while the primary is forced to 24-hour from start_time — so a
-# notification showed "19:00" next to "8.15pm". Deriving both also removes the last
-# model-authored string that reached the ntfy Actions header.
+# button_label <this-event-json> <other-event-json> -> short button text
+# Labels the axis that actually DIFFERS between the two choices, so a pair always
+# reads as a comparison rather than two unrelated facts:
 #
-# Same date as the primary -> the time is what distinguishes them. Different date ->
-# the date is. ntfy truncates long labels, so this stays short by construction.
+#   two showtimes      [19:15]     [20:15]
+#   a run over 2 days  [30 Jul]    [31 Jul]
+#   two years          [15 Nov 26] [15 Nov 27]
+#   two venues         [Esplanade] [TOMATILLO]
+#
+# Symmetric by construction: each side is told about the other, so the primary can
+# never show its time while the alternative shows a date. Pass the same object twice
+# when there is no alternative — a lone button then says the time, which is right.
+#
+# Nothing here comes from the model: it used to name the alternative itself, and its
+# prompt examples were 12-hour while the primary is forced to 24-hour, which is how a
+# notification came to read "19:00" beside "8.15pm".
 button_label() {
-    local date="$1" start="$2" all_day="$3" primary_date="$4"
-    if [[ "$date" != "$primary_date" ]]; then
-        # Include the year when the two candidates differ by it, or a year-ambiguous
-        # proposal renders "13 Mar" on both buttons and the choice is unreadable.
-        if [[ "${date%%-*}" != "${primary_date%%-*}" ]]; then
-            date -d "$date" "+%-d %b %y" 2>/dev/null || printf 'Alternative'
-        else
-            date -d "$date" '+%-d %b' 2>/dev/null || printf 'Alternative'
-        fi
+    local a="$1" b="$2" ad bd at bt al bl
+    ad="$(jq -r '.date // ""'       <<<"$a")"; bd="$(jq -r '.date // ""'       <<<"$b")"
+
+    if [[ "${ad%%-*}" != "${bd%%-*}" ]]; then          # different year
+        date -d "$ad" '+%-d %b %y' 2>/dev/null || printf 'Alternative'
         return
     fi
-    if [[ "$all_day" == "true" || -z "$start" || "$start" == "null" ]]; then
+    if [[ "$ad" != "$bd" ]]; then                      # different day, same year
+        date -d "$ad" '+%-d %b' 2>/dev/null || printf 'Alternative'
+        return
+    fi
+
+    at="$(jq -r '.start_time // ""' <<<"$a")"; bt="$(jq -r '.start_time // ""' <<<"$b")"
+    if [[ "$at" != "$bt" && "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+        printf '%s' "$at"                              # same day, different time
+        return
+    fi
+
+    al="$(jq -r '.location // ""'   <<<"$a")"; bl="$(jq -r '.location // ""'   <<<"$b")"
+    if [[ -n "$al" && "$al" != "$bl" ]]; then          # same day and time: the venue
+        # Strip to the Actions-header charset before truncating, so a venue with a
+        # comma or apostrophe shortens rather than failing the whitelist entirely.
+        printf '%s' "$(tr -cd 'A-Za-z0-9 :.-' <<<"$al" | cut -c1-12 | sed 's/ *$//')"
+        return
+    fi
+
+    # Nothing distinguishes them, or there is no alternative at all.
+    if [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
         printf 'All day'
-    elif [[ "$start" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-        printf '%s' "$start"
+    elif [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+        printf '%s' "$at"
     else
         printf 'Alternative'
     fi

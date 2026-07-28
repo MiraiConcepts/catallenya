@@ -34,6 +34,31 @@ mut() { jq -c "$1" <<<"$BASE"; }
 
 render() { "${SCRIPT_DIR}/render_ics.py" --uid TESTUID --now 20260726T000000Z --duration-min 60 2>&1; }
 
+# ------------------------------------------------------------------- surface
+# Three times on 2026-07-27 a span edit to capture.lib.sh silently deleted a
+# function that happened to sit between the two markers being replaced — first
+# capture.json's writer, then event_is_past and fork_record together. Every other
+# test passed each time, because a test that never calls a function cannot notice
+# it is gone. This asserts the surface itself.
+echo "library surface"
+
+for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
+          image_mime image_ext button_label event_is_past api_class api_post \
+          clean_proposal validate_proposal write_context add_usage fork_record \
+          recording_mode record_mode; do
+    declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
+done
+
+# And that the scripts only call helpers that exist.
+for src in "${SCRIPT_DIR}/capture.triage.sh" "${SCRIPT_DIR}/capture.sweep.sh"; do
+    missing=""
+    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|event_is_past|api_post|clean_proposal|validate_proposal|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
+        declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
+    done
+    [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
+        || bad "$(basename "$src") helpers" "all defined" "missing:${missing}"
+done
+
 # ---------------------------------------------------------------- render_ics
 echo "render_ics.py"
 
@@ -337,38 +362,57 @@ hasnt "prompt contains no backticks" "$PROMPT" '`'
 # A real notification showed "19:00" beside "8.15pm". Both are now derived.
 echo "button_label"
 
-is "same day shows the time"      "$(button_label 2026-07-31 20:15 false 2026-07-31)" "20:15"
-is "all-day says so"              "$(button_label 2026-07-31 ''    true  2026-07-31)" "All day"
-is "null start is all-day"        "$(button_label 2026-07-31 null  false 2026-07-31)" "All day"
-is "different day shows the date" "$(button_label 2026-08-02 20:15 false 2026-07-31)" "2 Aug"
-is "unparseable time is safe"     "$(button_label 2026-07-31 '8.15pm' false 2026-07-31)" "Alternative"
-# Year-ambiguous proposals offer both candidates, so the label must carry the year
-# or both buttons read "15 Nov" and the choice is unreadable.
-is "differing year shows the year" "$(button_label 2027-11-15 '' true 2026-11-15)" "15 Nov 27"
-is "same year omits it"            "$(button_label 2026-08-02 20:15 false 2026-07-31)" "2 Aug"
+# Both labels come from the PAIR, so a button always names the axis that differs and
+# the two can never disagree in format. The model used to name the alternative
+# itself, which is how "19:00" came to sit beside "8.15pm".
+BL() { jq -cn --arg d "$1" --arg t "$2" --arg l "$3" --argjson ad "${4:-false}" \
+  '{date:$d, start_time:(if $t=="" then null else $t end), all_day:$ad,
+    location:(if $l=="" then null else $l end)}'; }
+
+# Same act, two showtimes.
+is "time differs -> primary time" "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 20:15 '')")" "19:15"
+is "time differs -> alt time"     "$(button_label "$(BL 2026-07-30 20:15 '')" "$(BL 2026-07-30 19:15 '')")" "20:15"
+
+# Same act, two days. Used to render [19:15] [31 Jul] — the primary showed its time
+# while the alternative showed a date, so the pair did not read as a choice.
+is "day differs -> primary date"  "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-31 19:15 '')")" "30 Jul"
+is "day differs -> alt date"      "$(button_label "$(BL 2026-07-31 19:15 '')" "$(BL 2026-07-30 19:15 '')")" "31 Jul"
+
+# Same act, two years.
+is "year differs -> primary"      "$(button_label "$(BL 2026-11-15 '' '' true)" "$(BL 2027-11-15 '' '' true)")" "15 Nov 26"
+is "year differs -> alt"          "$(button_label "$(BL 2027-11-15 '' '' true)" "$(BL 2026-11-15 '' '' true)")" "15 Nov 27"
+
+# Same act, same time, two venues.
+is "venue differs -> primary"     "$(button_label "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Esplanade Co"
+is "venue differs -> alt"         "$(button_label "$(BL 2026-07-30 19:15 'TOMATILLO')" "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')")" "TOMATILLO"
+# Punctuation is stripped rather than failing the Actions whitelist outright.
+is "venue punctuation stripped"   "$(button_label "$(BL 2026-07-30 19:15 "Joe's Bar, Level 2")" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Joes Bar Lev"
+
+# No alternative: the event is compared with itself and says its own time.
+is "no alternative -> time"       "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 19:15 '')")" "19:15"
+is "no alternative, all-day"      "$(button_label "$(BL 2026-08-03 '' '' true)" "$(BL 2026-08-03 '' '' true)")" "All day"
 
 # Whatever it produces must survive the Actions-header whitelist, or the button
 # silently degrades to a generic label.
-for c in "$(button_label 2026-07-31 20:15 false 2026-07-31)" \
-         "$(button_label 2026-08-02 20:15 false 2026-07-31)" \
-         "$(button_label 2026-07-31 '' true 2026-07-31)"; do
+for c in "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 20:15 '')")" \
+         "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-31 19:15 '')")" \
+         "$(button_label "$(BL 2027-11-15 '' '' true)" "$(BL 2026-11-15 '' '' true)")" \
+         "$(button_label "$(BL 2026-07-30 19:15 "Joe's Bar, Level 2")" "$(BL 2026-07-30 19:15 'X')")" \
+         "$(button_label "$(BL 2026-08-03 '' '' true)" "$(BL 2026-08-03 '' '' true)")"; do
     [[ "$c" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] && ok "label '$c' passes the whitelist" \
         || bad "label whitelist" "matches ^[A-Za-z0-9 :.-]{1,12}$" "$c"
 done
 
-# The model no longer names buttons at all — one less untrusted string in a header.
 hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'
 
-# The prompt is asked not to produce a past alternative; this makes sure of it
-# regardless, because prompt rules were wrong three times on 2026-07-27 and the
-# guard was not.
-echo "past-alternative guard"
-guard() { # $1 = alt date, $2 = capture date -> kept | dropped
-    [[ "$1" < "$2" ]] && echo dropped || echo kept
-}
-is "past alternative dropped"   "$(guard 2025-12-04 2026-07-27)" "dropped"
-is "future alternative kept"    "$(guard 2027-12-04 2026-07-27)" "kept"
-is "same-day alternative kept"  "$(guard 2026-07-27 2026-07-27)" "kept"
+# The regression that prompted all this: one act at two showtimes came back as TWO
+# events with no alternatives, so it produced two notifications instead of one with
+# two buttons. The prompt forbade merging different acts but never forbade splitting
+# one, so only half the rule existed.
+has "same title is one event"  "$PROMPT" "Never emit the same title twice"
+has "options are not ambiguity" "$PROMPT" "OTHER way to attend the SAME event"
+has "covers days and venues"   "$PROMPT" "the same show running Thursday and Friday"
+has "forbids splitting an act" "$PROMPT" "do not split one act into two events"
 
 # ------------------------------------------------------------------ context.json
 # Without this a proposal cannot be attributed: the prompt changed twice on
