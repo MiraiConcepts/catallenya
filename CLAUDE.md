@@ -165,7 +165,10 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manual dispatch:
 - **GitLeaks** (v3): scans full git history for leaked secrets. Known-fake findings are
-  suppressed by fingerprint in `.gitleaksignore` (e.g. the deliberate 2025-11-05 test key)
+  suppressed by fingerprint in `.gitleaksignore` (the deliberate 2025-11-05 test key; a
+  2026-07-27 false positive on a prose comment). CI pins **8.24.3** — 8.30.1 does not
+  flag the same things, so verify with the pinned version, not `:latest`:
+  `docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.24.3 detect --redact`
 - **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
   guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
   adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`
