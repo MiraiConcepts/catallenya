@@ -135,7 +135,7 @@ ask() {
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
     local eid="$1" erec="$2" ev="$3" n="$4" of="$5" dropped="$6"
-    local title disp_title ev_date ev_start ev_end ev_loc ev_cal all_day body
+    local title disp_title ev_date ev_start ev_end ev_loc all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
     title="$(jq -r '.title // "Untitled"' <<<"$ev")"
@@ -148,7 +148,6 @@ notify_event() {
     ev_start="$(jq -r '.start_time // ""' <<<"$ev")"
     ev_end="$(jq -r '.end_time // ""'    <<<"$ev")"
     ev_loc="$(jq -r '.location // ""'    <<<"$ev")"
-    ev_cal="$(jq -r '.calendar'          <<<"$ev")"
     all_day="$(jq -r '.all_day'          <<<"$ev")"
 
     if [[ "$(jq -r '.alternatives | length' <<<"$ev")" -gt 0 ]]; then
@@ -209,7 +208,11 @@ notify_event() {
         body+=$'\n'"$(md_escape "$ev_loc")"
         [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}$(md_escape "$alt_loc_h")"
     fi
-    body+=$'\n'"${ev_cal^}"
+    # The calendar name is NOT shown. It read "General" on almost everything,
+    # which told the user nothing they had not already assumed, and the one case
+    # it was informative for — a birthday — announces itself in the title. Routing
+    # is unaffected: the container reads .calendar from proposal.json to pick the
+    # Radicale collection (server.ts), and never looks at this body.
     # Everything the notification CANNOT act on, in one italic aside — an
     # afterthought to the event above rather than two more facts about it:
     #
