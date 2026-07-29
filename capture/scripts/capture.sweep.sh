@@ -68,7 +68,7 @@ for rec in "${records[@]}"; do
             (( DRY )) && { log "would abandon ${id:0:8} (re-queued once, still failing)"; continue; }
             archive_record "$id" "$rec" failed "API unavailable across two attempts" \
                 && { abandoned=$((abandoned + 1)); log "abandoned ${id:0:8}"; }
-            notify "Capture gave up" high "warning,camera" \
+            notify "Capture Gave Up" high "warning,camera" \
                    "Could not reach the API for that screenshot (id ${id:0:8}) across two attempts. Take it again once things are healthy."
         else
             (( DRY )) && { log "would re-queue ${id:0:8} (${rec_age_h}h, no proposal)"; continue; }
@@ -105,7 +105,7 @@ for rec in "${records[@]}"; do
                 "${rec}/proposal.json")"
         if base="$(capture_base_url)"; then
             actions="http, Add, ${base}/capture/${id}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${id}/drop, method=POST, headers.X-Capture=1, clear=true"
-            notify "Still waiting: ${title}" default "hourglass,calendar" \
+            notify "Still Waiting: ${title}" "" "hourglass,calendar" \
                    "${when} — proposed ${age_h}h ago, no action yet." "$actions"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
