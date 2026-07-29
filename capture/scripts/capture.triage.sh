@@ -135,10 +135,15 @@ ask() {
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
     local eid="$1" erec="$2" ev="$3" n="$4" of="$5" dropped="$6"
-    local title ev_date ev_start ev_end ev_loc ev_cal all_day body
+    local title disp_title ev_date ev_start ev_end ev_loc ev_cal all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
     title="$(jq -r '.title // "Untitled"' <<<"$ev")"
+    # "Kene (2/4)" — where this sits among the events from one screenshot, in the
+    # line you can read without opening the notification. A lone event carries no
+    # suffix, because "(1/1)" is noise on the overwhelmingly common case.
+    disp_title="$title"
+    (( of > 1 )) && disp_title="${title} (${n}/${of})"
     ev_date="$(jq -r '.date'             <<<"$ev")"
     ev_start="$(jq -r '.start_time // ""' <<<"$ev")"
     ev_end="$(jq -r '.end_time // ""'    <<<"$ev")"
@@ -210,7 +215,7 @@ notify_event() {
     # five-date tour must say so rather than quietly offering two of five.
     local n_alt; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
-        body+=$'\n'"Showing 2 of $(( n_alt + 1 )) ${axis}s"
+        body+=$'\n'"2 of $(( n_alt + 1 )) ${axis}s"
     fi
     # "Event 2 of 4" and, only when the cap genuinely cut something, what it cut.
     # The old tail read "— 6 on the page, 2 not shown" and was usually a lie: the
@@ -219,13 +224,14 @@ notify_event() {
     # on every multi-event capture with anything in the past. `dropped` counts only
     # what MAX_EVENTS_PER_CAPTURE actually discarded, which is the one case the
     # user has no other way of learning about.
-    if (( of > 1 )); then
-        body+=$'\n'"Event ${n} of ${of}"
-        (( dropped > 0 )) && body+="${ALT_SEP}${dropped} more not shown"
-    fi
+    # Position goes in the TITLE as "(2/4)", not the body. It is the one fact you
+    # want while scanning a stack of notifications on a lock screen, and a body
+    # line is the wrong place for it — you have to open the thing to read it.
+    # Truncation stays in the body: it is rare, and it needs the words.
+    (( dropped > 0 )) && body+=$'\n'"${dropped} more not shown"
 
     if ! base="$(capture_base_url)"; then
-        notify "${title} (no buttons)" high "calendar" \
+        notify "${disp_title} (no buttons)" high "calendar" \
                "$body. Could not build callback URL; record ${eid:0:8} left pending."
         log "  !! could not build capture base url"
         return
@@ -252,7 +258,7 @@ notify_event() {
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
     # No priority: every proposal arrives at the same weight (see notify()).
-    notify "${title}" "" "calendar" "$body" "$actions"
+    notify "${disp_title}" "" "calendar" "$body" "$actions"
 }
 
 # --- drain incoming/ -------------------------------------------------------
