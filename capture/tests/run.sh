@@ -44,7 +44,7 @@ echo "library surface"
 
 for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
           image_mime image_ext button_label diff_axis event_is_past api_class api_post \
-          clean_proposal validate_proposal triage_route write_context add_usage fork_record \
+          clean_proposal validate_proposal md_escape triage_route write_context add_usage fork_record \
           recording_mode record_mode; do
     declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
 done
@@ -52,7 +52,7 @@ done
 # And that the scripts only call helpers that exist.
 for src in "${SCRIPT_DIR}/capture.triage.sh" "${SCRIPT_DIR}/capture.sweep.sh"; do
     missing=""
-    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|clean_proposal|validate_proposal|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
+    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
         declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
     done
     [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
@@ -240,6 +240,29 @@ out="$(ne_run "$WITHALT")"; rc=$?
 is  "with an alternative still works" "$rc" 0
 has  "and offers the other time"      "$out" "• 20:15"
 hasnt "with no 'or' in the body"      "$out" " or "
+
+# --------------------------------------------------------------- markdown
+# notify() sends `Markdown: yes` so the web client renders emphasis on the two
+# meta lines. That means every model-derived string in a body is now parsed as
+# Markdown, and a screenshot supplying `[tap here](https://evil.example)` would
+# render a REAL link in a notification the user already trusts. Emphasis leaking
+# is cosmetic; the link is why md_escape exists.
+echo "md_escape"
+
+is "plain venue untouched"   "$(md_escape 'Drip KL, Kuala Lumpur')" "Drip KL, Kuala Lumpur"
+is "date untouched"          "$(md_escape 'Friday, 13 March 2027')" "Friday, 13 March 2027"
+is "time range untouched"    "$(md_escape '19:15 - 21:20')"         "19:15 - 21:20"
+# The one that matters.
+hasnt "link brackets neutralised" "$(md_escape '[tap here](https://evil.example)')" "[tap here]("
+has   "brackets are escaped"      "$(md_escape '[tap here](https://evil.example)')" '\[tap here\]'
+has   "parens are escaped"        "$(md_escape '[x](y)')"                           '\(y\)'
+has   "emphasis neutralised"      "$(md_escape 'Bar_Code *Live*')"                  'Bar\_Code \*Live\*'
+has   "code span neutralised"     "$(md_escape 'a `code` b')"                       'a \`code\` b'
+has   "heading neutralised"       "$(md_escape '# Heading')"                        '\# Heading'
+has   "blockquote neutralised"    "$(md_escape '> quote')"                          '\> quote'
+# Backslash first, or every other escape gets doubled wrong.
+is "backslash escaped first" "$(md_escape 'a\\b')" 'a\\\\b'
+is "empty input is empty"    "$(md_escape '')"     ""
 
 # --------------------------------------------------------------- routing
 # Which branch a reply lands in. The bug this covers: the "no events" test ran

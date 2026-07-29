@@ -203,9 +203,11 @@ notify_event() {
         [[ -n "$ev_end" ]] && body+=$'\n'"${ev_start} - ${ev_end}" || body+=$'\n'"${ev_start}"
         [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] && body+="${ALT_SEP}${alt_time_h}"
     fi
+    # Venues come from the screenshot, so they are escaped before reaching a body
+    # that ntfy now renders as Markdown.
     if [[ -n "$ev_loc" ]]; then
-        body+=$'\n'"${ev_loc}"
-        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}${alt_loc_h}"
+        body+=$'\n'"$(md_escape "$ev_loc")"
+        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}$(md_escape "$alt_loc_h")"
     fi
     body+=$'\n'"${ev_cal^}"
     # Where this sits among the rest, so one notification from a busy page is never
@@ -213,9 +215,13 @@ notify_event() {
     # actually held something back; every other event is in front of you.
     # Only the FIRST alternative becomes a button (ntfy caps actions at 3), so a
     # five-date tour must say so rather than quietly offering two of five.
-    local n_alt; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
+    # Only the FIRST alternative becomes a button (ntfy allows three actions and
+    # Discard takes one), so anything past it exists in proposal.json with no way
+    # to act on it. Italic, to sit apart from the event's own facts above.
+    local n_alt n_hidden; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
-        body+=$'\n'"2 of $(( n_alt + 1 )) ${axis}s"
+        n_hidden=$(( n_alt - 1 ))
+        body+=$'\n'"_${n_hidden} more ${axis}$( (( n_hidden == 1 )) || printf s ) not offered_"
     fi
     # "Event 2 of 4" and, only when the cap genuinely cut something, what it cut.
     # The old tail read "— 6 on the page, 2 not shown" and was usually a lie: the
@@ -228,7 +234,9 @@ notify_event() {
     # want while scanning a stack of notifications on a lock screen, and a body
     # line is the wrong place for it — you have to open the thing to read it.
     # Truncation stays in the body: it is rare, and it needs the words.
-    (( dropped > 0 )) && body+=$'\n'"${dropped} more not shown"
+    # Bold: this is the only line reporting something you have irrecoverably lost —
+    # these events got no notification, no record and no button.
+    (( dropped > 0 )) && body+=$'\n'"**${dropped} more event$( (( dropped == 1 )) || printf s ) not sent**"
 
     if ! base="$(capture_base_url)"; then
         notify "${disp_title} (no buttons)" high "calendar" \
@@ -353,7 +361,7 @@ for png in "${pngs[@]}"; do
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
             notify "Missing Event" "" "calendar" \
-                   "${reason:-That screenshot did not look like an event.}"
+                   "$(md_escape "${reason:-That screenshot did not look like an event.}")"
             continue ;;
         needs_human)
             OK=$((OK + 1))
@@ -366,7 +374,7 @@ for png in "${pngs[@]}"; do
             # journal, and they have the journal.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
             notify "${nh_title:-Needs A Human}" "" "calendar" \
-                   "${reason:-Time or date unclear — not adding.}"
+                   "$(md_escape "${reason:-Time or date unclear — not adding.}")"
             continue ;;
     esac
 
@@ -413,7 +421,7 @@ for png in "${pngs[@]}"; do
         local body t
         body="$(printf '%s event%s already passed:' \
                 "$n_past" "$( (( n_past == 1 )) || printf s )")"
-        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• ${t}"; done
+        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• $(md_escape "$t")"; done
         (( n_past > 5 )) && body+=$'\n'"• … and $(( n_past - 5 )) more"
         notify "Already Passed" "" "calendar" "$body"
     }
