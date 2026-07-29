@@ -129,12 +129,12 @@ ask() {
         || { log "  !! no structured object in reply"; return 1; }
 }
 
-# notify_event <id> <record> <event-json> <n> <of> <seen>
+# notify_event <id> <record> <event-json> <n> <of> <dropped>
 # Render the alternative if there is one, then send this event's notification.
 # One event, one notification, one set of buttons — the record it points at holds
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
-    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" seen="$6"
+    local eid="$1" erec="$2" ev="$3" n="$4" of="$5" dropped="$6"
     local title ev_date ev_start ev_end ev_loc ev_cal all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
@@ -191,16 +191,16 @@ notify_event() {
     # what the second button writes.
     body="$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")"
     [[ -n "$alt_date_h" && "$alt_date_h" != "$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null)" ]] \
-        && body+="  ·  or ${alt_date_h}"
+        && body+="${ALT_SEP}${alt_date_h}"
     if [[ "$all_day" == "true" ]]; then
         body+=$'\n'"All day"
     elif [[ -n "$ev_start" ]]; then
         [[ -n "$ev_end" ]] && body+=$'\n'"${ev_start} - ${ev_end}" || body+=$'\n'"${ev_start}"
-        [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] && body+="  ·  or ${alt_time_h}"
+        [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] && body+="${ALT_SEP}${alt_time_h}"
     fi
     if [[ -n "$ev_loc" ]]; then
         body+=$'\n'"${ev_loc}"
-        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="  ·  or ${alt_loc_h}"
+        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}${alt_loc_h}"
     fi
     body+=$'\n'"${ev_cal^}"
     # Where this sits among the rest, so one notification from a busy page is never
@@ -210,11 +210,18 @@ notify_event() {
     # five-date tour must say so rather than quietly offering two of five.
     local n_alt; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
-        body+=$'\n'"Showing 2 of $(( n_alt + 1 )) ${axis}s on this listing"
+        body+=$'\n'"Showing 2 of $(( n_alt + 1 )) ${axis}s"
     fi
+    # "Event 2 of 4" and, only when the cap genuinely cut something, what it cut.
+    # The old tail read "— 6 on the page, 2 not shown" and was usually a lie: the
+    # events missing from the count are normally the ones ALREADY PAST, and those
+    # ARE shown, in their own note. It compared against the page total, so it fired
+    # on every multi-event capture with anything in the past. `dropped` counts only
+    # what MAX_EVENTS_PER_CAPTURE actually discarded, which is the one case the
+    # user has no other way of learning about.
     if (( of > 1 )); then
-        body+=$'\n'"Event ${n} of ${of} from one screenshot"
-        (( seen > of )) && body+=" — ${seen} on the page, $(( seen - of )) not shown"
+        body+=$'\n'"Event ${n} of ${of}"
+        (( dropped > 0 )) && body+=" · ${dropped} more not shown"
     fi
 
     if ! base="$(capture_base_url)"; then
@@ -231,18 +238,21 @@ notify_event() {
         primary="$(button_label "$ev" "$alt_json")"
         alt_label="$(button_label "$alt_json" "$ev")"
         # Backstop only: button_label already emits the whitelist charset, but a
-        # comma or CRLF here would splice the Actions list.
-        [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"
-        [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || alt_label="Alternative"
+        # comma or CRLF here would splice the Actions list. The length bound must
+        # track BUTTON_LABEL_MAX — when it did not, a longer label silently became
+        # the generic "Add" instead of the venue it had just been trimmed to.
+        [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
+        [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || alt_label="Alternative"
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, ${alt_label}, ${base}/capture/${eid}/add?alt=1, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day} (alt: ${alt_label})"
     else
         primary="$(button_label "$ev" "$ev")"
-        [[ "$primary" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] || primary="Add"
+        [[ "$primary" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
         actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
-    notify "${title}" default "calendar" "$body" "$actions"
+    # No priority: every proposal arrives at the same weight (see notify()).
+    notify "${title}" "" "calendar" "$body" "$actions"
 }
 
 # --- drain incoming/ -------------------------------------------------------
@@ -283,7 +293,7 @@ for png in "${pngs[@]}"; do
     ext="$(image_ext "$png")"
     if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
-        notify "Capture stuck" high "warning,camera" \
+        notify "Capture Stuck" high "warning,camera" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
         continue
     fi
@@ -308,7 +318,7 @@ for png in "${pngs[@]}"; do
     elif (( ask_rc != 0 )); then
         FAILED=$((FAILED + 1))
         archive_record "$id" "$rec" failed "triage API call rejected"
-        notify "Capture failed" default "warning,camera" \
+        notify "Capture Failed" default "warning,camera" \
                "Could not read that screenshot (id ${id:0:8}). Not a temporary error — check the API key."
         continue
     fi
@@ -327,7 +337,6 @@ for png in "${pngs[@]}"; do
     needs_human="$(jq -r '.needs_human' <<<"$proposal")"
     reason="$(jq -r '.reason // ""' <<<"$proposal")"
     ev_count="$(jq -r '.events | length' <<<"$proposal")"
-    ev_seen="$(jq -r '.events_seen // 1' <<<"$proposal")"
 
     # Routing lives in capture.lib.sh so the tests can assert it directly. The
     # order matters: needs_human must outrank an empty events list, or a reply
@@ -337,14 +346,21 @@ for png in "${pngs[@]}"; do
             OK=$((OK + 1))
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
-            notify "No event found" low "camera" "${reason:-That screenshot did not look like an event.}"
+            notify "Missing Event" "" "warning" \
+                   "${reason:-That screenshot did not look like an event.}"
             continue ;;
         needs_human)
             OK=$((OK + 1))
             archive_record "$id" "$rec" needs_human "${reason:-}"
             log "  needs human: ${reason:-(no reason given)}"
-            notify "Needs a human" default "warning,calendar" \
-                   "${reason:-Time or date unclear — not adding.} (id ${id:0:8})"
+            # Lead with the event's own name where there is one — "Kene" says more
+            # at a glance than "Needs A Human", and the body already explains what
+            # is wrong. The generic title is the fallback, not the default.
+            # The record id is gone: it was only ever useful to someone reading the
+            # journal, and they have the journal.
+            nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
+            notify "${nh_title:-Needs A Human}" "" "warning" \
+                   "${reason:-Time or date unclear — not adding.}"
             continue ;;
     esac
 
@@ -359,9 +375,13 @@ for png in "${pngs[@]}"; do
 
     # Ours, not the model's: it is told the same number, but a reply that ignores it
     # must still be bounded. Truncating is logged and surfaced, never silent.
+    # `ev_dropped` is how many the cap actually discarded — NOT the page total minus
+    # what was sent, which is what the notification used to quote and which counted
+    # the already-passed events as "not shown" while showing them in their own note.
+    ev_dropped=0
     if (( ev_count > MAX_EVENTS_PER_CAPTURE )); then
-        log "  !! ${ev_count} events returned, keeping the ${MAX_EVENTS_PER_CAPTURE} soonest (cap)"
-        (( ev_count > ev_seen )) && ev_seen=$ev_count
+        ev_dropped=$(( ev_count - MAX_EVENTS_PER_CAPTURE ))
+        log "  !! ${ev_count} events returned, keeping the ${MAX_EVENTS_PER_CAPTURE} soonest (cap), ${ev_dropped} dropped"
         ev_count=$MAX_EVENTS_PER_CAPTURE
     fi
 
@@ -385,11 +405,11 @@ for png in "${pngs[@]}"; do
     # past_note <record-or-empty> — one notification covering everything already over.
     past_note() {
         local body t
-        body="$(printf '%s event%s on that screenshot %s already passed:' \
-                "$n_past" "$( (( n_past == 1 )) || printf s )" "$( (( n_past == 1 )) && printf has || printf have )")"
+        body="$(printf '%s event%s already passed:' \
+                "$n_past" "$( (( n_past == 1 )) || printf s )")"
         for t in "${past_titles[@]:0:5}"; do body+=$'\n'"· ${t}"; done
         (( n_past > 5 )) && body+=$'\n'"· … and $(( n_past - 5 )) more"
-        notify "Already passed" low "hourglass" "$body"
+        notify "Already Passed" "" "hourglass" "$body"
     }
 
     # Nothing left to act on: the capture resolves here, with one note.
@@ -439,7 +459,7 @@ for png in "${pngs[@]}"; do
             continue
         fi
 
-        notify_event "$eid" "$erec" "$ev" "$((k + 1))" "$n_up" "$ev_seen"
+        notify_event "$eid" "$erec" "$ev" "$((k + 1))" "$n_up" "$ev_dropped"
         OK=$((OK + 1)); emitted=$((emitted + 1))
     done
 

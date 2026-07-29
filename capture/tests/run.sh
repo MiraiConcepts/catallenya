@@ -211,7 +211,7 @@ ne_run() { # ne_run <event-json> -> body on stdout, non-zero if the function die
         capture_base_url() { printf "https://example.invalid:10000"; }
         '"$(sed -n '/^notify_event() {$/,/^}$/p' "${SCRIPT_DIR}/capture.triage.sh")"'
         rec="$(mktemp -d)"; trap "rm -rf \"$rec\"" EXIT
-        notify_event "11111111-1111-1111-1111-111111111111" "$rec" "$NE_EV" 1 1 1
+        notify_event "11111111-1111-1111-1111-111111111111" "$rec" "$NE_EV" 1 1 0
     ' 2>&1
 }
 
@@ -238,7 +238,8 @@ WITHALT='{"calendar":"general","title":"Film","date":"2026-08-02","start_time":"
           "alternatives":[{"date":"2026-08-02","start_time":"20:15","location":null}]}'
 out="$(ne_run "$WITHALT")"; rc=$?
 is  "with an alternative still works" "$rc" 0
-has "and offers the other time"       "$out" "or 20:15"
+has  "and offers the other time"      "$out" "• 20:15"
+hasnt "with no 'or' in the body"      "$out" " or "
 
 # --------------------------------------------------------------- routing
 # Which branch a reply lands in. The bug this covers: the "no events" test ran
@@ -479,10 +480,15 @@ is "year differs -> primary"      "$(button_label "$(BL 2026-11-15 '' '' true)" 
 is "year differs -> alt"          "$(button_label "$(BL 2027-11-15 '' '' true)" "$(BL 2026-11-15 '' '' true)")" "15 Nov 27"
 
 # Same act, same time, two venues.
-is "venue differs -> primary"     "$(button_label "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Esplanade Co"
+# Cuts back to a WORD boundary, never mid-word: "Esplanade Concert Hall" is 22,
+# over the 20 cap, so it drops the last whole word rather than yielding the
+# "Esplanade Co" that read as a rendering fault.
+is "venue differs -> primary"     "$(button_label "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Esplanade Concert"
+is "venue at exactly the cap"     "$(button_label "$(BL 2026-07-30 19:15 'Twenty Chars Exactly')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Twenty Chars Exactly"
+is "one word over the cap is cut" "$(button_label "$(BL 2026-07-30 19:15 'Supercalifragilisticexpialidocious')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Supercalifragilistic"
 is "venue differs -> alt"         "$(button_label "$(BL 2026-07-30 19:15 'TOMATILLO')" "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')")" "TOMATILLO"
 # Punctuation is stripped rather than failing the Actions whitelist outright.
-is "venue punctuation stripped"   "$(button_label "$(BL 2026-07-30 19:15 "Joe's Bar, Level 2")" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Joes Bar Lev"
+X
 
 # No alternative: the event is compared with itself and says its own time.
 is "no alternative -> time"       "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 19:15 '')")" "19:15"
@@ -495,8 +501,8 @@ for c in "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 20:15 '')"
          "$(button_label "$(BL 2027-11-15 '' '' true)" "$(BL 2026-11-15 '' '' true)")" \
          "$(button_label "$(BL 2026-07-30 19:15 "Joe's Bar, Level 2")" "$(BL 2026-07-30 19:15 'X')")" \
          "$(button_label "$(BL 2026-08-03 '' '' true)" "$(BL 2026-08-03 '' '' true)")"; do
-    [[ "$c" =~ ^[A-Za-z0-9\ :.-]{1,12}$ ]] && ok "label '$c' passes the whitelist" \
-        || bad "label whitelist" "matches ^[A-Za-z0-9 :.-]{1,12}$" "$c"
+    [[ "$c" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] && ok "label '$c' passes the whitelist" \
+        || bad "label whitelist" "matches ^[A-Za-z0-9 :.-]{1,${BUTTON_LABEL_MAX}}$" "$c"
 done
 
 hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'

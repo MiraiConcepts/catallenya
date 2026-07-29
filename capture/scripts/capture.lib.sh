@@ -91,6 +91,17 @@ DURATION_MIN=60           # default length when only a start time is known
 # listing had six and two were dropped. Truncating is now logged and surfaced in the
 # notification body — silently discarding a user's events is worse than a few pings.
 MAX_EVENTS_PER_CAPTURE=8
+# Longest button label. ntfy imposes no limit of its own — 9, 17, 22 and 43
+# characters were all accepted with HTTP 200 when tested on 2026-07-28 — so this
+# is purely about phone width with three buttons in a row. 12 was the old value
+# and truncated "Esplanade Concert Hall" to the mid-word "Esplanade Co", which
+# read as a bug. Labels now cut back to a word boundary rather than mid-word, so
+# raising this only ever adds whole words.
+BUTTON_LABEL_MAX=20
+# Separator between an event's detail and the alternative on offer. The word "or"
+# used to sit here ("19:15  ·  or 20:15"); the bullet alone says the same thing in
+# a line that has to survive a phone's wrapping.
+ALT_SEP=" • "
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
@@ -170,7 +181,7 @@ diff_axis() {
 # prompt examples were 12-hour while the primary is forced to 24-hour, which is how a
 # notification came to read "19:00" beside "8.15pm".
 button_label() {
-    local a="$1" b="$2" at
+    local a="$1" b="$2" at v
     at="$(jq -r '.start_time // ""' <<<"$a")"
     case "$(diff_axis "$a" "$b")" in
         year)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b %y' 2>/dev/null || printf 'Alternative' ;;
@@ -181,7 +192,19 @@ button_label() {
         venue)
             # Strip to the Actions-header charset before truncating, so a venue with
             # a comma shortens rather than failing the whitelist outright.
-            printf '%s' "$(jq -r '.location' <<<"$a" | tr -cd 'A-Za-z0-9 :.-' | cut -c1-12 | sed 's/ *$//')" ;;
+            v="$(jq -r '.location' <<<"$a" | tr -cd 'A-Za-z0-9 :.-')"
+            if (( ${#v} > BUTTON_LABEL_MAX )); then
+                # Cut back to a WORD boundary. A hard cut produced "Esplanade Co",
+                # which reads as a rendering fault rather than an abbreviation.
+                # A single word longer than the cap still has to be chopped.
+                if [[ "${v:BUTTON_LABEL_MAX:1}" == " " ]]; then
+                    v="${v:0:BUTTON_LABEL_MAX}"
+                else
+                    v="${v:0:BUTTON_LABEL_MAX}"
+                    [[ "$v" == *" "* ]] && v="${v% *}"
+                fi
+            fi
+            printf '%s' "$(sed 's/ *$//' <<<"$v")" ;;
         *)
             if [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
                 printf 'All day'
@@ -425,11 +448,19 @@ triage_route() {
 
 # notify <title> <priority> <tags> <body> [actions]
 # `actions` is a raw ntfy Actions header value; omit for a plain note.
+#
+# An EMPTY priority sends no Priority header at all, which is what the calendar
+# notifications now do: ntfy then applies its own default and every proposal
+# arrives at the same weight. Ranking them against each other was noise — a
+# past-event note is not more or less important than the event beside it. The
+# argument is kept, not removed, because the infrastructure alarms (a capture
+# stuck in incoming/, a run that gave up) genuinely do want to shout.
 notify() {
     _load_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
     # Title is model-derived; Priority/Tags are ours. Sanitize the untrusted one.
-    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Priority: $2" -H "Tags: $3")
+    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Tags: $3")
+    [[ -n "${2:-}" ]] && hdr+=(-H "Priority: $2")
     # Sanitised here, not left to callers. Both current callers whitelist the
     # strings they splice in, but a CR/LF reaching this header injects a SECOND
     # Actions header, and Go's Header.Get returns the FIRST — so injected buttons
