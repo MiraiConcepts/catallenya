@@ -210,33 +210,35 @@ notify_event() {
         [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}$(md_escape "$alt_loc_h")"
     fi
     body+=$'\n'"${ev_cal^}"
-    # Where this sits among the rest, so one notification from a busy page is never
-    # mistaken for the whole story. The page total is mentioned ONLY when the cap
-    # actually held something back; every other event is in front of you.
-    # Only the FIRST alternative becomes a button (ntfy caps actions at 3), so a
-    # five-date tour must say so rather than quietly offering two of five.
-    # Only the FIRST alternative becomes a button (ntfy allows three actions and
-    # Discard takes one), so anything past it exists in proposal.json with no way
-    # to act on it. Italic, to sit apart from the event's own facts above.
-    local n_alt n_hidden; n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
+    # Everything the notification CANNOT act on, in one italic aside — an
+    # afterthought to the event above rather than two more facts about it:
+    #
+    #   1 more date not offered • 3 more events not sent
+    #
+    # Both count what is missing, not what is present, so they share a shape and
+    # read as one thought. Neither is the position, which lives in the title.
+    #
+    #   ...not offered — only the FIRST alternative becomes a button (ntfy allows
+    #      three actions and Discard takes one), so the rest sit in proposal.json
+    #      with no way to act on them.
+    #   ...not sent — MAX_EVENTS_PER_CAPTURE discarded these outright: no
+    #      notification, no record, no button. `dropped` counts only what the cap
+    #      really cut. The line it replaced compared against the page TOTAL, so it
+    #      fired on any multi-event capture with something in the past and called
+    #      those events "not shown" while showing them in their own note.
+    local n_alt n_hidden mi joined
+    local -a meta=()
+    n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
         n_hidden=$(( n_alt - 1 ))
-        body+=$'\n'"_${n_hidden} more ${axis}$( (( n_hidden == 1 )) || printf s ) not offered_"
+        meta+=("${n_hidden} more ${axis}$( (( n_hidden == 1 )) || printf s ) not offered")
     fi
-    # "Event 2 of 4" and, only when the cap genuinely cut something, what it cut.
-    # The old tail read "— 6 on the page, 2 not shown" and was usually a lie: the
-    # events missing from the count are normally the ones ALREADY PAST, and those
-    # ARE shown, in their own note. It compared against the page total, so it fired
-    # on every multi-event capture with anything in the past. `dropped` counts only
-    # what MAX_EVENTS_PER_CAPTURE actually discarded, which is the one case the
-    # user has no other way of learning about.
-    # Position goes in the TITLE as "(2/4)", not the body. It is the one fact you
-    # want while scanning a stack of notifications on a lock screen, and a body
-    # line is the wrong place for it — you have to open the thing to read it.
-    # Truncation stays in the body: it is rare, and it needs the words.
-    # Bold: this is the only line reporting something you have irrecoverably lost —
-    # these events got no notification, no record and no button.
-    (( dropped > 0 )) && body+=$'\n'"**${dropped} more event$( (( dropped == 1 )) || printf s ) not sent**"
+    (( dropped > 0 )) && meta+=("${dropped} more event$( (( dropped == 1 )) || printf s ) not sent")
+    if (( ${#meta[@]} )); then
+        joined="${meta[0]}"
+        for (( mi = 1; mi < ${#meta[@]}; mi++ )); do joined+="${ALT_SEP}${meta[$mi]}"; done
+        body+=$'\n'"_${joined}_"
+    fi
 
     if ! base="$(capture_base_url)"; then
         notify "${disp_title} (no buttons)" high "calendar" \
