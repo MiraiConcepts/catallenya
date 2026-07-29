@@ -105,7 +105,7 @@ for rec in "${records[@]}"; do
                 "${rec}/proposal.json")"
         if base="$(capture_base_url)"; then
             actions="http, Add, ${base}/capture/${id}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${id}/drop, method=POST, headers.X-Capture=1, clear=true"
-            notify "Still Waiting: ${title}" "" "hourglass,calendar" \
+            notify "Still Waiting: ${title}" "" "calendar" \
                    "${when} — proposed ${age_h}h ago, no action yet." "$actions"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
