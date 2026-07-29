@@ -348,6 +348,18 @@ hdr_safe() {
     tr -d '\r\n' <<<"${1:-}" | cut -c1-200
 }
 
+# md_escape <string> — neutralise Markdown in model-derived text.
+# notify() sends `Markdown: yes`, so ntfy renders the body as Markdown. Every
+# string the model echoes out of a screenshot is untrusted, and
+# `[tap here](https://evil.example)` in a location, a reason or an event title
+# would render as a REAL link inside a notification the user already trusts —
+# the same class as the header and iCalendar injections already guarded here,
+# arriving through a renderer that was switched on for cosmetic reasons.
+# Emphasis leaking is cosmetic; the link is why this exists.
+md_escape() {
+    sed -e 's/\\/\\\\/g' -e 's/\([][*_`~()#>|]\)/\\\1/g' <<<"${1:-}"
+}
+
 # --- the model-output gate -------------------------------------------------
 # Everything the model returns is untrusted: it is derived from a screenshot whose
 # contents an attacker may control. It reaches three sinks that each used to defend
@@ -459,7 +471,10 @@ notify() {
     _load_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
     # Title is model-derived; Priority/Tags are ours. Sanitize the untrusted one.
-    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Tags: $3")
+    # Markdown renders in the ntfy web client, which is where these are read.
+    # The Android app shows the raw markers instead — if that ever becomes the
+    # primary surface, drop this header rather than un-escaping the bodies.
+    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Tags: $3" -H "Markdown: yes")
     [[ -n "${2:-}" ]] && hdr+=(-H "Priority: $2")
     # Sanitised here, not left to callers. Both current callers whitelist the
     # strings they splice in, but a CR/LF reaching this header injects a SECOND
