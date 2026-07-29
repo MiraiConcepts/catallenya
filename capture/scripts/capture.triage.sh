@@ -221,11 +221,11 @@ notify_event() {
     # user has no other way of learning about.
     if (( of > 1 )); then
         body+=$'\n'"Event ${n} of ${of}"
-        (( dropped > 0 )) && body+=" · ${dropped} more not shown"
+        (( dropped > 0 )) && body+="${ALT_SEP}${dropped} more not shown"
     fi
 
     if ! base="$(capture_base_url)"; then
-        notify "${title} (no buttons)" high "warning,calendar" \
+        notify "${title} (no buttons)" high "calendar" \
                "$body. Could not build callback URL; record ${eid:0:8} left pending."
         log "  !! could not build capture base url"
         return
@@ -346,7 +346,7 @@ for png in "${pngs[@]}"; do
             OK=$((OK + 1))
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
-            notify "Missing Event" "" "warning" \
+            notify "Missing Event" "" "calendar" \
                    "${reason:-That screenshot did not look like an event.}"
             continue ;;
         needs_human)
@@ -359,7 +359,7 @@ for png in "${pngs[@]}"; do
             # The record id is gone: it was only ever useful to someone reading the
             # journal, and they have the journal.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
-            notify "${nh_title:-Needs A Human}" "" "warning" \
+            notify "${nh_title:-Needs A Human}" "" "calendar" \
                    "${reason:-Time or date unclear — not adding.}"
             continue ;;
     esac
@@ -407,9 +407,9 @@ for png in "${pngs[@]}"; do
         local body t
         body="$(printf '%s event%s already passed:' \
                 "$n_past" "$( (( n_past == 1 )) || printf s )")"
-        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"· ${t}"; done
-        (( n_past > 5 )) && body+=$'\n'"· … and $(( n_past - 5 )) more"
-        notify "Already Passed" "" "hourglass" "$body"
+        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• ${t}"; done
+        (( n_past > 5 )) && body+=$'\n'"• … and $(( n_past - 5 )) more"
+        notify "Already Passed" "" "calendar" "$body"
     }
 
     # Nothing left to act on: the capture resolves here, with one note.
