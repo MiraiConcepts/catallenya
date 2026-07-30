@@ -339,10 +339,10 @@ switch. Both arms had to be re-run fresh — the archived replies spanned fourte
 prompt versions, so diffing a new model against them would have measured the prompt
 rewrites instead. Result in the Notes below.
 
-**Currently `test`** while the pipeline is being exercised, so verdicts land in
-`decisions.test.jsonl` and the accept-rate `jq` in `CLAUDE.md` (which reads
-`decisions.jsonl`) returns nothing — expected, not a fault. `prod` is the intended
-steady state.
+**`prod` since 2026-07-30.** Verdicts now count. The 84 taken while it was `test`
+stay in `decisions.test.jsonl` and do not feed the production rate, so
+`decisions.jsonl` starts empty and fills from the next tap — an accept rate of
+"nothing yet" is expected for a while, not a fault.
 
 **Screenshots stay on this box.** `capture/` is deliberately absent from restic's
 path allowlist, so nothing here is copied to cloud storage — a screenshot can

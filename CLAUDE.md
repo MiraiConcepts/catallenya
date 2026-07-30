@@ -63,8 +63,9 @@ bash syncthing/scripts/documents.intake.daily.sh --dry-run             # whole p
 sudo systemctl start capture.triage.service   # drain incoming/ now (systemd injects the API key)
 bash capture/scripts/capture.sweep.sh         # re-notify stale proposals, archive ignored ones
 # Accept rate. capture/data/recording-mode holds one word — off | test | prod.
-# Currently `test`: captures are kept, but verdicts go to decisions.test.jsonl so
-# they cannot contaminate the production rate. `off` deletes resolved captures.
+# `prod` since 2026-07-30: verdicts count. The 84 verdicts taken while it was
+# `test` stay in decisions.test.jsonl and do NOT feed this, so the rate starts
+# from zero. `off` deletes resolved captures instead of keeping them.
 jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' capture/data/decisions.jsonl 2>/dev/null || echo 'no decisions recorded yet'
 ```
 
