@@ -15,9 +15,13 @@ proposal. is_event lives at the top level of the proposal and is checked by the
 triage before it ever gets here.
 
 Event fields consumed (see capture.lib.sh for the schema):
-  calendar, title, date (YYYY-MM-DD), start_time (HH:MM|null),
-  all_day, timezone (IANA), recurrence (none|yearly|monthly|weekly|daily),
-  location, description
+  calendar, title, date (YYYY-MM-DD), end_date (YYYY-MM-DD|null),
+  start_time (HH:MM|null), end_time (HH:MM|null), all_day, timezone (IANA),
+  recurrence (none|yearly|monthly|weekly|daily), location, description
+
+end_date makes the event a SPAN — one thing running across days (a market open
+both days, a festival, a trip). It is NOT the same as two alternatives: those are
+separate occasions the user picks one of, and they arrive as separate .ics files.
 """
 import argparse
 import datetime
@@ -91,28 +95,52 @@ def build(p, uid, now_iso, duration_min):
              "DTSTAMP:" + now_iso, "CREATED:" + now_iso, "LAST-MODIFIED:" + now_iso,
              "SEQUENCE:0", "STATUS:CONFIRMED"]
 
+    # The LAST day of the span, defaulting to the only day. A value that will not
+    # parse, or one earlier than the start, is ignored rather than trusted — the
+    # gate rejects those before they get here, but this renderer is also run
+    # directly by the tests and by hand.
+    end_d = d
+    if p.get("end_date"):
+        try:
+            parsed = datetime.date.fromisoformat(str(p["end_date"]))
+            if parsed >= d:
+                end_d = parsed
+        except (ValueError, TypeError):
+            pass
+
     time = None if p.get("all_day") else parse_hhmm(p.get("start_time"))
     if time is None:
-        # all-day (or no usable time): floating DATE values, no timezone
+        # all-day (or no usable time): floating DATE values, no timezone.
+        # DTEND is EXCLUSIVE in iCalendar, so a span ending on the 30th must say
+        # the 31st — the same +1 a single-day event already needed.
         lines.append("DTSTART;VALUE=DATE:" + d.strftime("%Y%m%d"))
-        lines.append("DTEND;VALUE=DATE:" + (d + datetime.timedelta(days=1)).strftime("%Y%m%d"))
+        lines.append("DTEND;VALUE=DATE:" + (end_d + datetime.timedelta(days=1)).strftime("%Y%m%d"))
         lines.append("TRANSP:TRANSPARENT")
     else:
         start_local = datetime.datetime(d.year, d.month, d.day, time[0], time[1], tzinfo=tz)
         # Prefer an explicit end time from the screenshot ("5:00 PM - 7:00 PM");
-        # fall back to the default duration when only a start was shown. An end
-        # that parses as earlier than the start means it crossed midnight.
+        # fall back to the default duration when only a start was shown. The end
+        # time is placed on end_d, so a timed span ends on its last day.
         end_local = None
         if p.get("end_time"):
             try:
                 eh, em = (int(x) for x in str(p["end_time"]).split(":")[:2])
-                end_local = start_local.replace(hour=eh, minute=em)
-                if end_local <= start_local:
+                end_local = datetime.datetime(end_d.year, end_d.month, end_d.day,
+                                              eh, em, tzinfo=tz)
+                # Only a SAME-DAY end that lands at or before the start crossed
+                # midnight. With an explicit end_date the day is already known, so
+                # rolling forward again would add a spurious extra day.
+                if end_local <= start_local and end_d == d:
                     end_local += datetime.timedelta(days=1)
             except (ValueError, TypeError):
                 end_local = None
         if end_local is None:
             end_local = start_local + datetime.timedelta(minutes=duration_min)
+            # A span with no end time still has to reach its last day.
+            if end_d > d:
+                end_local = datetime.datetime(end_d.year, end_d.month, end_d.day,
+                                              start_local.hour, start_local.minute,
+                                              tzinfo=tz) + datetime.timedelta(minutes=duration_min)
         z = lambda dt: dt.astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         lines.append("DTSTART:" + z(start_local))
         lines.append("DTEND:" + z(end_local))
