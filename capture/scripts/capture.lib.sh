@@ -181,7 +181,7 @@ diff_axis() {
 # prompt examples were 12-hour while the primary is forced to 24-hour, which is how a
 # notification came to read "19:00" beside "8.15pm".
 button_label() {
-    local a="$1" b="$2" at v
+    local a="$1" b="$2" at v sd ed
     at="$(jq -r '.start_time // ""' <<<"$a")"
     case "$(diff_axis "$a" "$b")" in
         year)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b %y' 2>/dev/null || printf 'Alternative' ;;
@@ -206,7 +206,19 @@ button_label() {
             fi
             printf '%s' "$(sed 's/ *$//' <<<"$v")" ;;
         *)
-            if [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
+            # A SPAN labels its range. "All day" on a two-day market says nothing
+            # about the second day, and the range is the whole point of end_date.
+            sd="$(jq -r '.date' <<<"$a")"; ed="$(jq -r '.end_date // ""' <<<"$a")"
+            if [[ -n "$ed" && "$ed" != "null" && "$ed" != "$sd" ]]; then
+                if [[ "$(date -d "$sd" '+%m' 2>/dev/null)" == "$(date -d "$ed" '+%m' 2>/dev/null)" ]]; then
+                    printf '%s-%s' "$(date -d "$sd" '+%-d' 2>/dev/null)" \
+                                   "$(date -d "$ed" '+%-d %b' 2>/dev/null)"
+                else
+                    # Crosses a month, so both halves need their month naming.
+                    printf '%s-%s' "$(date -d "$sd" '+%-d %b' 2>/dev/null)" \
+                                   "$(date -d "$ed" '+%-d %b' 2>/dev/null)"
+                fi
+            elif [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
                 printf 'All day'
             elif [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then printf '%s' "$at"
             else printf 'Alternative'; fi ;;
@@ -399,6 +411,16 @@ validate_proposal() {
     v="$(jq -r '.date // ""' <<<"$p")"
     [[ "$v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "BAD_DATE"; return 1; }
     date -d "$v" >/dev/null 2>&1 || { echo "IMPOSSIBLE_DATE"; return 1; }
+
+    # end_date turns an event into a SPAN, so a bad one silently changes how long
+    # the entry is rather than failing visibly. An end before the start would make
+    # render_ics emit DTEND < DTSTART, which clients display unpredictably.
+    local ed; ed="$(jq -r '.end_date // "null"' <<<"$p")"
+    if [[ "$ed" != "null" && -n "$ed" ]]; then
+        [[ "$ed" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "BAD_END_DATE"; return 1; }
+        date -d "$ed" >/dev/null 2>&1 || { echo "IMPOSSIBLE_END_DATE"; return 1; }
+        [[ "$ed" < "$v" ]] && { echo "END_BEFORE_START"; return 1; }
+    fi
 
     # HH:MM 24h, or null. An unparseable time used to fall through to an all-day
     # event while the notification still showed "5pm" — the user approved one thing
@@ -630,6 +652,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
           "calendar":    {"type": "string", "enum": ["general", "birthday"]},
           "title":       {"type": "string"},
           "date":        {"type": "string"},
+          "end_date":    {"type": ["string", "null"]},
           "start_time":  {"type": ["string", "null"]},
           "end_time":    {"type": ["string", "null"]},
           "all_day":     {"type": "boolean"},
@@ -651,7 +674,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
             }
           }
         },
-        "required": ["calendar","title","date","start_time","end_time","all_day",
+        "required": ["calendar","title","date","end_date","start_time","end_time","all_day",
                      "timezone","recurrence","location","description","alternatives"]
       }
     }

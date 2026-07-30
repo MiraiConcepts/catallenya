@@ -27,7 +27,7 @@ isnt() { [[ "$2" != "$3" ]] && ok "$1" || bad "$1" "anything but $3" "$2"; }
 
 # A valid proposal. Cases mutate one field off this baseline.
 BASE='{"is_event":true,"needs_human":false,"calendar":"general","title":"Lunch",
-       "date":"2026-07-26","start_time":"13:00","end_time":"14:00","all_day":false,
+       "date":"2026-07-26","end_date":null,"start_time":"13:00","end_time":"14:00","all_day":false,
        "timezone":"Asia/Singapore","recurrence":"none","location":null,
        "description":null,"reason":null,"alternatives":[]}'
 mut() { jq -c "$1" <<<"$BASE"; }
@@ -104,6 +104,61 @@ has "all-day uses VALUE=DATE" "$out" "DTSTART;VALUE=DATE:20260726"
 out="$(mut 'del(.is_event, .needs_human, .alternatives)' | render)"
 has "renders a bare event object" "$out" "DTSTART:20260726T050000Z"
 hasnt "no is_event complaint"     "$out" "not an event"
+
+# ------------------------------------------------------------------- spans
+# end_date makes an event ONE thing running across days. Before it existed the
+# model had nowhere to put "Runs 29-30 August", so it put day two in
+# alternatives — and alternatives renders as PICK ONE. A two-day art market was
+# offered as a choice between its own two days (capture 51593abe, 2026-07-29).
+#
+# The lookalike that must NOT become a span: "tour poster shows two London dates,
+# Mar 31 and Apr 1" is two performances you attend one of. Identical shape in the
+# data, opposite meaning — that distinction lives in the prompt, and these cases
+# pin the rendering either way.
+echo "end_date spans"
+
+# All-day span. DTEND is EXCLUSIVE in iCalendar, so 29-30 Aug ends on the 31st.
+out="$(mut '.all_day=true | .start_time=null | .end_time=null | .date="2026-08-29" | .end_date="2026-08-30"' | render)"
+has "span starts on the first day"  "$out" "DTSTART;VALUE=DATE:20260829"
+has "span DTEND is exclusive"       "$out" "DTEND;VALUE=DATE:20260831"
+# A single-day all-day event must be untouched by the new field.
+out="$(mut '.all_day=true | .start_time=null | .end_time=null | .date="2026-08-29" | .end_date=null' | render)"
+has "single day still ends next day" "$out" "DTEND;VALUE=DATE:20260830"
+out="$(mut '.all_day=true | .start_time=null | .end_time=null | .date="2026-08-29" | .end_date="2026-08-29"' | render)"
+has "end_date == date is one day"    "$out" "DTEND;VALUE=DATE:20260830"
+
+# Timed span: the end TIME lands on the end DATE.
+out="$(mut '.date="2026-08-29" | .end_date="2026-08-30" | .start_time="10:00" | .end_time="18:00"' | render)"
+has "timed span starts day one"  "$out" "DTSTART:20260829T020000Z"
+has "timed span ends day two"    "$out" "DTEND:20260830T100000Z"
+# A timed span with no end time still has to reach its last day.
+out="$(mut '.date="2026-08-29" | .end_date="2026-08-30" | .start_time="10:00" | .end_time=null' | render)"
+has "span without end_time reaches day two" "$out" "DTEND:20260830T030000Z"
+
+# The overnight case must NOT gain an extra day now that end_d exists: 23:00-03:00
+# on ONE date is still a single night.
+out="$(mut '.date="2026-08-29" | .end_date=null | .start_time="23:00" | .end_time="03:00"' | render)"
+has "overnight still rolls one day" "$out" "DTEND:20260829T190000Z"
+
+# Junk end_date is ignored rather than trusted — the gate rejects it first, but
+# render_ics is also run by hand and by these tests.
+out="$(mut '.all_day=true | .start_time=null | .end_time=null | .date="2026-08-29" | .end_date="not-a-date"' | render)"
+has "unparseable end_date ignored"  "$out" "DTEND;VALUE=DATE:20260830"
+out="$(mut '.all_day=true | .start_time=null | .end_time=null | .date="2026-08-29" | .end_date="2026-08-01"' | render)"
+has "end before start ignored"      "$out" "DTEND;VALUE=DATE:20260830"
+
+# The gate
+is "valid span passes"        "$(validate_proposal "$(mut '.date="2026-08-29" | .end_date="2026-08-30"')" && echo ok)" "ok"
+is "null end_date passes"     "$(validate_proposal "$(mut '.end_date=null')" && echo ok)" "ok"
+is "malformed end_date"       "$(validate_proposal "$(mut '.end_date="29 Aug"')")" "BAD_END_DATE"
+is "impossible end_date"      "$(validate_proposal "$(mut '.end_date="2026-02-30"')")" "IMPOSSIBLE_END_DATE"
+is "end before start rejected" "$(validate_proposal "$(mut '.date="2026-08-29" | .end_date="2026-08-28"')")" "END_BEFORE_START"
+
+# Button label: a span names its range instead of saying "All day".
+SP() { jq -cn --arg d "$1" --arg e "$2" '{date:$d,end_date:$e,start_time:null,all_day:true,location:null}'; }
+is "span label, same month"  "$(button_label "$(SP 2026-08-29 2026-08-30)" "$(SP 2026-08-29 2026-08-30)")" "29-30 Aug"
+is "span label, crosses month" "$(button_label "$(SP 2026-08-30 2026-09-02)" "$(SP 2026-08-30 2026-09-02)")" "30 Aug-2 Sep"
+is "no span still says All day" "$(button_label "$(SP 2026-08-29 '')" "$(SP 2026-08-29 '')")" "All day"
 
 # --------------------------------------------------------------- past events
 # A page of eight used to yield seven notifications, because the eighth had already
@@ -240,6 +295,33 @@ out="$(ne_run "$WITHALT")"; rc=$?
 is  "with an alternative still works" "$rc" 0
 has  "and offers the other time"      "$out" "• 20:15"
 hasnt "with no 'or' in the body"      "$out" " or "
+
+# --------------------------------------------------------- dropped events
+# Events go missing two ways. Our cap discards anything past
+# MAX_EVENTS_PER_CAPTURE — but the PROMPT also tells the model to return at most
+# that many and put the page's true total in events_seen, so a reply of 8 with
+# events_seen=12 means the MODEL dropped four, our cap never fires, and the
+# notification said nothing at all. This is the arithmetic that closes that.
+echo "dropped-event accounting"
+
+dropped() { # dropped <events returned> <events_seen> <cap> -> how many never surface
+    local n="$1" seen="$2" cap="$3" kept d
+    [[ "$seen" =~ ^[0-9]+$ ]] || seen=0
+    (( seen < n )) && seen=$n
+    kept=$n; (( n > cap )) && kept=$cap
+    d=$(( seen - kept )); (( d < 0 )) && d=0
+    echo "$d"
+}
+
+is "nothing dropped"              "$(dropped 3  3  8)" "0"
+is "our cap discards the excess"  "$(dropped 11 11 8)" "3"
+# The gap this was written for: the model self-truncated, so our cap never fires.
+is "model self-truncated"         "$(dropped 8  12 8)" "4"
+is "both at once"                 "$(dropped 11 15 8)" "7"
+# A model under-reporting events_seen must not hide the list it actually returned.
+is "seen under-reported is floored" "$(dropped 5 2 8)" "0"
+is "seen missing entirely"        "$(dropped 5 0 8)" "0"
+is "non-numeric seen is ignored"   "$(dropped 5 null 8)" "0"
 
 # --------------------------------------------------------------- markdown
 # notify() sends `Markdown: yes` so the web client renders emphasis on the two

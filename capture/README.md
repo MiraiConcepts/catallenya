@@ -56,7 +56,7 @@ list says so in the body.
 lists what it sees, past events included. Whether an event is *over* is computed by
 `event_is_past()` from its date, start time and the capture moment in `EVENT_TZ` —
 never asked of the model. Upcoming events each get a notification; everything already
-finished is collapsed into a single "Already passed" note listing the titles. A page
+finished is collapsed into a single "Already Passed" note listing the titles. A page
 where nothing is left produces just that one note.
 
 **Year resolution** is a hierarchy, and only the last step is a guess: an explicit
@@ -72,7 +72,7 @@ event, and only then the current year, taking the nearest candidate still ahead.
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/capture.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
 | `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots |
-| `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `event_is_past`, `api_post` retry, `button_label`, `fork_record` |
+| `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `api_post` retry, `diff_axis`, `button_label`, `md_escape`, `fork_record` |
 | `tests/run.sh` | offline regression suite — every case is a bug that shipped |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + hourly sweep `.timer` |
@@ -88,16 +88,17 @@ gate before anything is written, so it has to be checkable at a glance:
     Sunday, 26 July 2026
     13:00 - 14:00
     5 Everton Park
-    General
 
     [ 13:00 ]   [ Discard ]
 ```
 
 Title is the event name; the body is one fact per line in 24-hour time, and empty
 fields are simply absent — an all-day event shows no time line, one with no venue
-shows no location line. The primary button is the event's own start time rather than
-the word "Add", so a glance at the buttons is enough to see what you are choosing
-between.
+shows no location line. The calendar it will land in is *not* shown: it read
+"General" on almost everything, and the one case it was informative for — a
+birthday — announces itself in the title. The primary button is the event's own
+start time rather than the word "Add", so a glance at the buttons is enough to see
+what you are choosing between.
 
 When the model saw a second plausible reading of the SAME event the buttons become
 `[13:00] [15:00] [Discard]`, and each writes that variant directly; both `.ics` files
@@ -106,37 +107,74 @@ from the proposal, never named by the model — that is what stops `[19:00]` app
 beside `[8.15pm]`. When the two readings differ by YEAR rather than by time, both
 carry it: `[15 Nov 26] [15 Nov 27]`.
 
-A screenshot holding several events sends one notification per event, each numbered:
+The body shows the alternative on whichever lines actually differ, separated by a
+bullet — a tour differing by date AND venue carries it on both, because a button can
+only name one axis and a body showing one city beside the other city's button would
+be lying about what the tap writes:
 
 ```
-📅  Asayake
-    Friday, 31 July 2026
-    19:15
-    General
-    Event 5 of 7 from one screenshot
+📅  Kene (2/4)
+    Saturday, 13 March 2027 • Friday, 19 March 2027
+    All day
+    Drip KL, Kuala Lumpur • Seoul
 
-    [ 19:15 ]   [ 20:30 ]   [ Discard ]
+    1 more date not offered • 3 more events not sent
+
+    [ 13 Mar ]   [ 19 Mar ]   [ Discard ]
 ```
+
+A screenshot holding several events sends one notification per event, and the
+position rides in the TITLE as `(2/4)` — it is the fact you want while scanning a
+stack of them, and a body line is the wrong place for something you have to open the
+notification to read. A lone event gets no suffix; `(1/1)` on the common case is
+noise, and its absence is what makes the suffix mean something.
+
+The last line is the italic aside, present only when there is something the
+notification cannot act on. Both halves count what is MISSING, so they share a shape:
+`not offered` is an alternative with no button (ntfy allows three actions and Discard
+takes one, so only the first ever becomes one); `not sent` is an event
+`MAX_EVENTS_PER_CAPTURE` discarded outright — no notification, no record, no button,
+and the only line here reporting something irrecoverable.
 
 Anything on the page that has already finished is not sent as its own notification —
-they are collapsed into one low-priority note, so a listing where three acts are over
-does not cost you three pings:
+they are collapsed into one note, so a listing where three acts are over does not
+cost you three pings:
 
 ```
-⏳  Already passed
-    1 event on that screenshot has already passed:
-    · Safety Off!
+📅  Already Passed
+    1 event already passed:
+    • Safety Off!
 ```
 
 **ntfy caps action buttons at 3**, which is why at most one alternative per event is
 ever offered. Two different acts are two events, not two readings of one — that
 distinction is why a festival page fans out instead of proposing one act as though it
-were the only thing there.
+were the only thing there. Button labels are cut at `BUTTON_LABEL_MAX` (20) and cut
+back to a WORD boundary: a hard cut produced `Esplanade Co`, which reads as a
+rendering fault rather than an abbreviation. ntfy itself imposes no limit — 43
+characters were accepted — so the cap is only about phone width.
 
-The 📅 is an emoji from the `Tags:` header. Custom icons are possible — an `Icon:`
-header pointing at a PNG/JPEG URL, fetched by the *phone* rather than the server and
-cached about a day — but are deliberately not used here: a tag emoji needs nothing
-hosted and nothing fetched.
+Two captures that need you rather than a decision use the same 📅 and no buttons:
+**Missing Event** (the screenshot described nothing schedulable) and a needs-a-human
+capture, which leads with the event's own title where the reply carried one and falls
+back to **Needs A Human**. Notifications send no `Priority` header at all — ranking a
+proposal against the note beside it was noise.
+
+The 📅 is an emoji from the `Tags:` header, and every calendar-facing notification
+uses it; only the three infrastructure alarms (`Capture Stuck`, `Capture Failed`,
+`Capture Gave Up`) differ, because those are the pipeline reporting on itself. Custom
+icons are possible — an `Icon:` header pointing at a PNG/JPEG URL, fetched by the
+*phone* rather than the server and cached about a day — but are deliberately not used
+here: a tag emoji needs nothing hosted and nothing fetched.
+
+**Bodies are rendered as Markdown** (`Markdown: yes`), which is what makes the aside
+italic. That renders in the ntfy **web** client; the Android app shows the raw
+markers, so if the phone ever becomes the primary surface, drop the header rather
+than un-escaping the bodies. Turning a renderer on changed what model output *means*:
+`md_escape()` neutralises links, emphasis, code spans, headings and blockquotes on
+every model-derived string reaching a body, because `[tap here](https://evil.example)`
+lifted off a screenshot into a venue or a reason would otherwise render as a real
+link inside a notification you already trust.
 
 ## Laptop setup
 
@@ -232,7 +270,6 @@ archive/<id>/
   mode              off | test | prod, as of when the capture was taken
   capture.json      the WHOLE model reply, so a capped or partial capture stays
                     diagnosable after the fan-out has split it up
-  mode              off | test | prod, as of when the capture was taken
   proposal.json     the one event this record is about
   event.ics         what would have been written
   decision.json     add | add_alt | add_duplicate | undone | discard | ignored |
@@ -295,12 +332,17 @@ that possible — without the prompt that produced a proposal, a difference betw
 two records could be the prompt, the model or the screenshot, with no way to tell.
 The prompt is hashed as a TEMPLATE, with the capture time substituted out, so
 records group by prompt version rather than every capture hashing differently.
-```
 
-**It is currently OFF** (nothing is being kept) while the pipeline is being exercised.
-Recording is the intended steady state; remove the flag once you are done testing.
-While it is set, the accept-rate `jq` in `CLAUDE.md` returns nothing — that is expected,
-not a fault.
+That replay is not hypothetical: on 2026-07-28 all 36 archived screenshots were run
+through `claude-sonnet-5` and `claude-opus-5` under one prompt to decide whether to
+switch. Both arms had to be re-run fresh — the archived replies spanned fourteen
+prompt versions, so diffing a new model against them would have measured the prompt
+rewrites instead. Result in the Notes below.
+
+**Currently `test`** while the pipeline is being exercised, so verdicts land in
+`decisions.test.jsonl` and the accept-rate `jq` in `CLAUDE.md` (which reads
+`decisions.jsonl`) returns nothing — expected, not a fault. `prod` is the intended
+steady state.
 
 **Screenshots stay on this box.** `capture/` is deliberately absent from restic's
 path allowlist, so nothing here is copied to cloud storage — a screenshot can
@@ -309,12 +351,13 @@ rollback. Do not add `capture/` to restic without revisiting that decision.
 
 ## Cost
 
-Roughly **3–10¢ per capture** (`claude-opus-5`, ~4.8k image tokens in, adaptive
-thinking at medium effort). This bills the Anthropic API account, not a Claude
-subscription. There is no rate limit or spend cap. The upload endpoint is reachable
-from the tailnet **and from any container on the compose network** — it is not
-public, but "only you can call it" is not quite true. Uploads are the only thing
-that spends money, so an unexpected bill is the signal to look here first.
+**3.5¢ per capture**, measured over 36 real captures on 2026-07-28: 151,731 input
+and 20,693 output tokens for the set, on `claude-opus-5` with adaptive thinking at
+medium effort. This bills the Anthropic API account, not a Claude subscription.
+There is no rate limit or spend cap. The upload endpoint is reachable from the
+tailnet **and from any container on the compose network** — it is not public, but
+"only you can call it" is not quite true. Uploads are the only thing that spends
+money, so an unexpected bill is the signal to look here first.
 
 ## Notes
 
@@ -322,14 +365,28 @@ that spends money, so an unexpected bill is the signal to look here first.
   configurations found `opus-5` + vision scored 7/7 on a hard golden set, versus
   4/7 for the same model on OCR text and 0/7 for local 4B vision. Modality, not
   model size, was the lever — hence no tesseract anywhere in this pipeline.
+- **`claude-sonnet-5` was evaluated and rejected (2026-07-28) — do not re-raise
+  without new information.** All 36 archived screenshots were replayed through both
+  models under one prompt. 34 of 36 produced an identical calendar entry, but on a
+  real gig poster reading "Friday 4 December" sonnet answered **2031** — it matched
+  Thursday years (2025, 2031) and narrated that reasoning confidently in the event
+  description — where opus answered 2026, the actual Friday. That is the year
+  hierarchy's determining step. Sonnet also returned `needs_human` with an empty
+  `events` array, a shape that exposed a real routing bug here (now fixed). Savings
+  would have been **~1.2¢ per capture**: input tokens were identical, but sonnet
+  produced 29% more output, cancelling most of the cheaper rate. Roughly 78¢ across
+  every capture taken to date.
 - **The triage must always drain `incoming/`.** `PathExistsGlob` re-fires while a
   file remains, so a leftover PNG would hot-loop systemd and bill an API call per
   spin. Every branch in `capture.triage.sh` moves or archives its file.
 - **The callbacks require `X-Capture: 1`.** `POST /capture/<id>/add` and `/drop`
   return 403 without it. ntfy sets it natively (`headers.X-Capture=1` in the action),
   so taps are unaffected — but a hand-rolled `curl` needs `-H 'X-Capture: 1'`. It is
-  not authentication; it forces a CORS preflight this server never answers, which
-  stops a web page open on a tailnet device from firing a callback it scraped off the
-  (unauthenticated) ntfy topic.
+  not authentication; the custom header forces a CORS preflight, and the server
+  answers that preflight for exactly one origin (`NTFY_ORIGIN`, the ntfy web UI —
+  see Server setup). Every other page is refused, which stops a web page open on a
+  tailnet device from firing a callback it scraped off the (unauthenticated) ntfy
+  topic. Refusing *every* preflight, which shipped briefly on 2026-07-27, breaks the
+  web client instead.
 - **Uploads land via atomic rename** (`.part-<id>` → `<id>.png`) so the `.path`
   unit can never fire on a half-written screenshot.

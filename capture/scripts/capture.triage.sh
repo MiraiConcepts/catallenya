@@ -72,6 +72,11 @@ Rules:
 - ALREADY PAST. List every event the image shows, INCLUDING ones whose time has gone — do not silently leave them out. Whether an event is over is worked out from its date and time, not by you, and the user is shown it marked as passed so a page of eight events never yields seven notifications with no explanation.
   is_event=false belongs to a different case: the image describes nothing schedulable at all, or everything it describes is a record of something finished (a receipt, an order confirmation, an itinerary for a trip already taken) with nothing left to put in a calendar. A confirmation for a date still to come is a real event and is listed normally.
 - end_time: if the image shows an end time or a duration ("5:00 PM - 7:00 PM", "2hrs", "90 min"), give the resulting HH:MM end. Null if only a start is shown — a sensible default is applied then.
+- A SPAN vs A CHOICE. These look identical in the image and mean opposite things, so decide deliberately.
+  end_date is for ONE thing that RUNS ACROSS more than one day: a market open both days, a three-day festival, a conference, a trip, an exhibition run. Put the first day in date and the last day in end_date. There is nothing for the user to choose — they are attending the span.
+  alternatives is for the opposite: the same act appearing more than once, where the user attends exactly ONE of them. Two nights of the same concert, two showtimes, a tour playing two cities.
+  The test is whether attending every one of them would be attending a single continuous thing. "Runs 29-30 August" -> yes, one event, date=2026-08-29 and end_date=2026-08-30, alternatives empty. "Tour poster shows two London dates, Mar 31 and Apr 1" -> no, those are two performances, so date=the first and the other goes in alternatives with end_date null.
+  end_date is null for a single-day event, which is nearly all of them. Never set end_date equal to date, and never set it earlier than date.
 - title: short and human, no emoji prefix.
 - location: include the venue/address if shown, else null.
 - events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
@@ -135,7 +140,7 @@ ask() {
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
     local eid="$1" erec="$2" ev="$3" n="$4" of="$5" dropped="$6"
-    local title disp_title ev_date ev_start ev_end ev_loc all_day body
+    local title disp_title ev_date ev_end_date ev_start ev_end ev_loc all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
     title="$(jq -r '.title // "Untitled"' <<<"$ev")"
@@ -145,6 +150,8 @@ notify_event() {
     disp_title="$title"
     (( of > 1 )) && disp_title="${title} (${n}/${of})"
     ev_date="$(jq -r '.date'             <<<"$ev")"
+    ev_end_date="$(jq -r '.end_date // ""' <<<"$ev")"
+    [[ "$ev_end_date" == "null" || "$ev_end_date" == "$ev_date" ]] && ev_end_date=""
     ev_start="$(jq -r '.start_time // ""' <<<"$ev")"
     ev_end="$(jq -r '.end_time // ""'    <<<"$ev")"
     ev_loc="$(jq -r '.location // ""'    <<<"$ev")"
@@ -154,8 +161,13 @@ notify_event() {
         # end_time MUST be reset: the alternatives sub-schema has no end_time, so
         # otherwise the primary's end survives, renders end <= start, and gains a
         # day — a 23-hour event behind a button reading "15:00".
+        # end_time AND end_date must both be reset: the alternatives sub-schema has
+        # neither, so the primary's values would survive onto a different day. The
+        # end_time case shipped once as a 23-hour event behind a button reading
+        # "15:00"; end_date would be worse, inheriting a whole span onto what is
+        # meant to be one other occasion.
         alt_json="$(jq -c '.alternatives[0] as $a | . + {date: $a.date, start_time: $a.start_time,
-                           end_time: null, location: ($a.location // .location)}
+                           end_time: null, end_date: null, location: ($a.location // .location)}
                     | del(.alternatives)' <<<"$ev")"
         alt_date_chk="$(jq -r '.date // ""' <<<"$alt_json")"
         today_local="$(TZ="$EVENT_TZ" date +%Y-%m-%d)"
@@ -194,6 +206,10 @@ notify_event() {
     # that showed Kuala Lumpur while offering the Seoul date would be lying about
     # what the second button writes.
     body="$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")"
+    # A span reads with an en dash, deliberately NOT the bullet: the bullet means
+    # "or" everywhere else in this body, and a run of days is not a choice.
+    [[ -n "$ev_end_date" ]] \
+        && body+=" – $(date -d "$ev_end_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_end_date")"
     [[ -n "$alt_date_h" && "$alt_date_h" != "$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null)" ]] \
         && body+="${ALT_SEP}${alt_date_h}"
     if [[ "$all_day" == "true" ]]; then
@@ -229,12 +245,16 @@ notify_event() {
     #      really cut. The line it replaced compared against the page TOTAL, so it
     #      fired on any multi-event capture with something in the past and called
     #      those events "not shown" while showing them in their own note.
-    local n_alt n_hidden mi joined
+    local n_alt n_hidden mi joined noun
     local -a meta=()
     n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
         n_hidden=$(( n_alt - 1 ))
-        meta+=("${n_hidden} more ${axis}$( (( n_hidden == 1 )) || printf s ) not offered")
+        # diff_axis returns `none` when an alternative matches the primary on date,
+        # time AND venue — a degenerate reply, but one that would have rendered the
+        # literal "1 more none not offered".
+        noun="$axis"; [[ "$noun" == none ]] && noun=option
+        meta+=("${n_hidden} more ${noun}$( (( n_hidden == 1 )) || printf s ) not offered")
     fi
     (( dropped > 0 )) && meta+=("${dropped} more event$( (( dropped == 1 )) || printf s ) not sent")
     if (( ${#meta[@]} )); then
@@ -397,12 +417,25 @@ for png in "${pngs[@]}"; do
     # `ev_dropped` is how many the cap actually discarded — NOT the page total minus
     # what was sent, which is what the notification used to quote and which counted
     # the already-passed events as "not shown" while showing them in their own note.
-    ev_dropped=0
+    # Events go missing TWO ways, and counting only ours reported nothing when the
+    # model did it. The prompt tells the model to return at most
+    # MAX_EVENTS_PER_CAPTURE and to put the page's TRUE total in events_seen — so a
+    # reply of 8 events with events_seen=12 means the MODEL dropped four, our cap
+    # never fires, and the notification used to say nothing at all. `ev_seen` is
+    # therefore the page total as the model saw it, floored at what it actually
+    # returned (a model under-reporting events_seen must not hide its own list).
+    ev_seen="$(jq -r '.events_seen // 0' <<<"$proposal")"
+    [[ "$ev_seen" =~ ^[0-9]+$ ]] || ev_seen=0
+    (( ev_seen < ev_count )) && ev_seen=$ev_count
     if (( ev_count > MAX_EVENTS_PER_CAPTURE )); then
-        ev_dropped=$(( ev_count - MAX_EVENTS_PER_CAPTURE ))
-        log "  !! ${ev_count} events returned, keeping the ${MAX_EVENTS_PER_CAPTURE} soonest (cap), ${ev_dropped} dropped"
+        log "  !! ${ev_count} events returned, keeping the ${MAX_EVENTS_PER_CAPTURE} soonest (cap)"
         ev_count=$MAX_EVENTS_PER_CAPTURE
     fi
+    # Everything the page held that will never reach a notification. Past events do
+    # NOT count — they are inside ev_count and get their own note.
+    ev_dropped=$(( ev_seen - ev_count ))
+    (( ev_dropped < 0 )) && ev_dropped=0
+    (( ev_dropped > 0 )) && log "  !! ${ev_dropped} event(s) never surfaced (page held ${ev_seen}, sending ${ev_count})"
 
     # Split the page into what is still ahead and what is over. Every upcoming event
     # gets its own notification; the past ones are collapsed into a single note
