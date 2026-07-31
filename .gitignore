@@ -104,6 +104,7 @@ ntfy/.env
 !syncthing/scripts/documents.intake.classify.sh
 !syncthing/scripts/documents.intake.apply.sh
 !syncthing/scripts/documents.intake.daily.sh
+!syncthing/scripts/documents.intake.score.sh
 
 # Explicit includes inside capture folder — CODE/CONFIG ONLY, never data.
 # capture/data/ holds uploaded screenshots (whatever was on screen at capture) plus
@@ -136,4 +137,14 @@ ntfy/.env
 !capture/client/capture.sh
 !capture/tests/
 !capture/tests/run.sh
-!capture/tests/sink.py
+
+# Explicit includes inside the shared AI layer. Same per-file discipline as capture
+# above — no `**` globs, so a stray key or scratch file landing in ai/ stays untracked
+# until someone adds a line here on purpose.
+!ai/
+!ai/README.md
+!ai/scripts/
+!ai/scripts/ai.lib.sh
+!ai/tests/
+!ai/tests/run.sh
+!ai/tests/sink.py
