@@ -3,46 +3,52 @@
 #
 # Reads the scan manifest on stdin, emits an adjudicated manifest on stdout.
 #
-# CONTAINMENT — every line of this is load-bearing, do not "simplify":
+# CONTAINMENT. This used to run through `claude -p`, and most of what lived here was
+# a list of flags and traps needed to strip an agent harness back down to a pure
+# function: --tools "StructuredOutput", --setting-sources '', --strict-mcp-config, and
+# four undocumented ways the CLI could silently no-op or lie about its exit code.
 #
-#   --tools "StructuredOutput"   The model gets exactly ONE tool, and it IS the answer
-#                                channel. No Read, no Bash, no Write, no filesystem, no
-#                                network. Image in via stream-json, schema-conforming
-#                                JSON out. A pure function.
-#                                VERIFIED 2026-07-16: system/init reports
-#                                tools:['StructuredOutput'], mcp_servers:[].
-#   --setting-sources ''         Without it, a claude -p under /zpool/catallenya inherits
-#                                that dir's settings.local.json. Permission rules UNION
-#                                across scopes — --allowedTools CANNOT narrow them.
-#   --strict-mcp-config          -> mcp_servers: []
-#   --json-schema                Enum-only. There is NO free-text field, so there is no
-#                                channel for an injected document to write into.
+# It now posts to /v1/messages directly (ai/scripts/ai.lib.sh, shared with capture).
+# A plain Messages request has NO `tools` key, so there is no tool surface to lock
+# down — no Read, no Bash, no Write, no filesystem, no MCP. Containment stopped being
+# something this script arranges and became a property of the endpoint. The one rule
+# that still needs stating: never add a `tools` key to ai_build_request.
 #
-# TRAPS, all verified, none documented upstream:
-#   1. --tools "" and --json-schema are MUTUALLY EXCLUSIVE. --json-schema is implemented
-#      AS the StructuredOutput tool, so --tools "" disables it — silently:
-#      structured_output:null, is_error:false, terminal_reason:"completed". Name it.
-#   2. --allowedTools "" exposes 31 tools (MORE than baseline, incl. Bash/Write/Read).
-#      An empty allowlist means "no restriction", not "nothing allowed". Never use it.
-#   3. --input-format stream-json requires --output-format stream-json, and the stream
-#      MUST be held open: on immediate EOF it silently no-ops (rc=0, zero bytes, no
-#      error). Hence the `sleep` in the subshell below.
-#   4. A denied tool call exits 0 with is_error:false and subtype:"success". Auth failure
-#      also reports subtype:"success". NEVER discriminate on subtype.
+# The schema is still enum-only by construction. There is no free-text field, so an
+# injected document has no channel to write into. See build_schema below.
+#
+# Two calls per document, deliberately: classify, then an adversarial verify pass with
+# a SEPARATE schema. A re-run would share the first pass's blind spots; handing the
+# second pass the answer and asking it to find a contradiction does not.
 
 set -uo pipefail
 # shellcheck source=/zpool/catallenya/syncthing/scripts/documents.lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/documents.lib.sh"
 
-CLAUDE_BIN="/home/carrein/.local/bin/claude"
 # Opus: 2026-07-18 battery scored opus 24/24 (discounting one defensible qualifier),
 # sonnet 23/24, haiku 19/24 incl. an INVENTED 2023-02-29. ~24 calls/year in anger —
-# take the best. Quota-weight at this volume is negligible.
+# take the best. At ~6k input tokens per call that is well under $2/year, so cost is
+# not a reason to move. Held at 4-8 through the API migration on purpose: the battery
+# measured the model, and changing model and transport together would measure neither.
 MODEL="claude-opus-4-8"
-BUDGET="1.50"   # opus per-call cost is higher; 2 passes/doc, 3 pages each
+# The API default, set explicitly so it is visible and tunable rather than implied.
+# A sweep down to "medium" is worth doing, but only against the scoring harness —
+# accuracy here is the whole product.
+EFFORT="high"
+# Replaces the old --max-budget-usd 1.50 ceiling, which has no API equivalent. Input
+# is bounded by MAX_PAGES (3) and MAX_PER_RUN (20); this bounds output. Adaptive
+# thinking counts against it, and both schemas are tiny, so 4096 is generous.
+# Truncation surfaces as stop_reason=max_tokens, which ai_extract rejects -> the
+# document lands as CLASSIFY_FAILED and is retried tomorrow rather than misfiled.
+MAX_TOKENS=4096
 
-command -v jq >/dev/null || die "jq not found"
-[[ -x "$CLAUDE_BIN" ]] || die "claude not found at $CLAUDE_BIN"
+# Fail loudly and up front. Without this a missing binary fails every document
+# individually — each flagged NEEDS_HUMAN, each notified — while the unit still exits
+# 0. Same gate capture.triage.sh and immich.lib.sh use.
+for _bin in jq curl base64 od; do
+    command -v "$_bin" >/dev/null || die "missing required command: ${_bin}"
+done
+: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/ai.env)}"
 
 # --- schema ----------------------------------------------------------------
 # Enum-only by construction. `date` is the one string field and it is regex-bound:
@@ -89,74 +95,35 @@ VERIFY_SCHEMA='{
 
 # --- invocation ------------------------------------------------------------
 
-# $1=newline-separated png paths $2=prompt $3=schema -> structured_output JSON, or empty
+# $1=newline-separated png paths $2=prompt $3=schema -> schema-conforming JSON, or empty
+#
+# Thin by design: request construction, transport/retry and the response gate all live
+# in ai.lib.sh, shared with capture.triage.sh. What stays here is what is actually
+# documents' — which pages, which prompt, which schema.
+#
+# Send EVERY rasterised page, not just the first. A cover sheet on page 1 otherwise
+# gets classified correctly as the wrong page — see the W-2 case in scan.sh. Page order
+# is preserved through ai_build_request, and the prompt is appended last.
 ask() {
-    local pngs="$1" prompt="$2" schema="$3" out so b64f msgf contentf tmpf pg
-    # Send EVERY rasterised page, not just the first. A cover sheet on page 1 otherwise
-    # gets classified correctly as the wrong page — see the W-2 case in scan.sh.
-    # EVERYTHING carrying base64 goes via a FILE, never a command-line argument. A page is
-    # ~270KB of base64 and three of them is ~800KB — well past ARG_MAX. This bit three
-    # times during development ("Argument list too long"), on --arg, then on --argjson for
-    # the accumulated array. Both the per-page blob AND the growing content array must be
-    # file-passed; --rawfile and --slurpfile are the tools.
-    b64f="$(mktemp "${WORK_DIR}/b64.XXXXXX")"
-    msgf="$(mktemp "${WORK_DIR}/msg.XXXXXX")"
-    contentf="$(mktemp "${WORK_DIR}/content.XXXXXX")"
-    tmpf="$(mktemp "${WORK_DIR}/tmp.XXXXXX")"
-    echo '[]' > "$contentf"
-    local n=0
-    while IFS= read -r pg; do
-        [[ -n "$pg" && -f "$pg" ]] || continue
-        base64 -w0 "$pg" > "$b64f"
-        jq -c --rawfile b64 "$b64f" \
-            '. + [{type:"image", source:{type:"base64", media_type:"image/png", data:($b64|rtrimstr("\n"))}}]' \
-            "$contentf" > "$tmpf" && mv "$tmpf" "$contentf"
-        n=$((n+1))
-    done <<<"$pngs"
-    if (( n == 0 )); then
-        log "    !! no pages to send"; rm -f "$b64f" "$msgf" "$contentf" "$tmpf"; return 1
-    fi
-    # -c is REQUIRED: stream-json input is NDJSON, one object per LINE. jq's default
-    # pretty-printing splits the object across lines and the CLI rejects each fragment
-    # ("Error parsing streaming input line: {").
-    jq -nc --slurpfile c "$contentf" --arg t "$prompt" \
-        '{type:"user", message:{role:"user", content:($c[0] + [{type:"text", text:$t}])}}' > "$msgf"
-    rm -f "$b64f" "$contentf" "$tmpf"
+    local pngs="$1" prompt="$2" schema="$3" msgf out pg
+    local -a imgs=()
+    while IFS= read -r pg; do [[ -n "$pg" ]] && imgs+=("$pg"); done <<<"$pngs"
 
-    # Trap 3: the stream must stay open or this silently no-ops.
-    out="$( ( cat "$msgf"; sleep 10 ) | timeout 180 "$CLAUDE_BIN" -p \
-        --input-format stream-json --output-format stream-json --verbose \
-        --tools "StructuredOutput" --json-schema "$schema" \
-        --setting-sources '' --strict-mcp-config --no-session-persistence \
-        --model "$MODEL" --max-turns 3 --max-budget-usd "$BUDGET" 2>&1 )"
+    msgf="$(mktemp)"
+    ai_build_request "$msgf" "$MODEL" "$EFFORT" "$MAX_TOKENS" "$schema" "$prompt" \
+        "${imgs[@]}" || { rm -f "$msgf"; return 1; }
+
+    # 0 = ok, 1 = fatal (bad key, bad request), 2 = transient and attempts exhausted.
+    # The caller maps any non-zero to CLASSIFY_FAILED / VERIFY_FAILED, which is
+    # deliberately NOT memoized in seen.json — so a provider outage costs one night,
+    # not a permanently skipped document. What changed with the API move is that a
+    # single 429 no longer costs anything at all: api_post rides it out in-run.
+    local post_rc=0
+    out="$(api_post "$msgf")" || post_rc=$?
     rm -f "$msgf"
+    (( post_rc == 0 )) || return "$post_rc"
 
-    # A run that produced no result line looks identical to success at the exit code.
-    # Assert we actually got one.
-    local result_line
-    result_line="$(grep -m1 '"type":"result"' <<<"$out")" || { log "    !! no result message"; return 1; }
-
-    # Trap 4: gate on terminal_reason + is_error + permission_denials. Never subtype.
-    local is_err term denials tools_used
-    is_err="$(jq -r '.is_error'         <<<"$result_line")"
-    term="$(jq -r '.terminal_reason'    <<<"$result_line")"
-    denials="$(jq -r '.permission_denials | length' <<<"$result_line")"
-    so="$(jq -c '.structured_output // empty' <<<"$result_line")"
-
-    if [[ "$is_err" != "false" || "$term" != "completed" || "$denials" != "0" ]]; then
-        log "    !! is_error=${is_err} terminal=${term} denials=${denials}"
-        return 1
-    fi
-    # Belt-and-braces on a one-word dependency: if --tools or --setting-sources ever get
-    # dropped in an edit, the model has real tools again. Anything beyond the single
-    # StructuredOutput call is an anomaly — fail loud rather than proceed.
-    tools_used="$(grep -c '"type":"tool_use"' <<<"$out" || true)"
-    if (( tools_used > 1 )); then
-        log "    !! ${tools_used} tool calls — expected exactly 1 (StructuredOutput). Containment may be broken."
-        return 1
-    fi
-    [[ -n "$so" ]] || { log "    !! structured_output null (--tools/--json-schema collision?)"; return 1; }
-    printf '%s' "$so"
+    ai_extract "$out"
 }
 
 # --- prompts ---------------------------------------------------------------
@@ -183,6 +150,11 @@ Rules (from the owner's filing scheme):
   lab report printing "Received 06 Nov" and "Generated 07 Nov" must file as 11-07 — the
   owner adjudicated exactly this class by hand in past intakes.)
 - Singapore documents print dates as DD/MM/YYYY: 08/07/2026 is 8 July, never August 7.
+- owner: an EMAIL ADDRESS identifies a person just as a name does. A document addressed to
+  owner@example.invalid is owner="self" even if no name appears anywhere on it. Online
+  receipts and SaaS invoices routinely identify the customer only by the account email, and
+  treating that as "no owner shown" would flag every one of them forever. Match the address
+  itself, not the domain: protonmail.com is a mail provider, not a person.
 - owner: "self" is the repository owner. Other known people are listed in the
   schema enum: REDACTED-PERSON-B, REDACTED-PERSON-C, REDACTED-PERSON-D.
   If the document belongs to someone not listed, set owner="unknown" and needs_human=true.
@@ -230,6 +202,10 @@ Proposed:
 
 "owner=self" means the document belongs to the repository owner — if the
 document names him as the patient, customer, or addressee, then owner=self is CORRECT.
+An EMAIL ADDRESS identifies him too: a document addressed to owner@example.invalid is
+owner="self" and must NOT be refuted for lacking a printed name. Many online receipts show
+only the account email. Do not refute on the domain alone — protonmail.com is a mail
+provider, so another address at it would be a different person.
 
 Check each claim against what you can actually see:
 - folder matches the document's PURPOSE (a clinic's invoice is a receipt, not a medical

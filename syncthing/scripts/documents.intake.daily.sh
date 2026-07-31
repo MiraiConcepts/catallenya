@@ -46,7 +46,7 @@ fi
 
 ADJ="$("${SCRIPT_DIR}/documents.intake.classify.sh" <<<"$SCAN")" || {
     notify "Documents intake failed (classify)" high rotating_light \
-        "classify phase errored — check auth first: claude auth status
+        "classify phase errored — check the API key first: sudo test -s /etc/ai.env
 journalctl -u documents.intake.service"
     exit 1
 }
