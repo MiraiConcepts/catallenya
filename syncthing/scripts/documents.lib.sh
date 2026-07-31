@@ -11,6 +11,13 @@
 
 set -uo pipefail
 
+# Everything that talks to api.anthropic.com lives in ai.lib.sh, shared with the
+# capture pipeline: transport + retry (api_post/api_class), request construction
+# (ai_build_request) and the response gate (ai_extract). Sourced FIRST, before the
+# log()/die() below, so this file's identical definitions stay authoritative.
+# shellcheck source=/zpool/catallenya/ai/scripts/ai.lib.sh
+source "/zpool/catallenya/ai/scripts/ai.lib.sh"
+
 DOCS="/zpool/catallenya/syncthing/data/master/documents"
 STATE_DIR="/zpool/catallenya/syncthing/intake-state"
 SEEN_JSON="${STATE_DIR}/seen.json"
