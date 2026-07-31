@@ -1,0 +1,38 @@
+[Unit]
+Description=Watch the documents root for newly dropped files
+After=zfs-mount.service
+Requires=zfs-mount.service
+
+[Path]
+# Fires the moment a document lands at the root of master/documents — dropped by
+# hand on the server, or synced in from a phone or laptop.
+#
+# WHY THESE ARE EXTENSION GLOBS AND NOT JUST `*`. glob(3) matches DIRECTORIES too,
+# so `documents/*` matches staging/, bin/ and all eleven numbered folders. Those
+# always exist, so the condition would never go false, and systemd re-checks after
+# each triggered run — the unit would fire forever, at an opus call per iteration.
+# Caught in testing 2026-07-31; an earlier version of this file claimed directories
+# could not match, which is simply untrue.
+#
+# The character classes are how glob(3) does case-insensitivity: *.[pP][dD][fF]
+# catches .pdf, .PDF and .Pdf alike. The set matches what openable() supports.
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[pP][dD][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[jJ][pP][gG]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[jJ][pP][eE][gG]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[pP][nN][gG]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[zZ][iI][pP]
+
+# A file with some other extension therefore does not TRIGGER a run — but a run,
+# once triggered, drains every file at the root regardless of extension, because
+# list_candidates() is not extension-filtered and openable() flags what it cannot
+# read. So an unsupported file dropped alone waits for company. The daily backstop
+# timer closes that gap.
+#
+# systemd re-checks after the service exits and re-triggers while a glob still
+# matches. documents.triage.sh therefore MUST move every file out of the root on
+# every branch — a leftover document spins this unit and bills an API call per
+# iteration. That invariant is asserted at the end of the script, exercised by
+# tests on every failure branch, and backstopped by a start limit on the service.
+
+[Install]
+WantedBy=paths.target
