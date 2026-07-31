@@ -40,7 +40,6 @@ EOF
 declare -A SYMLINKS=(
     # Timers
     ["disk.timer"]="${REPO_DIR}/systemd/disk.timer"
-    ["documents.intake.timer"]="${REPO_DIR}/systemd/documents.intake.timer"
     ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
@@ -50,9 +49,16 @@ declare -A SYMLINKS=(
     ["capture.sweep.timer"]="${REPO_DIR}/capture/systemd/capture.sweep.timer"
     # Paths (event-triggered, not scheduled)
     ["capture.triage.path"]="${REPO_DIR}/capture/systemd/capture.triage.path"
+    # documents is two path units and no timer: one watches the folder root for a
+    # dropped document, the other watches for an approval marker the container wrote.
+    # Nothing here is scheduled — a document is proposed when it arrives and filed
+    # when you tap, not overnight.
+    ["documents.triage.path"]="${REPO_DIR}/systemd/documents.triage.path"
+    ["documents.apply.path"]="${REPO_DIR}/systemd/documents.apply.path"
     # Services
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
-    ["documents.intake.service"]="${REPO_DIR}/systemd/documents.intake.service"
+    ["documents.triage.service"]="${REPO_DIR}/systemd/documents.triage.service"
+    ["documents.apply.service"]="${REPO_DIR}/systemd/documents.apply.service"
     ["immich.fix-rotations.service"]="${REPO_DIR}/systemd/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"

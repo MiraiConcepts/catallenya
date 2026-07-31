@@ -1,7 +1,18 @@
 #!/bin/bash
-# documents.intake.classify.sh — phase 2 of 3. The ONLY step that touches a model.
+# documents.intake.classify.sh — RETIRED FROM THE PIPELINE, kept as a test fixture.
 #
-# Reads the scan manifest on stdin, emits an adjudicated manifest on stdout.
+# The nightly scan -> classify -> apply job it belonged to was replaced on 2026-07-31
+# by documents.triage.sh, which classifies and stages a proposal you approve from a
+# notification. Nothing schedules this any more; scan.sh, apply.sh and daily.sh are
+# gone.
+#
+# It survives for exactly one reason: documents.intake.score.sh drives it to measure
+# classification accuracy, and that harness is the only way to tell whether a prompt
+# or model change made things worse. Both should go together once the scorer is
+# rebuilt on the triage — at which point the enum-constrained schema below stops
+# matching what production actually sends, which is free text.
+#
+# Reads a scan-shaped manifest on stdin, emits an adjudicated manifest on stdout.
 #
 # CONTAINMENT. This used to run through `claude -p`, and most of what lived here was
 # a list of flags and traps needed to strip an agent harness back down to a pure
