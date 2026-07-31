@@ -30,6 +30,7 @@ ok()   { PASS=$((PASS+1)); printf '  ok    %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL  %s\n     expected: %s\n     actual:   %s\n' "$1" "$2" "$3"; }
 is()   { [[ "$2" == "$3" ]] && ok "$1" || bad "$1" "$3" "$2"; }
 has()  { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "contains $3" "$2"; }
+hasnt(){ [[ "$2" != *"$3"* ]] && ok "$1" || bad "$1" "must not contain $3" "$2"; }
 
 TMP="$(mktemp -d)"
 SINK_PID=""
@@ -287,6 +288,17 @@ has "triage has the API key"         "$(cat "${UNIT_DIR}/documents.triage.servic
 # in caddy's own compose entry were not. Both are needed: the env var, because the
 # Caddyfile reads {$DOCUMENTS_REVERSE_PROXY_PORT} from caddy's environment, and the
 # publish, because otherwise nothing listens.
+# Undo is reached by tapping the SAME notification again, so Accept and Discard must
+# not dismiss it. clear=true on all three shipped once and silently removed the only
+# route to undo — invisible to every test, because no test taps twice.
+echo "the notification survives its own buttons"
+tri="$(cat "${SCRIPT_DIR}/documents.triage.sh")"
+btn="$(sed -n '/^buttons() {/,/^}/p' <<<"$tri")"
+is    "exactly one button clears"  "$(grep -c 'clear=true' <<<"$btn")" "1"
+has   "and it is Skip"             "$(grep -o 'Skip[^;]*' <<<"$btn" | tail -1)" "clear=true"
+hasnt "Accept does not clear"      "$(grep -o 'Accept[^;]*'  <<<"$btn")" "clear=true"
+hasnt "Discard does not clear"     "$(grep -o 'Discard[^;]*' <<<"$btn")" "clear=true"
+
 echo "caddy reaches the approve container"
 cd="$(cat "${SELF_DIR}/../../caddy/Caddyfile")"
 cm="$(cat "${SELF_DIR}/../../docker-compose.yml")"
