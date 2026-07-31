@@ -100,11 +100,21 @@ ntfy/.env
 !syncthing/scripts/
 !syncthing/scripts/documents.lib.sh
 !syncthing/scripts/documents.vocab.json
-!syncthing/scripts/documents.intake.scan.sh
 !syncthing/scripts/documents.intake.classify.sh
-!syncthing/scripts/documents.intake.apply.sh
-!syncthing/scripts/documents.intake.daily.sh
 !syncthing/scripts/documents.intake.score.sh
+!syncthing/scripts/documents.triage.sh
+!syncthing/scripts/documents.apply.sh
+!syncthing/tests/
+!syncthing/tests/run.sh
+
+# The documents approve/discard container — CODE ONLY. Per-file, no ** globs, same
+# reasoning as capture/ below: a `**` allowlist silently auto-tracks whatever lands
+# in the directory later, and this is a public repo.
+!syncthing/approve/
+!syncthing/approve/Dockerfile
+!syncthing/approve/.dockerignore
+!syncthing/approve/src/
+!syncthing/approve/src/server.ts
 
 # Explicit includes inside capture folder — CODE/CONFIG ONLY, never data.
 # capture/data/ holds uploaded screenshots (whatever was on screen at capture) plus

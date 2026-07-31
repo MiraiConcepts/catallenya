@@ -1,0 +1,67 @@
+[Unit]
+Description=Documents triage (classify a dropped document, stage a proposal)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=system-ntfy@documents.triage.service
+
+# Backstop against the failure mode this design is most exposed to. The .path unit
+# re-triggers while anything remains at the root, so a branch that returns without
+# moving the file would spin — and each spin is an opus call. The script asserts the
+# invariant itself and every branch is tested, but a start limit is the thing that
+# holds when the assertion is the part that broke. Five starts in five minutes is
+# far above normal (a burst of synced documents drains in ONE run) and far below
+# anything expensive.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/syncthing/intake-state
+Environment=HOME=/home/carrein
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Shared with capture.triage.service. Root-owned 0600, read by systemd (PID 1) and
+# injected here, so the key is never in a carrein-readable file. No `-` prefix: a
+# missing file should fail the unit loudly rather than run a triage that cannot work.
+EnvironmentFile=/etc/ai.env
+
+# Generous. One document is two opus calls at ~7s each, and a synced batch is
+# drained serially in a single invocation; MAX_PER_RUN bounds the worst case.
+TimeoutStartSec=30min
+
+ExecStart=/zpool/catallenya/syncthing/scripts/documents.triage.sh
+
+StandardOutput=journal
+StandardError=journal
+
+# --- Hardening ---
+# The triage sends plain /v1/messages requests with no `tools` key, so the model has
+# no tool surface and no path to the filesystem. What this sandbox actually does is
+# bound the blast radius of the API key sitting in this unit's environment: even
+# with the key, the process cannot read restic.pwd and cannot write anywhere outside
+# the documents tree and its own state.
+#
+# It CAN still read /zpool/catallenya/.env — ProtectSystem=strict makes the tree
+# read-only, not inaccessible, and .env is owned by the user this runs as.
+#
+# Verify the sandbox ENGAGED rather than that the job succeeded:
+#   sudo systemd-run --wait --pipe --uid=carrein \
+#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
+#     --property=InaccessiblePaths=/zpool/catallenya/restic \
+#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
+ReadWritePaths=/zpool/catallenya/syncthing/intake-state
+
+InaccessiblePaths=/zpool/catallenya/restic
+InaccessiblePaths=/zpool/catallenya/cloudflared
+InaccessiblePaths=/zpool/catallenya/rclone
