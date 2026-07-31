@@ -280,6 +280,21 @@ has "apply carries a start limit"    "$(cat "${UNIT_DIR}/documents.apply.service
 is  "apply has no API key"           "$(grep -c '^EnvironmentFile=' "${UNIT_DIR}/documents.apply.service")" "0"
 has "triage has the API key"         "$(cat "${UNIT_DIR}/documents.triage.service")" "EnvironmentFile=/etc/ai.env"
 
+# A Caddyfile block whose port is not published fails SILENTLY and completely: the
+# service is healthy, the container is fine, the notification renders, and the tap
+# dies with "failed to connect" on the phone with nothing in any log on this box.
+# That shipped on 2026-07-31 — the block and the container were added, the two lines
+# in caddy's own compose entry were not. Both are needed: the env var, because the
+# Caddyfile reads {$DOCUMENTS_REVERSE_PROXY_PORT} from caddy's environment, and the
+# publish, because otherwise nothing listens.
+echo "caddy reaches the approve container"
+cd="$(cat "${SELF_DIR}/../../caddy/Caddyfile")"
+cm="$(cat "${SELF_DIR}/../../docker-compose.yml")"
+has "Caddyfile has a documents block"  "$cd" 'DOCUMENTS_REVERSE_PROXY_PORT}'
+has "and proxies to the container"     "$cd" "reverse_proxy documents-approve:8080"
+has "caddy gets the port in its env"   "$cm" "DOCUMENTS_REVERSE_PROXY_PORT: \${DOCUMENTS_REVERSE_PROXY_PORT}"
+has "caddy publishes the port"         "$cm" "127.0.0.1:\${DOCUMENTS_REVERSE_PROXY_PORT}:\${DOCUMENTS_REVERSE_PROXY_PORT}"
+
 # The container's authority is its mount list. Test the mount, not the code.
 echo "container confinement"
 compose="$(cat "${SELF_DIR}/../../docker-compose.yml")"
