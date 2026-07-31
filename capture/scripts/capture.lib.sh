@@ -279,27 +279,9 @@ _load_env() {
     done
 }
 
-# hdr_safe <string> — make a model-derived string safe to put in an HTTP header.
-# Strips CR/LF and caps length. curl forwards raw CR/LF in -H verbatim, so a title
-# containing "\r\nActions: http, Add, https://evil/" would inject a SECOND Actions
-# header — and Go's Header.Get returns the FIRST, so the injected buttons would
-# REPLACE the real ones and the user's tap would POST to the attacker. The
-# screenshot is untrusted input, so anything the model echoes from it is untrusted.
-hdr_safe() {
-    tr -d '\r\n' <<<"${1:-}" | cut -c1-200
-}
-
-# md_escape <string> — neutralise Markdown in model-derived text.
-# notify() sends `Markdown: yes`, so ntfy renders the body as Markdown. Every
-# string the model echoes out of a screenshot is untrusted, and
-# `[tap here](https://evil.example)` in a location, a reason or an event title
-# would render as a REAL link inside a notification the user already trusts —
-# the same class as the header and iCalendar injections already guarded here,
-# arriving through a renderer that was switched on for cosmetic reasons.
-# Emphasis leaking is cosmetic; the link is why this exists.
-md_escape() {
-    sed -e 's/\\/\\\\/g' -e 's/\([][*_`~()#>|]\)/\\\1/g' <<<"${1:-}"
-}
+# hdr_safe and md_escape moved to ai.lib.sh (sourced at the top), unchanged. They
+# guard the same boundary ai_extract does — untrusted model output heading for a
+# sink — and documents.intake needs them for identical reasons.
 
 # --- the model-output gate -------------------------------------------------
 # Everything the model returns is untrusted: it is derived from a screenshot whose
