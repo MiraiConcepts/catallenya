@@ -499,6 +499,52 @@ services:
       start_period: 10s
     # No watchtower label: locally built, so there is no upstream image to poll.
 
+  documents-approve:
+    container_name: documents-approve
+    # Built locally, same reasoning as capture: the source lives in this repo.
+    build:
+      context: ./syncthing/approve
+    restart: unless-stopped
+    user: "1000:1000" # writes markers into a host-owned 1000:1000 directory
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          # Every request is an empty POST and the response is three fields. This
+          # is orders of magnitude more than needed and still small enough that a
+          # runaway is capped rather than eating the box.
+          memory: 128M
+    environment:
+      # The ONE browser origin allowed to satisfy the X-Documents preflight — the
+      # ntfy web UI, which taps buttons via browser fetch. The phone app does native
+      # HTTP and never sees this. Any other page is refused.
+      NTFY_ORIGIN: https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}
+    volumes:
+      # THE ONLY MOUNT, AND THE WHOLE SECURITY ARGUMENT. This container can write
+      # zero-byte markers into one directory and nothing else — master/documents is
+      # not visible to it at any path. The move is done by documents.apply.service,
+      # a hardened oneshot that is never reachable from the network.
+      #
+      # Do NOT add a mount here. If a future change seems to need one, it belongs in
+      # the apply script instead; the reason this service is safe to expose on the
+      # tailnet behind an unauthenticated ntfy topic is that there is nothing here
+      # to reach.
+      - ${ZPOOL_VOLUME}/syncthing/intake-state/approvals:/approvals
+    # No ports: reached only through Caddy, like every other app container.
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e 'process.exit((await fetch(\"http://127.0.0.1:8080/healthz\")).ok ? 0 : 1)' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # No watchtower label: locally built, so there is no upstream image to poll.
+
   mitsume:
     container_name: mitsume
     image: ghcr.io/carrein/mitsume:latest
