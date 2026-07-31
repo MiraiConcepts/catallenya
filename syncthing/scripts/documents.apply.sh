@@ -54,18 +54,29 @@ move_verified() {
 }
 
 # where_is <record-json> -> absolute path of the document right now, or empty.
-# Derived from state rather than trusted from a single field, because the record
-# is written by three different code paths and a stale path is how a move goes to
-# the wrong place.
+#
+# Reads `at`, which every move below WRITES. An earlier version derived the path
+# from the state instead — staging_path when staged, dest_path when filed, and for
+# binned it reconstructed ${BIN_DIR}/$(basename staged_path). That last one is
+# wrong: the discard arm adds a timestamp prefix when bin/ already holds that name,
+# so a document binned through the collision path could never be found again and
+# both un-discard paths refused with "no longer where it was". Recording where a
+# file actually landed beats deriving where it probably went.
 where_is() {
-    local r="$1" st sp dp
-    st="$(jq -r '.state' <<<"$r")"
+    local r="$1" at sp dp
+    at="$(jq -r '.at // empty' <<<"$r")"
+    [[ -n "$at" ]] && { printf '%s' "${DOCS}/${at}"; return; }
+    # Fallback for the initial staged record, which has no `at` yet, and for any
+    # record written before this field existed. Derives by state exactly as the old
+    # version did — including the bin guess that motivated the change, since a wrong
+    # guess only costs a refusal, whereas no guess at all costs one for every legacy
+    # record.
     sp="$(jq -r '.staged_path // empty' <<<"$r")"
     dp="$(jq -r '.dest_path   // empty' <<<"$r")"
-    case "$st" in
+    case "$(jq -r '.state' <<<"$r")" in
         staged) [[ -n "$sp" ]] && printf '%s' "${DOCS}/${sp}" ;;
         filed)  [[ -n "$dp" ]] && printf '%s' "${DOCS}/${dp}" ;;
-        binned) printf '%s' "${BIN_DIR}/$(basename "${sp:-$(jq -r .original_name <<<"$r")}")" ;;
+        binned) [[ -n "$sp" ]] && printf '%s' "${BIN_DIR}/$(basename "$sp")" ;;
     esac
 }
 
@@ -122,7 +133,7 @@ apply_one() {
         [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec"): something is already at ${dest#"${DOCS}/"}"; return; }
         if move_verified "$cur" "$dest" "$sha"; then
             FILED=$((FILED+1)); log "  FILED  ${dest#"${DOCS}/"}"
-            jq -c '. + {state:"filed"}' <<<"$rec" > "$f"
+            jq -c --arg at "${dest#"${DOCS}/"}" '. + {state:"filed", at:$at}' <<<"$rec" > "$f"
         else
             refuse "$id" "$(jq -r .original_name <<<"$rec"): move failed verification"
         fi ;;
@@ -133,18 +144,23 @@ apply_one() {
         [[ -e "$dest" ]] && dest="${BIN_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-$(basename "$cur")"
         if move_verified "$cur" "$dest" "$sha"; then
             BINNED=$((BINNED+1)); log "  BINNED ${dest#"${DOCS}/"}"
-            jq -c '. + {state:"binned"}' <<<"$rec" > "$f"
+            jq -c --arg at "${dest#"${DOCS}/"}" '. + {state:"binned", at:$at}' <<<"$rec" > "$f"
         else
             refuse "$id" "$(jq -r .original_name <<<"$rec"): could not move to bin"
         fi ;;
 
       skip)
         [[ "$st" == "staged" ]] && return 0                      # already where skip means
-        dest="${STAGING_DIR}/$(basename "$cur")"
+        # Restore the name the triage PROPOSED, not whatever the file is called
+        # right now. A document binned into a name collision picked up a timestamp
+        # prefix, and returning it as 20260731T…-a.pdf would defeat the point of
+        # staging — what you see there is meant to be the name accepting will use.
+        dest="${STAGING_DIR}/$(basename "$(jq -r --arg b "$(basename "$cur")" '.staged_path // $b' <<<"$rec")")"
         [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec"): staging already holds that name"; return; }
         if move_verified "$cur" "$dest" "$sha"; then
             RETURNED=$((RETURNED+1)); log "  STAGED ${dest#"${DOCS}/"}"
-            jq -c --arg p "staging/$(basename "$dest")" '. + {state:"staged", staged_path:$p}' <<<"$rec" > "$f"
+            jq -c --arg p "staging/$(basename "$dest")" \
+               '. + {state:"staged", staged_path:$p, at:$p}' <<<"$rec" > "$f"
         else
             refuse "$id" "$(jq -r .original_name <<<"$rec"): could not return to staging"
         fi ;;

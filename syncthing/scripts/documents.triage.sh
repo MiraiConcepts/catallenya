@@ -43,7 +43,6 @@ done
 : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/ai.env)}"
 
 mkdir -p "$STATE_DIR" "$WORK_DIR" "$PROPOSALS_DIR" "$APPROVALS_DIR" "$STAGING_DIR" "$BIN_DIR"
-seen_init
 
 # Serialise. A slow classification must not overlap the next .path fire.
 exec 9>"$LOCK_FILE"
@@ -57,13 +56,24 @@ trap cleanup EXIT
 # sensitive (SG lab reports are commonly NRIC/DOB-protected) never leaves the
 # machine at all. Deciding on metadata rather than content is the only way to get
 # that property.
+#
+# THE IMAGE FORMATS ARE THE ONES THIS BOX CAN ALREADY RENDER. HEIC and HEIF are the
+# iPhone defaults, so photographing a document with one was the largest real gap;
+# TIFF is what scanners emit and WEBP what a browser saves. All verified to
+# round-trip through ImageMagick here on 2026-07-31 — none of them needed a new
+# dependency, which is why the list is this long and stops where it does.
+#
+# Anything NOT here is still staged and reported as UNSUPPORTED_TYPE rather than
+# ignored: silence about a file you dropped is the worst outcome, worse than "I
+# cannot read this".
 openable() { # $1=path -> echoes reason_code on failure
     local f="$1" ext="${1##*.}"
     case "${ext,,}" in
         pdf)       pdfinfo "$f" >/dev/null 2>&1 || { echo "PDF_UNREADABLE_OR_ENCRYPTED"; return 1; } ;;
         zip)       unzip -t "$f" >/dev/null 2>&1 || { echo "ZIP_ENCRYPTED_OR_CORRUPT"; return 1; }
                    echo "ZIP_NEEDS_HUMAN"; return 1 ;;   # archives are never auto-proposed
-        jpg|jpeg|png) identify "$f" >/dev/null 2>&1 || { echo "IMAGE_UNREADABLE"; return 1; } ;;
+        jpg|jpeg|png|heic|heif|webp|tiff|tif|avif)
+                   identify "$f" >/dev/null 2>&1 || { echo "IMAGE_UNREADABLE"; return 1; } ;;
         *)         echo "UNSUPPORTED_TYPE"; return 1 ;;
     esac
     return 0
@@ -79,7 +89,12 @@ rasterise() { # $1=src $2=out_prefix -> one png path per line
         pdf) pdftoppm -png -r 150 -f 1 -l "$MAX_PAGES" "$f" "$out" >/dev/null 2>&1 || return 1
              local p; p="$(ls "${out}"-*.png 2>/dev/null | sort -V)"
              [[ -n "$p" ]] && { printf '%s\n' "$p"; return 0; }; return 1 ;;
-        jpg|jpeg|png) convert "$f" -flatten "${out}.png" >/dev/null 2>&1 || return 1
+        jpg|jpeg|png|heic|heif|webp|tiff|tif|avif)
+             # -flatten collapses transparency and any multi-frame image to one
+             # page. Without it a transparent PNG renders as black, and a
+             # multi-page TIFF (which is what a sheet-feed scanner produces)
+             # silently writes out-0.png, out-1.png and we would send neither.
+             convert "$f"[0] -flatten "${out}.png" >/dev/null 2>&1 || return 1
              echo "${out}.png"; return 0 ;;
     esac
     return 1
@@ -281,6 +296,18 @@ done
 
 mapfile -t CANDS < <(list_candidates)
 (( ${#CANDS[@]} )) || { log "nothing at root"; exit 0; }
+
+# CAP THE RUN. Two model calls per document, unattended, with no ceiling is a bill
+# waiting to happen — dropping a phone's worth of scans in at once would have spent
+# hundreds of calls before anyone noticed. The remainder stays at root, so the .path
+# unit re-fires and the next run takes the next MAX_PER_RUN. Truncation is logged and
+# surfaced in the notification, never silent.
+TRUNCATED=0
+if (( ${#CANDS[@]} > MAX_PER_RUN )); then
+    TRUNCATED=$(( ${#CANDS[@]} - MAX_PER_RUN ))
+    log "CAP: ${#CANDS[@]} at root, taking ${MAX_PER_RUN}, deferring ${TRUNCATED} to the next run"
+    CANDS=("${CANDS[@]:0:$MAX_PER_RUN}")
+fi
 log "draining ${#CANDS[@]} file(s) from root"
 
 # The filed corpus, hashed, for duplicate detection. 135 files in well under a
@@ -409,11 +436,15 @@ done
 
 log "staged ${STAGED}, blocked ${BLOCKED}, binned ${BINNED}"
 
-# Assert the invariant rather than trusting it. A file still at root here means a
-# branch above returned without moving it, and the .path unit is about to re-fire
-# on it — cheap to detect now, expensive to discover from the API bill.
+# Assert the invariant rather than trusting it. Files deliberately deferred by the
+# cap are EXPECTED to remain — the .path unit re-firing on them is how the next
+# batch gets taken, and that loop terminates because each run removes MAX_PER_RUN.
+# Anything left OVER that number means a branch above returned without moving its
+# file, which is the version that spins forever at an API call per spin.
 left="$(list_candidates | wc -l)"
-(( left == 0 )) || log "  !! ${left} file(s) STILL AT ROOT — path unit will re-fire"
+(( left <= TRUNCATED )) \
+    || log "  !! $(( left - TRUNCATED )) file(s) STILL AT ROOT beyond the cap — path unit will spin"
+(( TRUNCATED > 0 )) && log "  ${TRUNCATED} deferred; the path unit will re-fire for them"
 
 # --- notify ----------------------------------------------------------------
 # THE BATCH ACCUMULATES, THE INDIVIDUALS DO NOT. Skip means "leave it in staging",
@@ -455,6 +486,17 @@ for f in "${PROPOSALS_DIR}"/*.json; do
 done
 
 if (( ${#clean[@]} )); then
+    # Retire the previous batch records first. A batch is a snapshot of what was
+    # staged when the notification went out, so once a newer one exists the old one
+    # is only useful if you tap its (still-live) message — which re-verification
+    # already handles member by member. Without this they accumulate one per run
+    # forever, and nothing distinguishes a live batch from a superseded one.
+    for old in "${PROPOSALS_DIR}"/*.json; do
+        [[ -f "$old" ]] || continue
+        [[ "$(jq -r '.kind // ""' "$old")" == "batch" ]] || continue
+        [[ "$(jq -r '.state // ""' "$old")" == "staged" ]] || continue
+        jq -c '. + {state:"superseded"}' "$old" > "${old}.tmp" && mv "${old}.tmp" "$old"
+    done
     bid="$(new_uuid)"
     body=""
     for rid in "${clean[@]}"; do
@@ -468,6 +510,10 @@ if (( ${#clean[@]} )); then
     (( ${#flagged[@]} ))     && tail_note+="_${#flagged[@]} need$( (( ${#flagged[@]} == 1 )) && printf s ) a look_
 "
     (( ${#blocked_ids[@]} )) && tail_note+="_${#blocked_ids[@]} cannot be filed_
+"
+    # Never let the cap hide work. Silently processing 20 of 200 reads as "that's
+    # everything" and the other 180 look lost until someone opens the folder.
+    (( TRUNCATED > 0 ))      && tail_note+="_${TRUNCATED} more still queued_
 "
     jq -nc --arg i "$bid" --argjson m "$(printf '%s\n' "${clean[@]}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

@@ -150,6 +150,26 @@ triage 200 "$(jq -c '.folder="12_new-thing"|.folder_is_new=true' <<<"$OKPROP")" 
 is "new folder is not blocked" "$(propfield '.blocked // "none"')" "none"
 has "new folder is flagged"    "$(propfield '.flags|join(",")')" "NEW_FOLDER"
 
+# ------------------------------------------------------------- render capability
+# openable() claims eight image formats. That claim is only true while ImageMagick
+# on this box is built against the right delegates, and an upgrade can silently drop
+# one — at which point every iPhone photo starts coming back IMAGE_UNREADABLE and
+# the pipeline looks broken rather than under-equipped.
+#
+# HEIC is listed r-- (read, no write) and that is sufficient: we decode what a phone
+# produced and never encode one. It is also why there is no round-trip fixture here —
+# this box cannot create a HEIC to test with, and an earlier attempt to fake one
+# produced a PNG named .heic, which passed for the wrong reason.
+echo "render capability"
+fmts="$(identify -list format 2>/dev/null)"
+for f in HEIC HEIF AVIF; do
+    has "${f} is readable" "$(grep -oE "^ *${f} +[rw+-]+" <<<"$fmts" | tr -s ' ')" " ${f} r"
+done
+delegates="$(convert -list configure 2>/dev/null | grep -m1 '^DELEGATES')"
+for d in jpeg png tiff webp heic; do
+    has "${d} delegate compiled in" "$delegates" " ${d}"
+done
+
 # --------------------------------------------------------------------- apply
 echo "apply — the state machine"
 
@@ -180,6 +200,15 @@ tap skip;    is "filed -> skip -> staged"     "$(state)" "staged"
 tap discard; is "staged -> discard -> binned" "$(state)" "binned"
 tap accept;  is "binned -> accept -> filed"   "$(state)" "filed"
 is "every tap drained its marker" "$(markers)" "0"
+
+# A document binned when bin/ already holds that name gets a timestamp prefix. An
+# earlier where_is() rebuilt the bin path from the ORIGINAL name, so that document
+# could never be found again and both un-discard paths refused.
+seed; touch "${DOCS}/bin/a.pdf"
+tap discard; is "collision-binned document is binned"  "$(state)" "binned"
+is  "and got a distinct name"  "$(ls "${DOCS}/bin" | wc -l)" "2"
+tap skip;    is "collision-binned CAN be un-discarded"  "$(state)" "staged"
+is  "and is back in staging"   "$([ -f "${DOCS}/staging/a.pdf" ] && echo yes)" "yes"
 
 echo "apply — refusals"
 seed; echo tampered > "${DOCS}/staging/a.pdf"; tap accept
@@ -242,7 +271,7 @@ tp="$(cat "${UNIT_DIR}/documents.triage.path")"
 # exist — so the condition never goes false and the unit fires forever.
 is  "triage glob is extension-scoped, never bare *" \
     "$(grep -c 'PathExistsGlob=.*documents/\*$' <<<"$tp")" "0"
-is  "triage watches the five supported types" "$(grep -c '^PathExistsGlob=' <<<"$tp")" "5"
+is  "triage watches every supported type" "$(grep -c "^PathExistsGlob=" <<<"$tp")" "11"
 has "apply glob matches only finished markers" \
     "$(cat "${UNIT_DIR}/documents.apply.path")" 'approvals/*.json'
 has "triage carries a start limit"   "$(cat "${UNIT_DIR}/documents.triage.service")" "StartLimitBurst"

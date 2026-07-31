@@ -40,6 +40,9 @@ EOF
 declare -A SYMLINKS=(
     # Timers
     ["disk.timer"]="${REPO_DIR}/systemd/disk.timer"
+    # Not a schedule for the documents pipeline — that is event-driven. This is the
+    # once-a-day look for a file type the path unit's globs cannot see.
+    ["documents.backstop.timer"]="${REPO_DIR}/systemd/documents.backstop.timer"
     ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"

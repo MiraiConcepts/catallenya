@@ -8,11 +8,17 @@ OnFailure=system-ntfy@documents.triage.service
 # re-triggers while anything remains at the root, so a branch that returns without
 # moving the file would spin — and each spin is an opus call. The script asserts the
 # invariant itself and every branch is tested, but a start limit is the thing that
-# holds when the assertion is the part that broke. Five starts in five minutes is
-# far above normal (a burst of synced documents drains in ONE run) and far below
-# anything expensive.
-StartLimitIntervalSec=300
-StartLimitBurst=5
+# holds when the assertion is the part that broke.
+#
+# The window is WIDE on purpose. Two legitimate cases re-fire this unit repeatedly:
+# a drop larger than MAX_PER_RUN, which is drained one capped batch per run, and a
+# Syncthing that stays busy, which the script waits out and exits. With a five-minute
+# window those look identical to a spin — and worse, a slow spin evades a narrow
+# window entirely, because starts three minutes apart never reach the burst. Thirty
+# minutes and twelve starts catches the runaway while letting a 240-document import
+# finish.
+StartLimitIntervalSec=1800
+StartLimitBurst=12
 
 [Service]
 Type=oneshot

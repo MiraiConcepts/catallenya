@@ -334,22 +334,8 @@ is "non-numeric seen is ignored"   "$(dropped 5 null 8)" "0"
 # Markdown, and a screenshot supplying `[tap here](https://evil.example)` would
 # render a REAL link in a notification the user already trusts. Emphasis leaking
 # is cosmetic; the link is why md_escape exists.
-echo "md_escape"
-
-is "plain venue untouched"   "$(md_escape 'Drip KL, Kuala Lumpur')" "Drip KL, Kuala Lumpur"
-is "date untouched"          "$(md_escape 'Friday, 13 March 2027')" "Friday, 13 March 2027"
-is "time range untouched"    "$(md_escape '19:15 - 21:20')"         "19:15 - 21:20"
-# The one that matters.
-hasnt "link brackets neutralised" "$(md_escape '[tap here](https://evil.example)')" "[tap here]("
-has   "brackets are escaped"      "$(md_escape '[tap here](https://evil.example)')" '\[tap here\]'
-has   "parens are escaped"        "$(md_escape '[x](y)')"                           '\(y\)'
-has   "emphasis neutralised"      "$(md_escape 'Bar_Code *Live*')"                  'Bar\_Code \*Live\*'
-has   "code span neutralised"     "$(md_escape 'a `code` b')"                       'a \`code\` b'
-has   "heading neutralised"       "$(md_escape '# Heading')"                        '\# Heading'
-has   "blockquote neutralised"    "$(md_escape '> quote')"                          '\> quote'
-# Backslash first, or every other escape gets doubled wrong.
-is "backslash escaped first" "$(md_escape 'a\\b')" 'a\\\\b'
-is "empty input is empty"    "$(md_escape '')"     ""
+# md_escape / hdr_safe moved to ai/tests/run.sh along with the functions themselves
+# (ai.lib.sh). They guard untrusted model output, which is not capture's alone.
 
 # --------------------------------------------------------------- routing
 # Which branch a reply lands in. The bug this covers: the "no events" test ran
