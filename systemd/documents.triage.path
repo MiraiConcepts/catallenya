@@ -51,6 +51,13 @@ PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][tT][mM][
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][tT][mM]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[cC][sS][vV]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[eE][pP][uU][bB]
+# Both of these were found by checking this list against the actual corpus after
+# writing it — .opencert is NUS's digital certificate format, which nobody
+# enumerating "document types" would ever guess. That the list was wrong on its
+# first contact with real data is exactly why the backstop timer exists and is not
+# an optimisation to be removed later.
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[sS][vV][gG]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[oO][pP][eE][nN][cC][eE][rR][tT]
 
 # A file with some other extension therefore does not TRIGGER a run — but a run,
 # once triggered, drains every file at the root regardless of extension, because

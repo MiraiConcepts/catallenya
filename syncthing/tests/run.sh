@@ -272,7 +272,7 @@ tp="$(cat "${UNIT_DIR}/documents.triage.path")"
 # exist — so the condition never goes false and the unit fires forever.
 is  "triage glob is extension-scoped, never bare *" \
     "$(grep -c 'PathExistsGlob=.*documents/\*$' <<<"$tp")" "0"
-is  "triage wakes for readable AND unreadable types" "$(grep -c "^PathExistsGlob=" <<<"$tp")" "26"
+is  "triage wakes for readable AND unreadable types" "$(grep -c "^PathExistsGlob=" <<<"$tp")" "28"
 has "apply glob matches only finished markers" \
     "$(cat "${UNIT_DIR}/documents.apply.path")" 'approvals/*.json'
 has "triage carries a start limit"   "$(cat "${UNIT_DIR}/documents.triage.service")" "StartLimitBurst"
