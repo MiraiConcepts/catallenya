@@ -458,12 +458,24 @@ left="$(list_candidates | wc -l)"
 
 # The X-Documents header is required by the container on every route. It is not
 # authentication — it forces a CORS preflight so a stray browser tab cannot fire
-# these callbacks. clear=true dismisses the notification once the tap lands, which
-# for Skip is the entire visible effect.
+# these callbacks.
+#
+# ONLY SKIP CLEARS, and the asymmetry is the whole undo story. Accept and Discard
+# leave the notification in place because THE NOTIFICATION IS THE UNDO HANDLE: tap
+# Discard on something you just filed and it comes back out to bin/, tap Skip on
+# something binned and it returns to staging. Clearing on tap — which is what
+# shipped on 2026-07-31, copied from capture where one tap genuinely ends the
+# decision — deleted the only route to a feature the design is built around, and it
+# looked correct in every test because no test taps a notification twice.
+#
+# Skip keeps clear=true because dismissing IS what skip does; the document stays
+# staged either way, so the message going away is the entire visible effect. An
+# Accept or Discard message you are finished with is dismissed by swiping, the same
+# as any other notification.
 buttons() { # $1=id $2=1 if the Accept button should be offered
     local id="$1" b=""
-    [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1, clear=true; "
-    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1, clear=true; http, Skip, %s/documents/%s/skip, method=POST, headers.X-Documents=1, clear=true' \
+    [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1; "
+    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1; http, Skip, %s/documents/%s/skip, method=POST, headers.X-Documents=1, clear=true' \
         "$b" "$BASE" "$id" "$BASE" "$id"
 }
 
