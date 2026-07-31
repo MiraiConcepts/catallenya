@@ -20,19 +20,30 @@ CODES = [int(c) for c in sys.argv[1].split(",")]
 STATE = {"n": 0}
 LOCK = threading.Lock()
 
-# Minimal well-formed reply: the triage reads .stop_reason and the first text
-# block, and parses that block as the proposal.
-PROPOSAL = {
+# Minimal well-formed reply: a consumer reads .stop_reason and the first text block,
+# and parses that block as its structured answer.
+#
+# Extra argv are JSON payloads, returned one per request and then the last repeating.
+# That is what lets documents drive a two-call sequence — classify, then the
+# adversarial verify, which has a DIFFERENT schema — from the same sink capture uses
+# for a single call. Without arguments it serves the capture-shaped proposal below,
+# so the existing api_post cases are unaffected.
+DEFAULT = {
     "is_event": True, "needs_human": False, "calendar": "general",
     "title": "Sink Lunch", "date": "2026-07-26", "start_time": "13:00",
     "end_time": "14:00", "all_day": False, "timezone": "Asia/Singapore",
     "recurrence": "none", "location": None, "description": None,
     "reason": None, "alternatives": [],
 }
-OK_BODY = json.dumps({
-    "stop_reason": "end_turn",
-    "content": [{"type": "text", "text": json.dumps(PROPOSAL)}],
-}).encode()
+PAYLOADS = [json.loads(a) for a in sys.argv[2:]] or [DEFAULT]
+
+
+def ok_body(i):
+    p = PAYLOADS[i] if i < len(PAYLOADS) else PAYLOADS[-1]
+    return json.dumps({
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": json.dumps(p)}],
+    }).encode()
 
 
 class H(BaseHTTPRequestHandler):
@@ -41,7 +52,7 @@ class H(BaseHTTPRequestHandler):
             i = STATE["n"]
             STATE["n"] += 1
         code = CODES[i] if i < len(CODES) else CODES[-1]
-        body = OK_BODY if code == 200 else json.dumps(
+        body = ok_body(i) if code == 200 else json.dumps(
             {"type": "error", "error": {"type": "sink", "message": f"forced {code}"}}
         ).encode()
         self.send_response(code)
