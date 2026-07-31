@@ -28,11 +28,35 @@ PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[tT][iI][fF][
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[tT][iI][fF]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[aA][vV][iI][fF]
 
+# AND the common types we CANNOT render. A glob here means "wake up", not
+# "I can read this" — the triage stages an unreadable file as UNSUPPORTED_TYPE
+# and tells you, which is the whole point. Without these, dropping a .docx did
+# nothing at all until the next day's backstop: no notification, no staging,
+# just a file sitting where you left it looking ignored.
+#
+# NOT *.md, and not a bare *.* — CLAUDE.md lives permanently at this root, so
+# either would match forever and spin the unit.
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[dD][oO][cC][xX]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[dD][oO][cC]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[oO][dD][tT]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[xX][lL][sS][xX]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[xX][lL][sS]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[oO][dD][sS]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[pP][pP][tT][xX]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[pP][pP][tT]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[oO][dD][pP]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[tT][xX][tT]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[rR][tT][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][tT][mM][lL]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][tT][mM]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[cC][sS][vV]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[eE][pP][uU][bB]
+
 # A file with some other extension therefore does not TRIGGER a run — but a run,
 # once triggered, drains every file at the root regardless of extension, because
 # list_candidates() is not extension-filtered and openable() flags what it cannot
-# read. So an unsupported file dropped alone waits for company. The daily backstop
-# timer closes that gap.
+# read. The backstop timer covers what is left: a novel extension nobody listed,
+# and a file with no extension at all.
 #
 # systemd re-checks after the service exits and re-triggers while a glob still
 # matches. documents.triage.sh therefore MUST move every file out of the root on
