@@ -5,6 +5,14 @@
 # Layout mirrors documents.lib.sh: config at the top, .env sourced at call time
 # (it is runtime-only and not in the repo), ntfy addressed through the tailnet
 # Caddy URL rather than a container name or a hardcoded IP.
+#
+# Everything that talks to api.anthropic.com now lives in ai.lib.sh, shared with
+# documents.intake — api_post/api_class (transport + retry), image_mime/image_ext,
+# ai_build_request and ai_extract. Sourced FIRST, before the log()/die() below, so
+# this file's identical definitions stay authoritative. Do not re-add a local copy
+# of any of it: capture's was the copy, and the divergence risk is the whole point.
+# shellcheck source=/zpool/catallenya/ai/scripts/ai.lib.sh
+source "/zpool/catallenya/ai/scripts/ai.lib.sh"
 
 CAPTURE_DIR="/zpool/catallenya/capture"
 DATA_DIR="${CAPTURE_DIR}/data"
@@ -79,6 +87,11 @@ SCRIPT_DIR="${CAPTURE_DIR}/scripts"
 NTFY_TOPIC="capture"
 MODEL="claude-opus-5"
 EFFORT="medium"          # bake-off winner ran adaptive thinking; medium caps spend
+# Output ceiling for one triage call. Adaptive thinking counts against this, and a
+# festival page fanning out to MAX_EVENTS_PER_CAPTURE entries is the widest reply the
+# schema can produce. Truncation surfaces as stop_reason=max_tokens, which ai_extract
+# rejects rather than handing a half-parsed proposal downstream.
+MAX_TOKENS=4096
 EVENT_TZ="Asia/Singapore" # fallback when the screenshot gives no timezone clue
 DURATION_MIN=60           # default length when only a start time is known
 # Screenshots are retained indefinitely as dataset material (user, 2026-07-25).
@@ -118,34 +131,10 @@ PRUNE_IMAGE_AFTER_DAYS=90
 # image adds little; a discard or a failure is a case to look at again.
 PRUNE_KEEP_IMAGE_OUTCOMES="discard needs_human not_event failed"
 
-# Transient API failure handling. In-process retries cover a rate limit or a brief
-# 5xx; anything longer (an auth outage, a provider incident) outlives the run, so
-# the record is left in pending/ without a proposal.json and the sweep re-queues
-# the screenshot once before giving up. Mirrors documents.intake, which declines to
-# memoize CLASSIFY_FAILED so the next nightly run retries it (commit 5ab987a).
-API_MAX_ATTEMPTS=3        # attempts within one triage run
-API_RETRY_BASE_S=5        # linear backoff: 5s, 10s
-# Overridable so the retry path is testable against a local sink without spending
-# an API call — same seam as MIN_AGE_SECONDS in documents.lib.sh. Never set in
-# production; the default is the only value systemd ever runs with.
-API_URL="${API_URL:-https://api.anthropic.com/v1/messages}"
-
-# image_mime <file> -> image/png | image/jpeg   (by content, never by filename)
-# The spool name is always .png — it is the glob token capture.triage.path keys on —
-# so the extension says nothing about the bytes. A wrong media_type is an API-level
-# error, so this is sniffed. Anything unrecognised falls back to image/png; the
-# server has already rejected non-PNG/JPEG uploads by signature before this runs.
-image_mime() {
-    case "$(od -An -tx1 -N3 "$1" 2>/dev/null | tr -d ' \n')" in
-        ffd8ff) echo image/jpeg ;;
-        *)      echo image/png  ;;
-    esac
-}
-
-# image_ext <file> -> png | jpg
-image_ext() {
-    case "$(image_mime "$1")" in image/jpeg) echo jpg ;; *) echo png ;; esac
-}
+# API_MAX_ATTEMPTS / API_RETRY_BASE_S / API_URL and image_mime / image_ext moved to
+# ai.lib.sh (sourced at the top). Transient-failure policy is unchanged: the record
+# is left in pending/ without a proposal.json and the sweep re-queues the screenshot
+# once before giving up.
 
 # diff_axis <this-event-json> <other-event-json> -> year|date|time|venue|none
 # Which single thing distinguishes two ways of attending the same event. Both the
@@ -260,68 +249,8 @@ event_is_past() {
     (( when < now ))
 }
 
-# api_class <http-status> -> ok | retry | fatal
-# "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
-# Lives here rather than inline in ask() so the tests assert the real mapping
-# instead of a copy of it that can drift.
-api_class() {
-    case "$1" in
-        200)          echo ok ;;
-        429|5??|000)  echo retry ;;   # rate limited, server-side, or no answer
-        *)            echo fatal ;;   # 400/401/403/404: retrying cannot help
-    esac
-}
+# api_class / api_post moved to ai.lib.sh (sourced at the top), unchanged.
 
-# api_post <request-body-file> -> response body on stdout
-#   0 = ok | 1 = fatal (do not retry) | 2 = transient, attempts exhausted
-#
-# Lives here rather than inside ask() so the retry behaviour can be exercised
-# against a local sink. ANTHROPIC_API_KEY must be set by the caller.
-#
-# The key goes via a curl config on stdin, never argv: /proc is mounted without
-# hidepid here, so /proc/<pid>/cmdline is world-readable for the whole call.
-#
-# -f is deliberately NOT used. It collapses every failure into exit 22 and throws
-# away the response body, which makes a rate limit indistinguishable from a bad
-# API key — and the caller used to treat both as terminal, so a single blip
-# destroyed the screenshot. The status code is what decides whether to retry.
-api_post() {
-    local msgf="$1" out code body attempt=0 delay
-    while :; do
-        attempt=$((attempt + 1))
-        out="$(curl -sS -K - --max-time 180 -w $'\n%{http_code}' 2>&1 <<CURLRC
-url = "${API_URL}"
-header = "x-api-key: ${ANTHROPIC_API_KEY}"
-header = "anthropic-version: 2023-06-01"
-header = "content-type: application/json"
-data-binary = "@${msgf}"
-CURLRC
-)"
-        code="${out##*$'\n'}"
-        body="${out%$'\n'*}"
-        # Normalise "curl never completed the exchange" (DNS, TLS, timeout, reset)
-        # to 000, which api_class treats as transient.
-        [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
-
-        case "$(api_class "$code")" in
-            ok)
-                printf '%s' "$body"
-                return 0 ;;
-            retry)
-                if (( attempt >= API_MAX_ATTEMPTS )); then
-                    log "  !! api unavailable after ${attempt} attempts (last: ${code}) — will retry later"
-                    return 2
-                fi
-                delay=$(( API_RETRY_BASE_S * attempt ))
-                log "  api ${code}, attempt ${attempt}/${API_MAX_ATTEMPTS} — retrying in ${delay}s"
-                sleep "$delay"
-                ;;
-            *)
-                log "  !! api rejected the request (${code}): $(tail -c 300 <<<"$body")"
-                return 1 ;;
-        esac
-    done
-}
 REQUEUE_AFTER_HOURS=1     # how long a proposal-less record waits before re-queueing.
                           # Must exceed the triage's TimeoutStartSec (15min) so a
                           # run still in flight is never adopted mid-call.

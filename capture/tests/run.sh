@@ -42,8 +42,13 @@ render() { "${SCRIPT_DIR}/render_ics.py" --uid TESTUID --now 20260726T000000Z --
 # it is gone. This asserts the surface itself.
 echo "library surface"
 
+# image_mime, image_ext, api_class, api_post, ai_build_request and ai_extract come
+# from ai.lib.sh, which capture.lib.sh sources. Listing them here is deliberate: it
+# is the only thing that fails if that source line is ever dropped, and a dropped
+# source would otherwise surface as a live "command not found" mid-triage.
 for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
-          image_mime image_ext button_label diff_axis event_is_past api_class api_post \
+          image_mime image_ext button_label diff_axis event_is_past \
+          api_class api_post ai_build_request ai_extract \
           clean_proposal validate_proposal md_escape triage_route write_context add_usage fork_record \
           recording_mode record_mode; do
     declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
@@ -52,7 +57,7 @@ done
 # And that the scripts only call helpers that exist.
 for src in "${SCRIPT_DIR}/capture.triage.sh" "${SCRIPT_DIR}/capture.sweep.sh"; do
     missing=""
-    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
+    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|ai_build_request|ai_extract|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
         declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
     done
     [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
@@ -664,27 +669,6 @@ add_usage "${CTXD}/rec" 'not json at all'
 is "bad response leaves context intact" "$(jq -r .model "${CTXD}/rec/context.json")" "claude-opus-5"
 rm -rf "$CTXD"
 
-# --------------------------------------------------------------- image sniffing
-# Android (ColorOS) screenshots are JPEG, not PNG. The spool filename is always
-# .png — it is the glob token capture.triage.path keys on — so format must come
-# from the bytes. A wrong media_type is an API-level error.
-echo "image_mime / image_ext"
-
-IMGD="$(mktemp -d)"
-mk() { printf "$2" > "${IMGD}/$1"; }
-mk png.bin      '\211PNG\r\n\032\n'
-mk jfif.bin     '\377\330\377\340\000\020JFIF'
-mk exif.bin     '\377\330\377\341\000\020Exif'   # what ColorOS actually emits
-mk garbage.bin  'not an image at all'
-
-is "PNG magic  -> image/png"  "$(image_mime "${IMGD}/png.bin")"     "image/png"
-is "JFIF JPEG  -> image/jpeg" "$(image_mime "${IMGD}/jfif.bin")"    "image/jpeg"
-is "Exif JPEG  -> image/jpeg" "$(image_mime "${IMGD}/exif.bin")"    "image/jpeg"
-is "unknown falls back to png" "$(image_mime "${IMGD}/garbage.bin")" "image/png"
-is "png extension"  "$(image_ext "${IMGD}/png.bin")"  "png"
-is "jpg extension"  "$(image_ext "${IMGD}/exif.bin")" "jpg"
-rm -rf "$IMGD"
-
 # ------------------------------------------------------------------ sweep args
 echo "capture.sweep.sh arguments"
 
@@ -719,92 +703,25 @@ sweep_sees() { # $1 = screenshot filename -> sweep's dry-run verdict
 is "sweep sees a PNG record"  "$(sweep_sees screenshot.png)" "seen"
 is "sweep sees a JPEG record" "$(sweep_sees screenshot.jpg)" "seen"
 
-# --------------------------------------------------------------- retry, live
-# Exercises the real ask() against a local sink. This is the only way to prove the
-# retry loop behaves — a genuine 429 cannot be summoned on demand, and the failure
-# it guards against (one blip destroying the screenshot) is the expensive kind.
-echo "ask() retry against a local sink"
-
-TMP="$(mktemp -d)"
-SINK_PID=""
-cleanup() { [[ -n "$SINK_PID" ]] && kill "$SINK_PID" 2>/dev/null; rm -rf "$TMP"; }
-trap cleanup EXIT
-
-# Drive the sink through a scripted sequence and report the status curl saw.
-sink_probe() {
-    local codes="$1" port out
-    : > "${TMP}/port"
-    python3 "${SELF_DIR}/sink.py" "$codes" > "${TMP}/port" &
-    SINK_PID=$!
-    for _ in $(seq 20); do [[ -s "${TMP}/port" ]] && break; sleep 0.2; done
-    port="$(cat "${TMP}/port")"
-    out="$(curl -sS --max-time 5 -w $'\n%{http_code}' -X POST -d '{}' \
-           "http://127.0.0.1:${port}/" 2>&1)"
-    kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null; SINK_PID=""
-    echo "${out##*$'\n'}"
-}
-
-is "sink can force a 429" "$(sink_probe 429,200)" "429"
-is "sink can force a 200" "$(sink_probe 200)"     "200"
-is "sink can force a 500" "$(sink_probe 500)"     "500"
-
-# The real api_post loop, driven against the sink. This is the part that could not
-# be proven any other way: that a transient failure is retried rather than ending
-# the capture, and that a fatal one is not retried at all.
-export ANTHROPIC_API_KEY="sk-ant-sink-not-a-real-key"
-API_RETRY_BASE_S=1   # keep the suite fast; the loop multiplies by attempt number
-echo '{}' > "${TMP}/req.json"
-
-run_post() { # $1 = sink script -> "<rc>|<stderr log>"
-    local port rc out err
-    : > "${TMP}/port"
-    python3 "${SELF_DIR}/sink.py" "$1" > "${TMP}/port" &
-    SINK_PID=$!
-    for _ in $(seq 20); do [[ -s "${TMP}/port" ]] && break; sleep 0.2; done
-    port="$(cat "${TMP}/port")"
-    rc=0
-    out="$(API_URL="http://127.0.0.1:${port}/" api_post "${TMP}/req.json" 2>"${TMP}/err")" || rc=$?
-    err="$(tr '\n' ' ' < "${TMP}/err")"
-    kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null; SINK_PID=""
-    printf '%s|%s|%s' "$rc" "$err" "$out"
-}
-
-r="$(run_post 200)"
-is  "clean 200 returns 0"        "${r%%|*}" "0"
-has "clean 200 returns the body" "$r" "Sink Lunch"
-
-r="$(run_post 429,429,200)"
-is  "recovers after two 429s"  "${r%%|*}" "0"
-has "logged the first retry"   "$r" "attempt 1/3"
-has "logged the second retry"  "$r" "attempt 2/3"
-has "got the body on attempt 3" "$r" "Sink Lunch"
-
-r="$(run_post 503,503,503)"
-is  "persistent 5xx gives rc=2 (transient)" "${r%%|*}" "2"
-has "says it will retry later"              "$r" "will retry later"
-
-r="$(run_post 401)"
-is    "401 gives rc=1 (fatal)"   "${r%%|*}" "1"
-hasnt "401 is never retried"     "$r" "attempt 1/3"
-
-# api_class is the REAL function from capture.lib.sh, not a copy — if the mapping
-# in the retry loop changes, these fail.
-is "200 is success"           "$(api_class 200)" "ok"
-is "429 retries"              "$(api_class 429)" "retry"
-is "500 retries"              "$(api_class 500)" "retry"
-is "503 retries"              "$(api_class 503)" "retry"
-is "no-answer (000) retries"  "$(api_class 000)" "retry"
-is "400 is fatal"             "$(api_class 400)" "fatal"
-is "401 is fatal"             "$(api_class 401)" "fatal"
-is "404 is fatal"             "$(api_class 404)" "fatal"
+# -------------------------------------------------------------- shared AI layer
+# The transport lives in ai/scripts/ai.lib.sh now, shared with documents.intake, and
+# so do its tests: api_post's retry loop against a local sink, the api_class status
+# mapping, image_mime/image_ext, request construction and response extraction. They
+# are NOT duplicated here — a second copy is precisely the drift the extraction
+# removed. sink.py moved with them.
+#
+#   bash ai/tests/run.sh
+#
+# What stays below is capture's own: config it owns, not config it shares.
 
 # ---------------------------------------------------------------- retry config
 echo "retry configuration"
-is "in-run attempts bounded"   "$(( API_MAX_ATTEMPTS > 1 && API_MAX_ATTEMPTS <= 5 ))" "1"
-is "backoff is non-zero"       "$(( API_RETRY_BASE_S > 0 ))" "1"
 # Must exceed the triage's TimeoutStartSec (15min) or the sweep could adopt a
 # record while the triage is still working on it and re-queue it underneath.
 is "requeue waits out a live run" "$(( REQUEUE_AFTER_HOURS >= 1 ))" "1"
+# The output ceiling has to leave room for a full fan-out plus adaptive thinking;
+# a too-small value shows up as stop_reason=max_tokens on busy screenshots only.
+is "max_tokens leaves room" "$(( MAX_TOKENS >= 2048 ))" "1"
 
 # ------------------------------------------------------- container integration
 # Not automated: the undo path lives in server.ts and needs the running container

@@ -19,7 +19,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=capture.lib.sh
 source "${SELF_DIR}/capture.lib.sh"
 
-: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/capture.env)}"
+: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/ai.env)}"
 
 # Fail loudly and up front. Without this a missing jq or python3 fails every capture
 # individually — each archived as "failed", each deleted under recording-mode off —
@@ -87,51 +87,29 @@ EOF
 }
 
 # ask <image> <now-human> <record-dir> -> structured JSON on stdout, non-zero on failure
+#
+# Thin by design: request construction, transport/retry and the stop_reason gate all
+# live in ai.lib.sh, shared with documents.intake. What stays here is the part that is
+# actually capture's — which prompt, which schema, and folding token usage into the
+# record. Note ai_build_request takes N images; capture passes exactly one.
 ask() {
-    local png="$1" now="$2" rec="$3" b64f msgf out mime
-    b64f="$(mktemp)"; msgf="$(mktemp)"
-    mime="$(image_mime "$png")"
-    # Base64 goes via a FILE, never argv — a screenshot is ~1MB of base64, well
-    # past ARG_MAX. (Same trap that bit documents.intake three times.)
-    base64 -w0 "$png" > "$b64f"
+    local png="$1" now="$2" rec="$3" msgf out
+    msgf="$(mktemp)"
+    ai_build_request "$msgf" "$MODEL" "$EFFORT" "$MAX_TOKENS" "$CAPTURE_SCHEMA" \
+        "$(triage_prompt "$now")" "$png" || { rm -f "$msgf"; return 1; }
 
-    jq -n --rawfile b64 "$b64f" --arg prompt "$(triage_prompt "$now")" \
-          --argjson schema "$CAPTURE_SCHEMA" --arg model "$MODEL" --arg effort "$EFFORT" \
-          --arg mime "$mime" \
-        '{model: $model,
-          max_tokens: 4096,
-          thinking: {type: "adaptive"},
-          output_config: {effort: $effort,
-                          format: {type: "json_schema", schema: $schema}},
-          messages: [{role: "user", content: [
-            {type: "image", source: {type: "base64", media_type: $mime,
-                                     data: ($b64|rtrimstr("\n"))}},
-            {type: "text", text: $prompt}]}]}' > "$msgf"
-    rm -f "$b64f"
-
-    # Retry/classification lives in api_post (capture.lib.sh) so it is testable
-    # against a local sink without spending a call. 0 = ok, 1 = fatal, 2 = transient.
+    # 0 = ok, 1 = fatal, 2 = transient (attempts exhausted, sweep re-queues).
     local post_rc=0
     out="$(api_post "$msgf")" || post_rc=$?
     rm -f "$msgf"
     (( post_rc == 0 )) || return "$post_rc"
 
-    # A refusal or a truncated reply is not a usable proposal — fail loudly
-    # rather than handing malformed JSON to the renderer.
-    local stop
-    stop="$(jq -r '.stop_reason // "?"' <<<"$out" 2>/dev/null)"
-    case "$stop" in
-        end_turn) ;;
-        refusal)    log "  !! model refused"; return 1 ;;
-        max_tokens) log "  !! truncated (max_tokens)"; return 1 ;;
-        *)          log "  !! unexpected stop_reason=$stop"; return 1 ;;
-    esac
-
+    # Before the gate, deliberately: a refusal or a truncation still cost real tokens,
+    # and "what did the failures cost" is exactly the question context.json exists to
+    # answer. The old order recorded nothing on those paths.
     add_usage "$rec" "$out"
 
-    # With output_config.format the first text block IS the JSON object.
-    jq -e -c 'first(.content[]? | select(.type=="text") | .text) | fromjson' <<<"$out" 2>/dev/null \
-        || { log "  !! no structured object in reply"; return 1; }
+    ai_extract "$out"
 }
 
 # notify_event <id> <record> <event-json> <n> <of> <dropped>

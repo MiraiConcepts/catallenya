@@ -18,7 +18,11 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # ANTHROPIC_API_KEY lives here — root-owned 0600, read by systemd (PID 1) and
 # injected into this User=carrein process. The key is therefore never in a
 # carrein-readable file, never in the repo, and never on a command line.
-EnvironmentFile=/etc/capture.env
+#
+# The file is /etc/ai.env, not /etc/capture.env: documents.intake.service reads the
+# same key via the shared ai/scripts/ai.lib.sh. No `-` prefix, so a missing file
+# fails this unit loudly rather than running a triage that cannot possibly work.
+EnvironmentFile=/etc/ai.env
 
 # Generous: one opus-5 vision call at medium effort runs ~10-20s, and a burst of
 # captures is drained serially in a single invocation.

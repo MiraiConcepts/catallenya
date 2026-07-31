@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Fake Anthropic Messages endpoint, for exercising the triage's retry path offline.
+"""Fake Anthropic Messages endpoint, for exercising api_post's retry path offline.
 
 Started by run.sh with a scripted list of status codes, e.g. "429,429,200": the
 first request gets 429, the second 429, the third 200. That is the only way to
 prove the retry loop actually retries and actually stops — a real API failure
 cannot be summoned on demand, and paying for one to test would defeat the point.
+
+Serves every consumer of ai.lib.sh, not just capture: point API_URL at it and the
+same loop that drives a screenshot triage drives a document classification.
 
 Prints the listening port on stdout, then serves until killed.
 """

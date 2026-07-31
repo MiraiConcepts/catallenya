@@ -72,8 +72,9 @@ event, and only then the current year, taking the nearest candidate still ahead.
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/capture.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
 | `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots |
-| `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `api_post` retry, `diff_axis`, `button_label`, `md_escape`, `fork_record` |
-| `tests/run.sh` | offline regression suite — every case is a bug that shipped |
+| `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `diff_axis`, `button_label`, `md_escape`, `fork_record` |
+| `../ai/scripts/ai.lib.sh` | **shared with documents-intake** — everything that talks to the API: `api_post` retry, `api_class`, `image_mime`, `ai_build_request`, `ai_extract`. See `ai/README.md` |
+| `tests/run.sh` | offline regression suite — every case is a bug that shipped. Transport cases live in `ai/tests/run.sh`; run both |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + hourly sweep `.timer` |
 | `client/capture.sh` | **laptop-side** hotkey script (see below) |
@@ -218,11 +219,14 @@ Done on this box on 2026-07-25 — the container is running behind Caddy, the un
 installed, and captures are flowing. Kept here for a rebuild.
 
 The API key is the one prerequisite. It is read by systemd as root and injected
-into the triage process, so it never sits in a file the `carrein` user can read:
+into the triage process, so it never sits in a file the `carrein` user can read.
+It lives in `/etc/ai.env` rather than a capture-specific file because it is shared
+infrastructure now — `documents.intake.service` reads the same file (see
+`ai/scripts/ai.lib.sh`):
 
 ```bash
-sudoedit /etc/capture.env      # ANTHROPIC_API_KEY=sk-ant-...
-sudo chmod 600 /etc/capture.env
+sudoedit /etc/ai.env      # ANTHROPIC_API_KEY=sk-ant-...
+sudo chmod 600 /etc/ai.env
 ```
 
 Then:
