@@ -21,6 +21,12 @@ PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[jJ][pP][gG]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[jJ][pP][eE][gG]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[pP][nN][gG]
 PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[zZ][iI][pP]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][eE][iI][cC]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[hH][eE][iI][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[wW][eE][bB][pP]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[tT][iI][fF][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[tT][iI][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/master/documents/*.[aA][vV][iI][fF]
 
 # A file with some other extension therefore does not TRIGGER a run — but a run,
 # once triggered, drains every file at the root regardless of extension, because
