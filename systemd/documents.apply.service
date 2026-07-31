@@ -1,0 +1,61 @@
+[Unit]
+Description=Documents apply (perform the move a button tap asked for)
+After=zfs-mount.service
+Requires=zfs-mount.service
+OnFailure=system-ntfy@documents.apply.service
+
+# A marker that cannot be drained would spin this unit. The script deletes markers
+# before acting so that should be unreachable, but a start limit is what holds when
+# the thing that broke is the invariant itself.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/syncthing/intake-state
+Environment=HOME=/home/carrein
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# NO EnvironmentFile. This step talks to no model and needs no API key — it reads a
+# marker, re-verifies a record the triage wrote, and moves a file. Keeping the key
+# out of this unit's environment is deliberate: it is the half of the pipeline that
+# can write to master/documents, so it gets the smaller secret surface, not the
+# larger one.
+TimeoutStartSec=5min
+
+ExecStart=/zpool/catallenya/syncthing/scripts/documents.apply.sh
+
+StandardOutput=journal
+StandardError=journal
+
+# --- Hardening ---
+# This is the ONLY thing in the pipeline that writes to master/documents, and it is
+# deliberately the least reachable: a oneshot that runs for a second, triggered by a
+# file appearing on local disk, with no network listener of its own. The approve
+# container — long-lived, tailnet-reachable, gated by an unauthenticated ntfy topic
+# — cannot perform a move at all; it can only ask for one that was already proposed.
+# That asymmetry is the whole security argument for the redesign. Do not collapse it
+# by giving the container a documents mount.
+#
+# Verify the sandbox ENGAGED rather than that the job succeeded:
+#   sudo systemd-run --wait --pipe --uid=carrein \
+#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
+#     --property=InaccessiblePaths=/zpool/catallenya/restic \
+#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+PrivateNetwork=false
+
+ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
+ReadWritePaths=/zpool/catallenya/syncthing/intake-state
+
+InaccessiblePaths=/zpool/catallenya/restic
+InaccessiblePaths=/zpool/catallenya/cloudflared
+InaccessiblePaths=/zpool/catallenya/rclone
