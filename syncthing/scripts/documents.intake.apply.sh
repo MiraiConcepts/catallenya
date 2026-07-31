@@ -74,6 +74,14 @@ gate() { # $1=candidate json -> echoes failing reason, or nothing on pass
     case "${#dt}" in
         10) date -d "$dt" >/dev/null 2>&1 || { echo "IMPOSSIBLE_DATE"; return 1; } ;;
         7)  [[ "${dt:5:2}" =~ ^(0[1-9]|1[0-2])$ ]] || { echo "IMPOSSIBLE_DATE"; return 1; } ;;
+        # Year-only had NO case at all until 2026-07-30, so a nonsense year filed
+        # silently as e.g. 0000_invoice_amazon.pdf. Found by documents.intake.score.sh,
+        # which caught the classifier emitting date="0000" on a photo of a box label.
+        # `date -d 0000` does not help here — it parses as a TIME, not a year, and
+        # returns success. 10# forces base 10: an unprefixed 0009 is invalid octal and
+        # would abort the arithmetic. Upper bound allows next year, since renewals and
+        # policies are legitimately dated ahead.
+        4)  (( 10#$dt >= 1900 && 10#$dt <= $(date +%Y) + 1 )) || { echo "IMPOSSIBLE_DATE"; return 1; } ;;
     esac
     # 8. lookalike families never auto-file, however confident
     ! is_lookalike "$t" "$f" || { echo "LOOKALIKE_FAMILY"; return 1; }
