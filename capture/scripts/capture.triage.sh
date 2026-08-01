@@ -81,7 +81,7 @@ Rules:
 - events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
 - SAME THING vs DIFFERENT THING. Ask whether it is the same act, show, talk, screening or person appearing more than once. If it is, that is ONE entry in events, however many times or places it appears — the same band at 7pm and 8.15pm, the same show running Thursday and Friday, the same tour playing Kuala Lumpur on the 13th and Seoul on the 19th. All of those are one thing you would attend once, so the other ways to attend go in alternatives.
   The title is the act's name and nothing else. Do NOT write the city, the date or the time into it — "Kene — Seoul" and "Kene — Kuala Lumpur" are not two events, they are one act on tour, and titling them apart to justify a split is exactly the mistake to avoid. Two entries in events means two genuinely DIFFERENT acts or subjects, which would still be different if you stripped every date and place from their names.
-- alternatives: every OTHER way to attend that same event, soonest first — a second showtime, another date on the tour, another venue. Each carries its own date, start_time and location, so choosing one picks the whole package: tapping the Seoul date must write the Seoul venue, not the Kuala Lumpur one. List them all even though only the first becomes a button; the count is shown to the user. Give an empty array when there is only one way to attend. Never put a different act in here.
+- alternatives: every OTHER way to attend that same event, soonest first — a second showtime, another date on the tour, another venue. Each carries its own date, start_time, end_time and location, so choosing one picks the whole package: tapping the Seoul date must write the Seoul venue, not the Kuala Lumpur one, and a session that states its own end keeps it — "Fri 6pm-3am / Sat 8pm-4am" means the Saturday alternative gets end_time 04:00. Set an alternative's end_time null when that occasion does not state one; NEVER copy the main reading's end onto a different occasion. List them all even though only the first becomes a button; the count is shown to the user. Give an empty array when there is only one way to attend. Never put a different act in here.
 EOF
 }
 
@@ -135,16 +135,17 @@ notify_event() {
     all_day="$(jq -r '.all_day'          <<<"$ev")"
 
     if [[ "$(jq -r '.alternatives | length' <<<"$ev")" -gt 0 ]]; then
-        # end_time MUST be reset: the alternatives sub-schema has no end_time, so
-        # otherwise the primary's end survives, renders end <= start, and gains a
-        # day — a 23-hour event behind a button reading "15:00".
-        # end_time AND end_date must both be reset: the alternatives sub-schema has
-        # neither, so the primary's values would survive onto a different day. The
-        # end_time case shipped once as a 23-hour event behind a button reading
-        # "15:00"; end_date would be worse, inheriting a whole span onto what is
-        # meant to be one other occasion.
+        # The alternative's OWN end_time, never the primary's. The primary's end
+        # belongs to a different occasion — inheriting it shipped once as a
+        # 23-hour event behind a button reading "15:00" (end <= start gains a day
+        # in render_ics). The sub-schema carries end_time itself since 2026-08-01:
+        # a two-night party listed 6pm-3am Fri and 8pm-4am Sat, and the blanket
+        # reset that fixed the inheritance bug silently cost the Saturday tap its
+        # 4am. With none stated it stays null and the default duration applies.
+        # end_date IS still reset: the sub-schema has no spans, and inheriting the
+        # primary's would stretch one occasion across another's days.
         alt_json="$(jq -c '.alternatives[0] as $a | . + {date: $a.date, start_time: $a.start_time,
-                           end_time: null, end_date: null, location: ($a.location // .location)}
+                           end_time: ($a.end_time // null), end_date: null, location: ($a.location // .location)}
                     | del(.alternatives)' <<<"$ev")"
         alt_date_chk="$(jq -r '.date // ""' <<<"$alt_json")"
         today_local="$(TZ="$EVENT_TZ" date +%Y-%m-%d)"

@@ -298,6 +298,31 @@ is  "with an alternative still works" "$rc" 0
 has  "and offers the other time"      "$out" "• 20:15"
 hasnt "with no 'or' in the body"      "$out" " or "
 
+# The alt tap writes proposal.alt.json, and its end_time must be the OCCASION'S
+# own: the primary's end must never leak across (shipped once as a 23-hour
+# event), and an end the poster printed for that session must not be blanked
+# (shipped 2026-08-01 — "Fri 6pm-3am / Sat 8pm-4am" lost the Saturday 4am).
+ne_alt_end() { # ne_alt_end <event-json> -> the written alt proposal's end_time
+    local d; d="$(mktemp -d)"
+    NE_EV="$(jq -c . <<<"$1")" NE_DIR="$SCRIPT_DIR" NE_REC="$d" bash -uo pipefail -c '
+        source "${NE_DIR}/capture.lib.sh"
+        SCRIPT_DIR="$NE_DIR"
+        now_z="20260728T000000Z"
+        notify() { :; }
+        capture_base_url() { printf "https://example.invalid:10000"; }
+        '"$(sed -n '/^notify_event() {$/,/^}$/p' "${SCRIPT_DIR}/capture.triage.sh")"'
+        notify_event "11111111-1111-1111-1111-111111111111" "$NE_REC" "$NE_EV" 1 1 0
+    ' >/dev/null 2>&1
+    jq -r '.end_time' "${d}/proposal.alt.json" 2>/dev/null || echo missing
+    rm -rf "$d"
+}
+ALTEND='{"calendar":"general","title":"The Perfect Match","date":"2026-08-07","start_time":"18:00",
+         "end_time":"03:00","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
+         "location":"Another Bar","description":null,
+         "alternatives":[{"date":"2026-08-08","start_time":"20:00","end_time":"04:00","location":null}]}'
+is "alt keeps the end its session states"  "$(ne_alt_end "$ALTEND")" "04:00"
+is "primary end never leaks onto the alt"  "$(ne_alt_end "$WITHALT")" "null"
+
 # --------------------------------------------------------- dropped events
 # Events go missing two ways. Our cap discards anything past
 # MAX_EVENTS_PER_CAPTURE — but the PROMPT also tells the model to return at most
@@ -392,6 +417,9 @@ is "unresolvable timezone"        "$(gate "$(mut '.timezone="Mars/Olympus"')")" 
 is "bad alt start_time" \
    "$(gate "$(mut '.alternatives=[{"label":"x","date":"2026-07-26","start_time":"99:99","location":null}]')")" \
    "BAD_ALT"
+is "bad alt end_time" \
+   "$(gate "$(mut '.alternatives=[{"label":"x","date":"2026-07-26","start_time":"20:00","end_time":"99:99","location":null}]')")" \
+   "BAD_ALT"
 is "bad alt date" \
    "$(gate "$(mut '.alternatives=[{"label":"x","date":"2023-02-29","start_time":"15:00","location":null}]')")" \
    "BAD_ALT"
@@ -434,6 +462,11 @@ echo "prompt contract"
 has "schema carries events_seen"     "$CAPTURE_SCHEMA" '"events_seen"'
 has "events_seen is required"        "$CAPTURE_SCHEMA" 'events_seen'
 hasnt "schema no longer asks for a button label" "$CAPTURE_SCHEMA" '"label"'
+# A session can state its own end (2026-08-01: "Fri 6pm-3am / Sat 8pm-4am" — the
+# Saturday tap lost its 4am when alternatives could not carry one).
+is "alternatives carry their own end_time" \
+   "$(jq -r '.properties.events.items.properties.alternatives.items | (.properties | has("end_time")) and (.required | index("end_time") != null)' <<<"$CAPTURE_SCHEMA")" \
+   "true"
 
 PROMPT="$(bash -c 'source "$1"; source_only=1
                    sed -n "/^triage_prompt()/,/^}/p" "$2" > /tmp/.tp.$$; . /tmp/.tp.$$
