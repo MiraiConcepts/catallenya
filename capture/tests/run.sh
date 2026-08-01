@@ -624,7 +624,7 @@ has "--dry-run announces itself" "$out" "DRY RUN"
 # A JPEG record must be as visible to the sweep as a PNG one. The sweep used to
 # match screenshot.png literally, which would have made every Android capture
 # invisible here — never re-queued, never aged out, and silently, because this
-# only runs hourly and only on records that are already stale.
+# only runs nightly and only on records that are already stale.
 sweep_sees() { # $1 = screenshot filename -> sweep's dry-run verdict
     local d="${PENDING_DIR}/00000000-0000-4000-8000-0000000000ff"
     mkdir -p "$d"; : > "${d}/$1"; touch -d '2 hours ago' "$d"
@@ -634,6 +634,35 @@ sweep_sees() { # $1 = screenshot filename -> sweep's dry-run verdict
 }
 is "sweep sees a PNG record"  "$(sweep_sees screenshot.png)" "seen"
 is "sweep sees a JPEG record" "$(sweep_sees screenshot.jpg)" "seen"
+
+# Shipped bug: the prune section sat BELOW an early `exit 0` taken whenever
+# pending/ was empty — which it almost always is — so in 90 days of hourly sweeps
+# the prune never ran once. pending/ is deliberately left alone here: empty is
+# exactly the state that used to skip everything below the loop.
+prune_runs() { # -> whether dry-run reaches the prune for a backdated record
+    local d="${ARCHIVE_DIR}/00000000-0000-4000-8000-0000000000fe"
+    mkdir -p "$d"; : > "${d}/screenshot.png"
+    echo '{"id":"x","outcome":"add"}' > "${d}/decision.json"
+    touch -d '30 days ago' "${d}/screenshot.png"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    [[ "$o" == *"would prune image from 00000000"* ]] && echo pruned || echo skipped
+}
+is "prune runs even when pending/ is empty" "$(prune_runs)" "pruned"
+
+# A file the *.png glob cannot see is invisible to the entire pipeline — no
+# trigger, no triage, no ageing out. The sweep is the only thing that will ever
+# mention it. A fresh .part-* is a legitimate upload mid-write and must NOT be
+# called a stray.
+stray_check() { # $1 = filename $2 = age -> reported | quiet
+    local f="${IN_DIR}/$1"
+    : > "$f"; touch -d "$2" "$f"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -f "$f"
+    [[ "$o" == *"would report"*"$1"* ]] && echo reported || echo quiet
+}
+is "an old non-png in incoming/ is reported" "$(stray_check stray.jpeg '2 hours ago')" "reported"
+is "a fresh upload-in-progress is not"       "$(stray_check .part-x 'now')"           "quiet"
 
 # -------------------------------------------------------------- shared AI layer
 # The transport lives in ai/scripts/ai.lib.sh now, shared with documents.intake, and
@@ -669,14 +698,14 @@ is "max_tokens leaves room" "$(( MAX_TOKENS >= 2048 ))" "1"
 #   # 2. fake the archived record an Add would have left
 #   mkdir -p capture/data/archive/$TID
 #   echo '{"calendar":"general"}' > capture/data/archive/$TID/proposal.json
-#   echo "{\"id\":\"$TID\",\"outcome\":\"add\",\"mode\":\"test\"}" \
+#   echo "{\"id\":\"$TID\",\"outcome\":\"add\"}" \
 #     > capture/data/archive/$TID/decision.json
 #   # 3. tap Discard, then assert: event gone, decision.json outcome=undone
 #   curl -X POST -H 'X-Capture: 1' "http://<ip>:8080/capture/${TID}/drop"
 #
-# Expected: {"ok":true,"undone":true,"status":200}. REMOVE the archive record AND
-# the appended ledger line afterwards — the ledger is append-only, so a test run
-# leaves a fake verdict behind that would otherwise skew the accept rate.
+# Expected: {"ok":true,"undone":true,"status":200}. REMOVE the archive record
+# afterwards — it is a fake verdict that would otherwise sit in the archive
+# looking real.
 
 # --------------------------------------------------------------------- result
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

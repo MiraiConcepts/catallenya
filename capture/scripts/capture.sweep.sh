@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Housekeeping for pending captures. Run hourly by capture.sweep.timer.
+# Housekeeping for pending captures. Run nightly at 07:30 SGT by
+# capture.sweep.timer — morning-side, because most of what it does is send phone
+# notifications, and 2am pings train you to mute the topic.
 #
 # The triage only runs when a screenshot arrives, so it cannot manage the life of
 # a proposal that is sitting unanswered. This does:
@@ -14,9 +16,14 @@
 #      a record has a screenshot but no proposal.json; it is put back in incoming/
 #      once so the .path unit re-fires. If it comes back proposal-less a second
 #      time, it is archived as failed and the user is told.
+#   4. PRUNE the screenshot out of archived records older than
+#      PRUNE_IMAGE_AFTER_DAYS. The text (proposal, .ics, context, verdict) stays.
+#   5. REPORT any stray file sitting in incoming/ that the .path unit's *.png
+#      glob cannot see — such a file is invisible to the whole pipeline and
+#      nothing else will ever mention it.
 #
-# Makes no API calls itself — pure filesystem + ntfy, so it costs nothing to run
-# often. A re-queue causes the triage to make one, later.
+# Makes no API calls itself — pure filesystem + ntfy. A re-queue causes the
+# triage to make one, later.
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,7 +48,10 @@ mkdir -p "$PENDING_DIR" "$ARCHIVE_DIR" "$IN_DIR"
 
 shopt -s nullglob
 records=("$PENDING_DIR"/*/)
-(( ${#records[@]} )) || exit 0
+# NO early exit on an empty pending/ — that exact line (`|| exit 0`) sat here from
+# the first version, and because pending/ is empty on almost every run it skipped
+# everything below the loop: the image prune NEVER actually ran in 90 days of
+# hourly sweeps. An empty array just means the loop body doesn't execute.
 
 now=$(date +%s)
 renotified=0 ignored=0 requeued=0 abandoned=0
@@ -116,27 +126,54 @@ done
 
 # --- prune old screenshots -------------------------------------------------
 # Discard does not delete, so images accumulate indefinitely — and a screenshot
-# can hold anything that was on screen. Only the
-# IMAGE is dropped; proposal, .ics, context and verdict stay, because they are
-# text-sized and carry the analysis value. Cases the model got wrong keep their
-# image, since those are the ones worth looking at again.
+# can hold anything that was on screen. Only the IMAGE is dropped, whatever the
+# record's outcome; proposal, .ics, context and verdict stay, because they are
+# text-sized and carry the analysis value.
 pruned=0
 if (( PRUNE_IMAGE_AFTER_DAYS > 0 )); then
     for rec in "$ARCHIVE_DIR"/*/; do
         rec="${rec%/}"
         shots=("${rec}"/screenshot.*)
         (( ${#shots[@]} )) || continue
-        outcome="$(jq -r '.outcome // ""' "${rec}/decision.json" 2>/dev/null)"
-        [[ " ${PRUNE_KEEP_IMAGE_OUTCOMES} " == *" ${outcome} "* ]] && continue
         age_d=$(( (now - $(stat -c %Y "${shots[0]}" 2>/dev/null || echo "$now")) / 86400 ))
         (( age_d >= PRUNE_IMAGE_AFTER_DAYS )) || continue
         if (( DRY )); then
-            log "would prune image from $(basename "$rec" | cut -c1-8) (${outcome}, ${age_d}d)"
+            log "would prune image from $(basename "$rec" | cut -c1-8) (${age_d}d)"
         elif rm -f "${shots[@]}"; then
             : > "${rec}/screenshot.pruned"
             pruned=$((pruned + 1))
         fi
     done
+fi
+
+# --- stray files in incoming/ ----------------------------------------------
+# The .path unit globs *.png and the triage drains the same glob, so anything else
+# in incoming/ is invisible to the whole pipeline: no trigger, no triage, no
+# notification, no ageing out — it just sits there looking accepted. The container
+# only writes <id>.png (and cleans its own .part-* on restart), so a stray means
+# something outside the normal flow put it there. Report it; deleting a file
+# nobody understands is worse than naming it. One line per day until it is dealt
+# with is the point, not a defect.
+# A fresh .part-* is a legitimate upload mid-write, so anything younger than an
+# hour is left unmentioned.
+strays=()
+for f in "$IN_DIR"/* "$IN_DIR"/.[!.]*; do
+    [[ -f "$f" ]] || continue
+    [[ "$f" == *.png ]] && continue
+    (( now - $(stat -c %Y "$f" 2>/dev/null || echo "$now") >= 3600 )) || continue
+    strays+=("$(basename "$f")")
+done
+if (( ${#strays[@]} )); then
+    if (( DRY )); then
+        log "would report ${#strays[@]} stray file(s) in incoming/: ${strays[*]}"
+    else
+        body="incoming/ holds ${#strays[@]} file$( (( ${#strays[@]} == 1 )) || printf s ) the pipeline cannot see:"
+        for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
+        (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
+        body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
+        notify "Stray Files In Capture Spool" high "warning,camera" "$body"
+        log "reported ${#strays[@]} stray file(s) in incoming/"
+    fi
 fi
 
 (( renotified || ignored || requeued || abandoned || pruned )) && \
