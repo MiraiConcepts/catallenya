@@ -115,8 +115,8 @@ for rec in "${records[@]}"; do
 done
 
 # --- prune old screenshots -------------------------------------------------
-# Discard stops deleting once recording-mode leaves `off`, so images accumulate
-# indefinitely — and a screenshot can hold anything that was on screen. Only the
+# Discard does not delete, so images accumulate indefinitely — and a screenshot
+# can hold anything that was on screen. Only the
 # IMAGE is dropped; proposal, .ics, context and verdict stay, because they are
 # text-sized and carry the analysis value. Cases the model got wrong keep their
 # image, since those are the ones worth looking at again.

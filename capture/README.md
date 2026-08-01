@@ -271,7 +271,6 @@ screenshot, with no way to tell which.
 archive/<id>/
   screenshot.png    what you captured (.jpg for Android uploads)
   context.json      model, effort, the full prompt + its hash, capture time, tokens
-  mode              off | test | prod, as of when the capture was taken
   capture.json      the WHOLE model reply, so a capped or partial capture stays
                     diagnosable after the fan-out has split it up
   proposal.json     the one event this record is about
@@ -280,47 +279,24 @@ archive/<id>/
                     needs_human | not_event | failed
 ```
 
-`data/decisions.jsonl` is the same verdicts as an append-only ledger, so accept
-rate over time is a one-liner:
+There is **no ledger and no recording mode** (both retired 2026-08-01, with the
+documents convergence). State is locations only — `incoming → pending → archive` —
+and each record carries its own `decision.json`, so any ledger-style question is a
+jq over the archive:
 
 ```bash
-jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' data/decisions.jsonl 2>/dev/null || echo 'no decisions recorded yet'
+jq -s 'group_by(.outcome)|map({outcome:.[0].outcome,n:length})' data/archive/*/decision.json
 ```
 
-A button tapped to exercise the plumbing is **not** a label — correct that record's
-`outcome` (or leave a `note` saying it was a test) before it gets counted, or the
-ledger measures your workarounds instead of the model.
+Records that predate the retirement keep their `mode` files and fields; nothing
+reads them. A button tapped to exercise the plumbing is **not** a label — correct
+that record's `outcome` (or leave a `note` saying it was a test) so the archive
+measures the model rather than your workarounds.
 
-**Recording has three modes**, set by one word in `capture/data/recording-mode`
-and read at use time, so changing it needs no restart:
-
-| mode | resolved captures | verdict goes to |
-|---|---|---|
-| `off` | deleted | nowhere |
-| `test` | kept in `archive/` | `decisions.test.jsonl` |
-| `prod` | kept in `archive/` | `decisions.jsonl` |
-
-```bash
-printf 'test\n' > /zpool/catallenya/capture/data/recording-mode
-cat /zpool/catallenya/capture/data/recording-mode   # what am I in right now
-```
-
-Test verdicts are kept rather than discarded because while a prompt is being
-iterated on they are the signal — "did that change help" is answered from them.
-A separate ledger means there is no filter to get wrong later and the production
-accept rate cannot be contaminated.
-
-The mode is stamped into each record when the capture is claimed, and that stamp
-decides what happens when you tap — so a test capture tapped after a switch to
-`prod` is still counted as a test. A missing file means `prod`; an unreadable or
-misspelt one falls back to `test`, whose failure modes are the only reversible
-ones (you keep more than you meant, and the metric does not move). The pre-2026-07-27
-`.recording-disabled` flag still works as a synonym for `off`.
-
-Note that outside `off`, **Discard no longer deletes** — every screenshot you tap
-away is retained, including ones captured by accident. Discard on a capture that was
-already ADDED is different again: it undoes it, deleting the event from Radicale and
-recording the outcome as `undone`.
+**Discard does not delete** — every screenshot you tap away is retained, including
+ones captured by accident (the sweep prunes the image later; see below). Discard on
+a capture that was already ADDED is different again: it undoes it, deleting the
+event from Radicale and recording the outcome as `undone`.
 
 **Screenshots are pruned, the rest is not.** After `PRUNE_IMAGE_AFTER_DAYS` the sweep
 deletes the IMAGE from an archived record and leaves a `screenshot.pruned` marker;
@@ -342,11 +318,6 @@ through `claude-sonnet-5` and `claude-opus-5` under one prompt to decide whether
 switch. Both arms had to be re-run fresh — the archived replies spanned fourteen
 prompt versions, so diffing a new model against them would have measured the prompt
 rewrites instead. Result in the Notes below.
-
-**`prod` since 2026-07-30.** Verdicts now count. The 84 taken while it was `test`
-stay in `decisions.test.jsonl` and do not feed the production rate, so
-`decisions.jsonl` starts empty and fills from the next tap — an accept rate of
-"nothing yet" is expected for a while, not a fault.
 
 **Screenshots stay on this box.** `capture/` is deliberately absent from restic's
 path allowlist, so nothing here is copied to cloud storage — a screenshot can

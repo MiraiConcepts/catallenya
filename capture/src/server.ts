@@ -11,7 +11,7 @@
 // capability URLs: on the tailnet, "whoever knows the id" is effectively just
 // the owner. That's the same trust model as every other service here.
 
-import { mkdir, rename, rm, readFile, stat, appendFile } from "node:fs/promises";
+import { mkdir, rename, rm, readFile, stat } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 
 const DATA = process.env.CAPTURE_DATA ?? "/data";
@@ -40,42 +40,15 @@ const CAL: Record<string, string> = {
 
 const spool = (...p: string[]) => [DATA, ...p].join("/");
 
-// The mode a record was CAPTURED under — the triage stamps it when it claims the
-// screenshot. Falls back to the live setting for records predating the stamp, then
-// to the legacy flag, then to prod. Mirrors recording_mode()/record_mode() in
+// Resolve a capture: stamp the verdict into decision.json and move the whole
+// record (screenshot + proposal + .ics) to the archive. The record IS the
+// history — there is no ledger beside it, and no recording mode (both retired
+// 2026-08-01): state is locations only. Mirrors archive_record() in
 // capture.lib.sh; the two halves are kept in step by hand, so change both.
-function recordMode(src: string): "off" | "test" | "prod" {
-  const read = (p: string) => {
-    try { return readFileSync(p, "utf8").trim(); } catch { return ""; }
-  };
-  const stamped = read(`${src}/mode`);
-  if (stamped === "off" || stamped === "test" || stamped === "prod") return stamped;
-  if (existsSync(spool(".recording-disabled"))) return "off";     // legacy synonym
-  const live = read(spool("recording-mode"));
-  if (live === "off" || live === "test" || live === "prod") return live;
-  // Unrecognised falls to test, not to either extreme: prod would silently
-  // contaminate the accept rate, off would silently destroy the record.
-  return existsSync(spool("recording-mode")) ? "test" : "prod";
-}
-
-// Resolve a capture: stamp the verdict into the record, move the whole thing
-// (screenshot + proposal + .ics) to the archive, and append one line to the
-// ledger. Outside `off`, nothing is deleted — the screenshot plus the model's
-// proposal plus the human verdict is a labelled example, and that dataset is the
-// point of keeping captures. Mirrors archive_record() in capture.lib.sh.
 async function archive(id: string, outcome: string, note = ""): Promise<void> {
   const src = spool("pending", id);
   if (!existsSync(src)) return;
 
-  const mode = recordMode(src);
-
-  // off: delete the record instead of archiving it, and write nothing. Read per
-  // request, so the mode can be changed without restarting the container.
-  if (mode === "off") {
-    await rm(src, { recursive: true, force: true });
-    console.log(`[not recorded: ${outcome}] ${id} — recording-mode is off`);
-    return;
-  }
   const dest = spool("archive", id);
   const decidedAt = new Date().toISOString();
   let proposedAt = decidedAt;
@@ -86,7 +59,7 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
     latency = Math.round((Date.now() - st.mtimeMs) / 1000);
   } catch { /* record may predate proposal.json; fall back to now */ }
 
-  const decision = { id, outcome, note, mode, proposed_at: proposedAt, decided_at: decidedAt, latency_s: latency };
+  const decision = { id, outcome, note, proposed_at: proposedAt, decided_at: decidedAt, latency_s: latency };
   await Bun.write(`${src}/decision.json`, JSON.stringify(decision));
   await mkdir(spool("archive"), { recursive: true });
   await rm(dest, { recursive: true, force: true });
@@ -102,13 +75,6 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
     }
     throw e;
   }
-  // Genuinely append (O_APPEND), not read-concat-write: the previous form lost a
-  // line when two callbacks raced, and truncated the whole ledger if it crashed
-  // mid-write. capture.lib.sh has always used >> — this now matches it.
-  // test verdicts go to their own ledger so the production accept rate can never be
-  // contaminated by a tap made while exercising the pipeline. Mirrors capture.lib.sh.
-  const ledger = mode === "test" ? "decisions.test.jsonl" : "decisions.jsonl";
-  await appendFile(spool(ledger), JSON.stringify(decision) + "\n");
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Full 8-byte signature, not just the first four: the trailing \r\n\x1a\n is what
@@ -216,8 +182,8 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
   if (res.status === 201 || res.status === 204 || res.status === 412) {
     // 412 = If-None-Match tripped: the item already exists, so this PUT wrote
     // nothing. Idempotent from the caller's point of view, but recording it as an
-    // "add" would count one acceptance twice in the ledger. Its own outcome keeps
-    // the accept rate honest.
+    // "add" would claim an acceptance that wrote nothing. Its own outcome keeps
+    // decision.json honest.
     const outcome = res.status === 412
       ? "add_duplicate"
       : (alt ? "add_alt" : "add");
@@ -254,7 +220,7 @@ async function handleDrop(id: string): Promise<Response> {
 // caller falls through to ordinary discard handling).
 async function undoAdd(id: string): Promise<Response | null> {
   const rec = spool("archive", id);
-  let decision: { outcome?: string; mode?: string };
+  let decision: { outcome?: string };
   let proposal: { calendar?: string };
   try {
     decision = JSON.parse(readFileSync(`${rec}/decision.json`, "utf8"));
@@ -276,14 +242,11 @@ async function undoAdd(id: string): Promise<Response | null> {
   }
 
   const now = new Date().toISOString();
+  // `undone_from` keeps the original verdict readable after the overwrite —
+  // decision.json is the only record of this tap, so it must tell both halves.
   const updated = { ...decision, outcome: "undone", undone_from: decision.outcome,
                     note: `caldav delete ${res.status}`, decided_at: now };
   await Bun.write(`${rec}/decision.json`, JSON.stringify(updated));
-  // The ledger is append-only, so the add line stays and this is a second entry
-  // for the same id. Anything computing an accept rate should take the LAST line
-  // per id, not every line.
-  const ledger = decision.mode === "test" ? "decisions.test.jsonl" : "decisions.jsonl";
-  await appendFile(spool(ledger), JSON.stringify(updated) + "\n");
   console.log(`[undone] ${id} — removed from calendar (caldav ${res.status})`);
   return json({ ok: true, undone: true, status: res.status });
 }
