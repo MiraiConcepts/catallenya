@@ -194,20 +194,18 @@ log "filed ${FILED}, binned ${BINNED}, returned ${RETURNED}, refused ${REFUSED}"
 # nothing happened, and without this you would never know why.
 if (( REFUSED > 0 )); then
     # Refusal lines arrive as "name — Reason." (or a bare reason when there is no
-    # name to blame); the name takes the numbered line and the reason sits
-    # indented beneath it. The whole listing goes in ONE fenced code block —
-    # verbatim and monospace — because the web client's markdown renderer
-    # re-flows plain lines into a mush (same fix as batch_list; backticks
-    # stripped for the same fence-break reason).
-    body="\`\`\`
-"
+    # name to blame). Rendered as a markdown ordered list matching batch_list:
+    # the name as a code span, a hard break (trailing two spaces), and the reason
+    # as regular text hanging beneath it. Backticks stripped from names — one
+    # would end the code span early.
+    body=""
     n=0
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         n=$((n+1))
         line="$(tr -d '\`' <<<"$line")"
         if [[ "$line" == *" — "* ]]; then
-            body+="${n}. ${line%% — *}
+            body+="${n}. \`${line%% — *}\`
    ${line#* — }
 "
         else
@@ -215,7 +213,6 @@ if (( REFUSED > 0 )); then
 "
         fi
     done <<<"$REFUSALS"
-    body+="\`\`\`"
     notify "Refused: ${REFUSED} Document$( (( REFUSED == 1 )) || printf s )" \
         high warning "$body"
 fi

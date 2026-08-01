@@ -112,18 +112,16 @@ for f in "${PROPOSALS_DIR}"/*.json; do
             stamp "$f" --arg at "${dest#"${DOCS}/"}" '. + {state:"binned", at:$at}'
             binned=$((binned + 1)); log "binned ${sp} (${age_h}h staged)"
             offer_accept=1; [[ "$bl" != "null" ]] && offer_accept=0
-            binbody="\`\`\`
-1. $(tr -d '\`' <<<"$orig")
-\`\`\`
+            binbody="1. \`$(tr -d '\`' <<<"$orig")\`
 
 "
             [[ "$bl" != "null" ]] && binbody+="$(reason_text "$bl")
 
 "
             if (( offer_accept )); then
-                binbody+="In bin/ after $(( age_h / 24 )) days with no decision. Accept still files it; Skip returns it to staging."
+                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Accept still files it; Skip returns it to staging._"
             else
-                binbody+="In bin/ after $(( age_h / 24 )) days with no decision. Skip returns it to staging."
+                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Skip returns it to staging._"
             fi
             notify "Binned: 1 Document" "" wastebasket "$binbody" "$(buttons "$id" "$offer_accept")"
         else
@@ -140,9 +138,7 @@ for f in "${PROPOSALS_DIR}"/*.json; do
         fi
         if [[ "$bl" != "null" ]]; then
             notify "Pending Blocked: 1 Document" high warning \
-                "\`\`\`
-1. $(basename "$sp" | tr -d '\`')
-\`\`\`
+                "1. \`$(basename "$sp" | tr -d '\`')\`
 
 $(reason_text "$bl")" "$(buttons "$id" 0)"
         elif [[ -n "$fl" ]]; then
