@@ -28,6 +28,11 @@
 # Explicit exclude audit logs
 !audit/audit.sh
 
+# Docs are per-file: docs/remote-luks-unlock.md is host-local ON PURPOSE (it is a
+# recovery runbook naming real hosts and slots) and must never gain a `**` here.
+!docs/
+!docs/intake-playbook.md
+
 # Explicit includes inside restic folder
 !restic/backup/
 !restic/backup/**
