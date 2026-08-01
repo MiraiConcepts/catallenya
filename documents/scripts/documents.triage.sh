@@ -439,15 +439,15 @@ if (( ${#clean[@]} )); then
     done
     bid="$(new_uuid)"
     body=""
+    n=0
     for rid in "${clean[@]}"; do
         f="${PROPOSALS_DIR}/${rid}.json"
-        body+="$(md_escape "$(jq -r .original_name "$f")")
-→ \`$(jq -r .dest_path "$f")\`
-
+        n=$((n+1))
+        body+="${n}. $(md_escape "$(jq -r .original_name "$f")") → \`$(jq -r .dest_path "$f")\`
 "
     done
     tail_note=""
-    (( ${#flagged[@]} ))     && tail_note+="_${#flagged[@]} need$( (( ${#flagged[@]} == 1 )) && printf s ) a look_
+    (( ${#flagged[@]} ))     && tail_note+="_${#flagged[@]} to review_
 "
     (( ${#blocked_ids[@]} )) && tail_note+="_${#blocked_ids[@]} cannot be filed_
 "
@@ -455,11 +455,13 @@ if (( ${#clean[@]} )); then
     # everything" and the other 180 look lost until someone opens the folder.
     (( TRUNCATED > 0 ))      && tail_note+="_${TRUNCATED} more still queued_
 "
+    [[ -n "$tail_note" ]] && tail_note="
+${tail_note}"
     jq -nc --arg i "$bid" --argjson m "$(printf '%s\n' "${clean[@]}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' > "${PROPOSALS_DIR}/${bid}.json"
-    notify "$( (( ${#clean[@]} == 1 )) && echo "1 document ready" || echo "${#clean[@]} documents ready" )" \
-        "" file_folder "${body}${tail_note}" "$(buttons "$bid" 1)"
+    notify "$( (( ${#clean[@]} == 1 )) && echo "1 Document Staged" || echo "${#clean[@]} Documents Staged" )" \
+        "" clipboard "${body}${tail_note}" "$(buttons "$bid" 1)"
     log "  notified batch of ${#clean[@]}"
 fi
 
@@ -470,19 +472,16 @@ for rid in "${NEW_IDS[@]:-}"; do
     [[ -f "$f" ]] || continue
     [[ "$(jq -r '.state' "$f")" == "staged" ]] || continue
     bl="$(jq -r '.blocked // "null"' "$f")"
-    fl="$(jq -r '.flags // [] | join(", ")' "$f")"
+    fl="$(jq -r '.flags[]?' "$f" | flags_text)"
     orig="$(md_escape "$(jq -r .original_name "$f")")"
     if [[ "$bl" != "null" ]]; then
-        notify "Cannot file — $(jq -r .original_name "$f")" "" warning \
-            "\`$(jq -r .staged_path "$f")\`
+        notify "Unable To File 1 Document" "" warning \
+            "1. \`$(jq -r .staged_path "$f")\`
 
-**${bl}**
-
-Sitting in staging until you decide." "$(buttons "$rid" 0)"
+**$(reason_text "$bl")**" "$(buttons "$rid" 0)"
     elif [[ -n "$fl" ]]; then
-        notify "Needs a look — $(jq -r .original_name "$f")" "" mag \
-            "${orig}
-→ \`$(jq -r .dest_path "$f")\`
+        notify "1 Document To Review" "" question \
+            "1. ${orig} → \`$(jq -r .dest_path "$f")\`
 
 **${fl}**" "$(buttons "$rid" 1)"
     fi

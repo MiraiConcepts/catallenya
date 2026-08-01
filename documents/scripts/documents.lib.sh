@@ -239,6 +239,48 @@ documents_base_url() {
     printf 'https://%s.%s:%s' "$TAILNET_DOMAIN" "$TAILNET_DNS_NAME" "$DOCUMENTS_REVERSE_PROXY_PORT"
 }
 
+# reason_text <CODE> -> a terse human phrase for a notification body.
+# The CODES stay in the records and the journal — stable, grep-able — but a phone
+# notification is read half-asleep, and ZIP_NEEDS_HUMAN is not English (owner,
+# 2026-08-01). An unknown code falls through unchanged, so a new one is never
+# hidden behind a blank.
+reason_text() {
+    case "$1" in
+        NEW_FOLDER)                  echo "proposes a new folder" ;;
+        DATE_NOT_PRINTED)            echo "date not printed on the document" ;;
+        LOOKALIKE_FAMILY)            echo "a type that has been misfiled before" ;;
+        AMBIGUOUS_FOLDER)            echo "unsure which folder fits" ;;
+        AMBIGUOUS_DATE)              echo "more than one plausible date" ;;
+        NO_DATE_PRINTED)             echo "no date printed on the document" ;;
+        OWNER_UNCLEAR)               echo "cannot tell whose it is" ;;
+        UNREADABLE)                  echo "too hard to read" ;;
+        MULTIPLE_DOCUMENTS)          echo "several documents in one file" ;;
+        PDF_UNREADABLE_OR_ENCRYPTED) echo "PDF is locked or unreadable" ;;
+        ZIP_ENCRYPTED_OR_CORRUPT)    echo "archive is locked or corrupt" ;;
+        ZIP_NEEDS_HUMAN)             echo "archives are never filed automatically" ;;
+        IMAGE_UNREADABLE)            echo "image cannot be read" ;;
+        UNSUPPORTED_TYPE)            echo "file type not supported" ;;
+        RASTERISE_FAILED)            echo "pages could not be rendered" ;;
+        CLASSIFY_FAILED)             echo "the model call failed" ;;
+        BAD_SEGMENT)                 echo "proposed name is not safe to use" ;;
+        ESCAPES_DOCS)                echo "proposed path leaves the documents folder" ;;
+        DESTINATION_EXISTS)          echo "something already has that name" ;;
+        IMPOSSIBLE_DATE)             echo "proposed date does not exist" ;;
+        DUPLICATE)                   echo "byte-identical copy of something already filed" ;;
+        *)                           echo "$1" ;;
+    esac
+}
+
+# flags_text — newline-separated codes on stdin -> one "; "-joined terse line.
+flags_text() {
+    local c out=""
+    while IFS= read -r c; do
+        [[ -n "$c" ]] || continue
+        out+="${out:+; }$(reason_text "$c")"
+    done
+    printf '%s' "$out"
+}
+
 # buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.
 # Reads $BASE, which the caller sets from documents_base_url (not passed per call:
 # every caller resolves it once per run, and the triage's call sites predate this

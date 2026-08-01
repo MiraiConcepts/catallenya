@@ -113,16 +113,16 @@ apply_one() {
     # master/documents is a Syncthing folder — the file may have been renamed,
     # replaced or removed from another device in between. Acting on a stale proposal
     # is how the wrong document gets filed under the right name.
-    [[ -n "$cur" && -f "$cur" ]] || { refuse "$id" "$(jq -r .original_name <<<"$rec"): document is no longer where it was"; return; }
+    [[ -n "$cur" && -f "$cur" ]] || { refuse "$id" "$(jq -r .original_name <<<"$rec") — document is no longer where it was"; return; }
     if [[ -n "$sha" && "$(sha256_of "$cur")" != "$sha" ]]; then
-        refuse "$id" "$(jq -r .original_name <<<"$rec"): contents changed since it was proposed"; return
+        refuse "$id" "$(jq -r .original_name <<<"$rec") — contents changed since it was proposed"; return
     fi
 
     case "$action" in
       accept)
         [[ "$st" == "filed" ]] && return 0                       # already there
         if [[ "$(jq -r '.blocked // "null"' <<<"$rec")" != "null" ]]; then
-            refuse "$id" "$(jq -r .original_name <<<"$rec"): $(jq -r .blocked <<<"$rec") — cannot be filed"; return
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — cannot be filed: $(reason_text "$(jq -r .blocked <<<"$rec")")"; return
         fi
         dest="${DOCS}/$(jq -r '.dest_path // empty' <<<"$rec")"
         [[ "$dest" != "${DOCS}/" ]] || { refuse "$id" "no destination recorded"; return; }
@@ -130,12 +130,12 @@ apply_one() {
         # this is the step that actually writes, and the record is a file on disk
         # that something else could have edited.
         under_docs "$dest" || { refuse "$id" "destination escapes the documents tree"; return; }
-        [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec"): something is already at ${dest#"${DOCS}/"}"; return; }
+        [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec") — something is already at ${dest#"${DOCS}/"}"; return; }
         if move_verified "$cur" "$dest" "$sha"; then
             FILED=$((FILED+1)); log "  FILED  ${dest#"${DOCS}/"}"
             jq -c --arg at "${dest#"${DOCS}/"}" '. + {state:"filed", at:$at}' <<<"$rec" > "$f"
         else
-            refuse "$id" "$(jq -r .original_name <<<"$rec"): move failed verification"
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — move failed verification"
         fi ;;
 
       discard)
@@ -146,7 +146,7 @@ apply_one() {
             BINNED=$((BINNED+1)); log "  BINNED ${dest#"${DOCS}/"}"
             jq -c --arg at "${dest#"${DOCS}/"}" '. + {state:"binned", at:$at}' <<<"$rec" > "$f"
         else
-            refuse "$id" "$(jq -r .original_name <<<"$rec"): could not move to bin"
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — could not move to bin"
         fi ;;
 
       skip)
@@ -156,13 +156,13 @@ apply_one() {
         # prefix, and returning it as 20260731T…-a.pdf would defeat the point of
         # staging — what you see there is meant to be the name accepting will use.
         dest="${STAGING_DIR}/$(basename "$(jq -r --arg b "$(basename "$cur")" '.staged_path // $b' <<<"$rec")")"
-        [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec"): staging already holds that name"; return; }
+        [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec") — staging already holds that name"; return; }
         if move_verified "$cur" "$dest" "$sha"; then
             RETURNED=$((RETURNED+1)); log "  STAGED ${dest#"${DOCS}/"}"
             jq -c --arg p "staging/$(basename "$dest")" \
                '. + {state:"staged", staged_path:$p, at:$p}' <<<"$rec" > "$f"
         else
-            refuse "$id" "$(jq -r .original_name <<<"$rec"): could not return to staging"
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — could not return to staging"
         fi ;;
 
       *) refuse "$id" "unknown action: ${action}" ;;
@@ -193,8 +193,15 @@ log "filed ${FILED}, binned ${BINNED}, returned ${RETURNED}, refused ${REFUSED}"
 # how a useful topic becomes one you mute. A refusal is the opposite: you tapped,
 # nothing happened, and without this you would never know why.
 if (( REFUSED > 0 )); then
-    notify "$( (( REFUSED == 1 )) && echo "Could not file 1 document" || echo "Could not file ${REFUSED} documents" )" \
-        high warning "$REFUSALS"
+    body=""
+    n=0
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        n=$((n+1)); body+="${n}. ${line}
+"
+    done <<<"$REFUSALS"
+    notify "$( (( REFUSED == 1 )) && echo "Could Not File 1 Document" || echo "Could Not File ${REFUSED} Documents" )" \
+        high warning "$body"
 fi
 
 left="$(find "$APPROVALS_DIR" -maxdepth 1 -name '*.json' | wc -l)"
