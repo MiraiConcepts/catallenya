@@ -195,18 +195,19 @@ log "filed ${FILED}, binned ${BINNED}, returned ${RETURNED}, refused ${REFUSED}"
 if (( REFUSED > 0 )); then
     # Refusal lines arrive as "name — Reason." (or a bare reason when there is no
     # name to blame). Rendered as a markdown ordered list matching batch_list:
-    # the name as a code span, a hard break (trailing two spaces), and the reason
-    # as regular text hanging beneath it. Backticks stripped from names — one
-    # would end the code span early.
+    # a literal "1." (escaped so no renderer restyles it), the name, a hard
+    # break (trailing two spaces), and the reason hanging beneath on NBSP
+    # indentation. Names are md_escaped rather than code-spanned — the owner
+    # dropped the spans 2026-08-01, and a filename is untrusted text.
     body=""
     n=0
     pad=$'    '
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         n=$((n+1))
-        line="$(tr -d '\`' <<<"$line")"
+        line="$(md_escape "$line")"
         if [[ "$line" == *" — "* ]]; then
-            body+="${n}\. \`${line%% — *}\`  
+            body+="${n}\. ${line%% — *}  
 ${pad}${line#* — }
 "
         else
