@@ -239,46 +239,90 @@ documents_base_url() {
     printf 'https://%s.%s:%s' "$TAILNET_DOMAIN" "$TAILNET_DNS_NAME" "$DOCUMENTS_REVERSE_PROXY_PORT"
 }
 
-# reason_text <CODE> -> a terse human phrase for a notification body.
+# reason_text <CODE> -> one capitalized human sentence for a notification body.
 # The CODES stay in the records and the journal — stable, grep-able — but a phone
 # notification is read half-asleep, and ZIP_NEEDS_HUMAN is not English (owner,
 # 2026-08-01). An unknown code falls through unchanged, so a new one is never
 # hidden behind a blank.
 reason_text() {
     case "$1" in
-        NEW_FOLDER)                  echo "proposes a new folder" ;;
-        DATE_NOT_PRINTED)            echo "date not printed on the document" ;;
-        LOOKALIKE_FAMILY)            echo "a type that has been misfiled before" ;;
-        AMBIGUOUS_FOLDER)            echo "unsure which folder fits" ;;
-        AMBIGUOUS_DATE)              echo "more than one plausible date" ;;
-        NO_DATE_PRINTED)             echo "no date printed on the document" ;;
-        OWNER_UNCLEAR)               echo "cannot tell whose it is" ;;
-        UNREADABLE)                  echo "too hard to read" ;;
-        MULTIPLE_DOCUMENTS)          echo "several documents in one file" ;;
-        PDF_UNREADABLE_OR_ENCRYPTED) echo "PDF is locked or unreadable" ;;
-        ZIP_ENCRYPTED_OR_CORRUPT)    echo "archive is locked or corrupt" ;;
-        ZIP_NEEDS_HUMAN)             echo "archives are never filed automatically" ;;
-        IMAGE_UNREADABLE)            echo "image cannot be read" ;;
-        UNSUPPORTED_TYPE)            echo "file type not supported" ;;
-        RASTERISE_FAILED)            echo "pages could not be rendered" ;;
-        CLASSIFY_FAILED)             echo "the model call failed" ;;
-        BAD_SEGMENT)                 echo "proposed name is not safe to use" ;;
-        ESCAPES_DOCS)                echo "proposed path leaves the documents folder" ;;
-        DESTINATION_EXISTS)          echo "something already has that name" ;;
-        IMPOSSIBLE_DATE)             echo "proposed date does not exist" ;;
-        DUPLICATE)                   echo "byte-identical copy of something already filed" ;;
+        PDF_UNREADABLE_OR_ENCRYPTED) echo "PDF is locked or unreadable." ;;
+        ZIP_ENCRYPTED_OR_CORRUPT)    echo "Archive is locked or corrupt." ;;
+        ZIP_NEEDS_HUMAN)             echo "Archives are never filed automatically." ;;
+        IMAGE_UNREADABLE)            echo "Image cannot be read." ;;
+        UNSUPPORTED_TYPE)            echo "File type is not supported." ;;
+        RASTERISE_FAILED)            echo "Pages could not be rendered." ;;
+        CLASSIFY_FAILED)             echo "The model call failed." ;;
+        BAD_SEGMENT)                 echo "Proposed name is not safe to use." ;;
+        ESCAPES_DOCS)                echo "Proposed path leaves the documents folder." ;;
+        DESTINATION_EXISTS)          echo "Something already has that name." ;;
+        IMPOSSIBLE_DATE)             echo "Proposed date does not exist." ;;
+        DUPLICATE)                   echo "Byte-identical copy of something already filed." ;;
         *)                           echo "$1" ;;
     esac
 }
 
-# flags_text — newline-separated codes on stdin -> one "; "-joined terse line.
-flags_text() {
-    local c out=""
+# flag_clause <FLAG> -> a predicate about "Document", combined by flags_sentence.
+flag_clause() {
+    case "$1" in
+        NEW_FOLDER)         echo "requires a new folder" ;;
+        DATE_NOT_PRINTED)   echo "has no printed date" ;;
+        NO_DATE_PRINTED)    echo "has no printed date" ;;
+        LOOKALIKE_FAMILY)   echo "is a type that has been misfiled before" ;;
+        AMBIGUOUS_FOLDER)   echo "could belong in more than one folder" ;;
+        AMBIGUOUS_DATE)     echo "shows more than one plausible date" ;;
+        OWNER_UNCLEAR)      echo "does not say whose it is" ;;
+        UNREADABLE)         echo "is hard to read" ;;
+        MULTIPLE_DOCUMENTS) echo "contains several documents" ;;
+        OK)                 echo "needs a look" ;;
+        *)                  echo "is flagged $1" ;;
+    esac
+}
+
+# flags_sentence — flag codes on stdin, one per line -> "Document has no printed
+# date and requires a new folder." Duplicate clauses collapse: DATE_NOT_PRINTED
+# and NO_DATE_PRINTED both arrive on a dateless document and must not read
+# "Document has no printed date and has no printed date."
+flags_sentence() {
+    local c cl out="" seen=""
     while IFS= read -r c; do
         [[ -n "$c" ]] || continue
-        out+="${out:+; }$(reason_text "$c")"
+        cl="$(flag_clause "$c")"
+        [[ "$seen" == *"|${cl}|"* ]] && continue
+        seen+="|${cl}|"
+        out+="${out:+ and }${cl}"
     done
-    printf '%s' "$out"
+    [[ -n "$out" ]] && printf 'Document %s.' "$out"
+}
+
+# batch_tree <record-file>... -> the Tree-B notification body: destination
+# folders as headers, their files beneath with ├/└ branches, numbered in DISPLAY
+# order (grouping reorders, and a number that jumps around the list reads as an
+# error), with each document's original name in parentheses. Plain text on
+# purpose — ntfy bodies render in a proportional font, so nothing here tries to
+# align, and nothing is backticked into monospace.
+batch_tree() {
+    local -a forder=() items=()
+    local -A byfolder=()
+    local f dest orig folder n=0 i count br
+    for f in "$@"; do
+        dest="$(jq -r '.dest_path // empty' "$f")"
+        orig="$(jq -r '.original_name // "?"' "$f")"
+        [[ -n "$dest" ]] || continue
+        folder="${dest%/*}"
+        [[ -n "${byfolder[$folder]:-}" ]] || forder+=("$folder")
+        byfolder[$folder]+="${dest##*/}|${orig}"$'\n'
+    done
+    for folder in "${forder[@]}"; do
+        printf '%s/\n' "$folder"
+        mapfile -t items <<<"${byfolder[$folder]%$'\n'}"
+        count=${#items[@]}
+        for i in "${!items[@]}"; do
+            n=$((n+1))
+            br="├"; (( i == count - 1 )) && br="└"
+            printf '%s %d. %s (was %s)\n' "$br" "$n" "${items[$i]%%|*}" "$(md_escape "${items[$i]#*|}")"
+        done
+    done
 }
 
 # buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.

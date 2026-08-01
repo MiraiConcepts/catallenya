@@ -98,7 +98,7 @@ for f in "${PROPOSALS_DIR}"/*.json; do
 
     orig="$(jq -r '.original_name // "?"' <<<"$rec")"
     bl="$(jq -r '.blocked // "null"' <<<"$rec")"
-    fl="$(jq -r '.flags[]?' <<<"$rec" | flags_text)"
+    fl="$(jq -r '.flags[]?' <<<"$rec" | flags_sentence)"
 
     # --- a week untouched: move to bin/, with a final note ------------------
     if (( age_h >= BIN_AFTER_DAYS * 24 )); then
@@ -112,11 +112,18 @@ for f in "${PROPOSALS_DIR}"/*.json; do
             stamp "$f" --arg at "${dest#"${DOCS}/"}" '. + {state:"binned", at:$at}'
             binned=$((binned + 1)); log "binned ${sp} (${age_h}h staged)"
             offer_accept=1; [[ "$bl" != "null" ]] && offer_accept=0
-            notify "Moved To Bin: 1 Document" "" wastebasket \
-                "1. $(md_escape "$orig")
+            binbody="1. $(md_escape "$orig")
 
-_Staged $(( age_h / 24 )) days with no decision, now in \`bin/\`. Accept still files it$( (( offer_accept )) || printf ' (%s)' "$(reason_text "$bl")"); Skip returns it to staging. bin/ is never emptied automatically._" \
-                "$(buttons "$id" "$offer_accept")"
+"
+            [[ "$bl" != "null" ]] && binbody+="$(reason_text "$bl")
+
+"
+            if (( offer_accept )); then
+                binbody+="In bin/ after $(( age_h / 24 )) days with no decision. Accept still files it; Skip returns it to staging."
+            else
+                binbody+="In bin/ after $(( age_h / 24 )) days with no decision. Skip returns it to staging."
+            fi
+            notify "Binned: 1 Document" "" wastebasket "$binbody" "$(buttons "$id" "$offer_accept")"
         else
             log "  !! could not bin ${sp}"
         fi
@@ -130,15 +137,15 @@ _Staged $(( age_h / 24 )) days with no decision, now in \`bin/\`. Accept still f
             continue
         fi
         if [[ "$bl" != "null" ]]; then
-            notify "Still Unable To File 1 Document" "" warning \
-                "1. \`${sp}\`
+            notify "Pending Blocked: 1 Document" "" warning \
+                "1. $(md_escape "$(basename "$sp")")
 
-**$(reason_text "$bl")** — staged ${age_h}h ago, no decision yet." "$(buttons "$id" 0)"
+$(reason_text "$bl")" "$(buttons "$id" 0)"
         elif [[ -n "$fl" ]]; then
-            notify "Still To Review: 1 Document" "" question \
-                "1. $(md_escape "$orig") → \`$(jq -r '.dest_path // "?"' <<<"$rec")\`
+            notify "Pending Review: 1 Document" "" question \
+                "$(batch_tree "$f")
 
-**${fl}** — staged ${age_h}h ago, no decision yet." "$(buttons "$id" 1)"
+${fl}" "$(buttons "$id" 1)"
         else
             batch_members+=("$id")      # clean ones re-batch below, as one message
         fi
@@ -158,22 +165,15 @@ if (( ${#batch_members[@]} )); then
         stamp "$old" '. + {state:"superseded"}'
     done
     bid="$(new_uuid)"
-    body=""
-    n=0
-    for rid in "${batch_members[@]}"; do
-        rf="${PROPOSALS_DIR}/${rid}.json"
-        n=$((n+1))
-        body+="${n}. $(md_escape "$(jq -r .original_name "$rf")") → \`$(jq -r .dest_path "$rf")\`
-"
-    done
+    bfiles=()
+    for rid in "${batch_members[@]}"; do bfiles+=("${PROPOSALS_DIR}/${rid}.json"); done
     jq -nc --arg i "$bid" \
         --argjson m "$(printf '%s\n' "${batch_members[@]}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' \
         > "${PROPOSALS_DIR}/${bid}.json"
-    notify "Still Waiting: ${#batch_members[@]} Document$( (( ${#batch_members[@]} == 1 )) || printf s )" \
-        "" clipboard "${body}
-_Proposed over a day ago, no decision yet._" \
+    notify "Pending Staged: ${#batch_members[@]} Document$( (( ${#batch_members[@]} == 1 )) || printf s )" \
+        "" clipboard "$(batch_tree "${bfiles[@]}")" \
         "$(buttons "$bid" 1)"
 fi
 

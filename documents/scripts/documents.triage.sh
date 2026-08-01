@@ -438,30 +438,23 @@ if (( ${#clean[@]} )); then
         jq -c '. + {state:"superseded"}' "$old" > "${old}.tmp" && mv "${old}.tmp" "$old"
     done
     bid="$(new_uuid)"
-    body=""
-    n=0
-    for rid in "${clean[@]}"; do
-        f="${PROPOSALS_DIR}/${rid}.json"
-        n=$((n+1))
-        body+="${n}. $(md_escape "$(jq -r .original_name "$f")") → \`$(jq -r .dest_path "$f")\`
+    cfiles=()
+    for rid in "${clean[@]}"; do cfiles+=("${PROPOSALS_DIR}/${rid}.json"); done
+    body="$(batch_tree "${cfiles[@]}")
 "
-    done
-    tail_note=""
-    (( ${#flagged[@]} ))     && tail_note+="_${#flagged[@]} to review_
+    # No count of flagged/blocked here — each of those already has its own
+    # notification, so a tail line was the same fact twice. The truncation count
+    # is different: deferred documents have NO other notification yet, and
+    # silently processing 20 of 200 reads as "that's everything" while the other
+    # 180 look lost until someone opens the folder.
+    (( TRUNCATED > 0 )) && body+="
+_${TRUNCATED} more still queued_
 "
-    (( ${#blocked_ids[@]} )) && tail_note+="_${#blocked_ids[@]} cannot be filed_
-"
-    # Never let the cap hide work. Silently processing 20 of 200 reads as "that's
-    # everything" and the other 180 look lost until someone opens the folder.
-    (( TRUNCATED > 0 ))      && tail_note+="_${TRUNCATED} more still queued_
-"
-    [[ -n "$tail_note" ]] && tail_note="
-${tail_note}"
     jq -nc --arg i "$bid" --argjson m "$(printf '%s\n' "${clean[@]}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' > "${PROPOSALS_DIR}/${bid}.json"
-    notify "$( (( ${#clean[@]} == 1 )) && echo "1 Document Staged" || echo "${#clean[@]} Documents Staged" )" \
-        "" clipboard "${body}${tail_note}" "$(buttons "$bid" 1)"
+    notify "Staged: ${#clean[@]} Document$( (( ${#clean[@]} == 1 )) || printf s )" \
+        "" clipboard "$body" "$(buttons "$bid" 1)"
     log "  notified batch of ${#clean[@]}"
 fi
 
@@ -472,18 +465,17 @@ for rid in "${NEW_IDS[@]:-}"; do
     [[ -f "$f" ]] || continue
     [[ "$(jq -r '.state' "$f")" == "staged" ]] || continue
     bl="$(jq -r '.blocked // "null"' "$f")"
-    fl="$(jq -r '.flags[]?' "$f" | flags_text)"
-    orig="$(md_escape "$(jq -r .original_name "$f")")"
+    fl="$(jq -r '.flags[]?' "$f" | flags_sentence)"
     if [[ "$bl" != "null" ]]; then
-        notify "Unable To File 1 Document" "" warning \
-            "1. \`$(jq -r .staged_path "$f")\`
+        notify "Blocked: 1 Document" "" warning \
+            "1. $(md_escape "$(basename "$(jq -r .staged_path "$f")")")
 
-**$(reason_text "$bl")**" "$(buttons "$rid" 0)"
+$(reason_text "$bl")" "$(buttons "$rid" 0)"
     elif [[ -n "$fl" ]]; then
-        notify "1 Document To Review" "" question \
-            "1. ${orig} → \`$(jq -r .dest_path "$f")\`
+        notify "Review: 1 Document" "" question \
+            "$(batch_tree "$f")
 
-**${fl}**" "$(buttons "$rid" 1)"
+${fl}" "$(buttons "$rid" 1)"
     fi
 done
 
