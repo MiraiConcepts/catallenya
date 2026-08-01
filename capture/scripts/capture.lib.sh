@@ -25,63 +25,12 @@ PENDING_DIR="${DATA_DIR}/pending"
 # the prompt against real failures, and few-shot examples. Exactly the shape of the
 # golden set used for the 2026-07-24 bake-off, but accumulating on its own.
 ARCHIVE_DIR="${DATA_DIR}/archive"
-# Append-only ledger of the same verdicts, one JSON object per line, for analysis
-# without walking the archive (accept rate over time, alt-tap rate, etc).
-DECISIONS_LOG="${DATA_DIR}/decisions.jsonl"
-# Test taps land here instead. Kept rather than discarded because while a prompt is
-# being iterated on, the test verdicts ARE the signal — "did the year fix work" is
-# answered from these. A separate file beats one file plus a filter: there is no
-# filter to get wrong later, and the production accept rate cannot be contaminated.
-DECISIONS_TEST_LOG="${DATA_DIR}/decisions.test.jsonl"
-
-# --- recording mode --------------------------------------------------------
-# One word in one file, rather than a pair of negatively-named flags whose
-# combinations nobody can hold in their head:
-#
-#   off    resolved captures are DELETED; nothing is counted
-#   test   captures are KEPT; verdicts go to decisions.test.jsonl
-#   prod   captures are KEPT; verdicts go to decisions.jsonl
-#
-#   printf 'test\n' > capture/data/recording-mode
-#   cat capture/data/recording-mode      # answers "what am I in" in one line
-#
-# Read at use time, so changing it needs no restart of anything.
-MODE_FILE="${DATA_DIR}/recording-mode"
-# Pre-2026-07-27 flag. Kept as a synonym for `off` so that if it ever reappears —
-# from a snapshot rollback, an old runbook — it still does the conservative thing
-# rather than silently promoting the box to prod and retaining everything.
-LEGACY_OFF_FLAG="${DATA_DIR}/.recording-disabled"
-
-# recording_mode -> off | test | prod
-# Missing file means prod: retention is the documented policy (user, 2026-07-25),
-# and a fresh install silently recording nothing is exactly the failure this
-# replaces. The triage logs the active mode every run so it is never invisible.
-#
-# An unreadable or misspelt value falls back to TEST, not to either extreme. A typo
-# landing on prod would silently contaminate the accept rate — the precise harm this
-# exists to prevent — and one landing on off would silently destroy records, which
-# is unrecoverable. test is the only value whose failure modes are both reversible:
-# you keep more than you meant to, and the metric does not move.
-recording_mode() {
-    [[ -e "$LEGACY_OFF_FLAG" ]] && { echo off; return; }
-    [[ -f "$MODE_FILE" ]] || { echo prod; return; }
-    local m
-    m="$(tr -d '[:space:]' < "$MODE_FILE" 2>/dev/null)"
-    case "$m" in
-        off|test|prod) echo "$m" ;;
-        *) log "  !! unrecognised recording-mode '${m}' — falling back to test"; echo test ;;
-    esac
-}
-
-# record_mode <record-dir> -> off | test | prod
-# The mode a record was CAPTURED under, not the mode in force when the button was
-# finally tapped. Without this, ten test captures tapped after a switch to prod are
-# counted as production data. Records predating the stamp fall back to the current
-# mode, which is the best available answer for them.
-record_mode() {
-    local f="${1}/mode"
-    [[ -f "$f" ]] && tr -d '[:space:]' < "$f" || recording_mode
-}
+# There is no ledger and no recording mode any more (retired 2026-08-01, with the
+# documents convergence). State is LOCATIONS ONLY — incoming -> pending -> archive —
+# and each archived record carries its own decision.json, so any ledger-style
+# question is a jq over archive/*/decision.json. The mode machinery existed to
+# protect a production accept-rate metric that was never actually consulted; old
+# records keep their `mode` files and fields, which nothing reads.
 SCRIPT_DIR="${CAPTURE_DIR}/scripts"
 
 NTFY_TOPIC="capture"
@@ -227,7 +176,6 @@ fork_record() {
     mkdir -p "$dst" || return 1
     ln "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" 2>/dev/null \
         || cp "${src}/screenshot.${ext}" "${dst}/screenshot.${ext}" || return 1
-    cp "${src}/mode" "${dst}/mode" 2>/dev/null
     # The whole model reply, so any record can answer "what else was on that page".
     cp "${src}/capture.json" "${dst}/capture.json" 2>/dev/null
     jq -c --arg g "$group" '. + {capture_group:$g}' "${src}/context.json" \
@@ -424,7 +372,7 @@ notify() {
         --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
 }
 
-# write_context <record-dir> <mode> <now-local> <image> <prompt>
+# write_context <record-dir> <now-local> <image> <prompt>
 # Everything needed to interpret this record later, written when the capture is
 # claimed so it survives an API failure too.
 #
@@ -438,7 +386,7 @@ notify() {
 # 2026-07-27 alone, so a difference between two records could be the prompt, the
 # model, or the screenshot, with no way to tell which.
 write_context() {
-    local rec="$1" mode="$2" now_local="$3" img="$4" prompt="$5"
+    local rec="$1" now_local="$2" img="$3" prompt="$4"
     local psha ssha bytes
     # Hash the TEMPLATE, not the rendered prompt. The prompt embeds the capture
     # time, so hashing the rendered text gave every capture a unique digest — seven
@@ -452,12 +400,12 @@ write_context() {
 
     jq -n --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           --arg captured_at_local "$now_local" --arg event_tz "$EVENT_TZ" \
-          --arg mode "$mode" --arg model "$AI_MODEL" --arg effort "$AI_EFFORT" \
+          --arg model "$AI_MODEL" --arg effort "$AI_EFFORT" \
           --arg prompt "$prompt" --arg prompt_sha256 "$psha" \
           --arg schema_sha256 "$ssha" --arg mime "$(image_mime "$img")" \
           --argjson bytes "$bytes" --argjson duration_min "$DURATION_MIN" \
         '{captured_at:$captured_at, captured_at_local:$captured_at_local,
-          event_tz:$event_tz, mode:$mode,
+          event_tz:$event_tz,
           model:$model, effort:$effort, duration_min:$duration_min,
           prompt_sha256:$prompt_sha256, schema_sha256:$schema_sha256,
           image:{mime:$mime, bytes:$bytes},
@@ -480,23 +428,14 @@ add_usage() {
 }
 
 # archive_record <id> <src-dir> <outcome> [note]
-# Resolve a capture: stamp the verdict, move the whole record (screenshot +
-# proposal + rendered .ics) into the archive, and append one line to the ledger.
+# Resolve a capture: stamp the verdict into decision.json and move the whole
+# record (screenshot + proposal + rendered .ics) into the archive. The record IS
+# the history — there is no ledger beside it.
 # Outcomes: add | add_alt | discard | ignored | needs_human | not_event | failed
 archive_record() {
     local id="$1" src="$2" outcome="$3" note="${4:-}"
     local dest="${ARCHIVE_DIR}/${id}"
     [[ -d "$src" ]] || return 1
-
-    # The mode the capture was TAKEN under, not the one in force now.
-    local mode; mode="$(record_mode "$src")"
-
-    # off: bin the whole record, log the outcome to the journal only.
-    if [[ "$mode" == "off" ]]; then
-        rm -rf "$src"
-        log "  [not recorded: ${outcome}] recording-mode is off"
-        return 0
-    fi
 
     mkdir -p "$ARCHIVE_DIR"
 
@@ -513,18 +452,13 @@ archive_record() {
     proposed="$(date -u -r "$anchor" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$decided")"
     latency=$(( $(date +%s) - $(stat -c %Y "$anchor" 2>/dev/null || date +%s) ))
 
-    jq -n --arg id "$id" --arg outcome "$outcome" --arg note "$note" --arg mode "$mode" \
+    jq -n --arg id "$id" --arg outcome "$outcome" --arg note "$note" \
           --arg decided "$decided" --arg proposed "$proposed" --argjson latency "$latency" \
-        '{id:$id, outcome:$outcome, note:$note, mode:$mode, proposed_at:$proposed,
+        '{id:$id, outcome:$outcome, note:$note, proposed_at:$proposed,
           decided_at:$decided, latency_s:$latency}' > "${src}/decision.json"
 
     rm -rf "$dest"
     mv "$src" "$dest" || return 1
-    # test verdicts go to their own ledger, so the production accept rate can never
-    # be contaminated by a tap made while exercising the pipeline.
-    local ledger="$DECISIONS_LOG"
-    [[ "$mode" == "test" ]] && ledger="$DECISIONS_TEST_LOG"
-    jq -c . "${dest}/decision.json" >> "$ledger"
 }
 
 # The capture service's own tailnet URL — the Add/Discard buttons POST back here,

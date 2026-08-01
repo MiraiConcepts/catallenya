@@ -22,9 +22,8 @@ source "${SELF_DIR}/capture.lib.sh"
 : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY not set (EnvironmentFile=/etc/ai.env)}"
 
 # Fail loudly and up front. Without this a missing jq or python3 fails every capture
-# individually — each archived as "failed", each deleted under recording-mode off —
-# while the unit still exits 0 and systemd stays green. Same gate documents.intake
-# and immich.lib.sh use.
+# individually, each archived as "failed", while the unit still exits 0 and systemd
+# stays green. Same gate documents.triage and immich.lib.sh use.
 for _bin in jq python3 curl base64 od sha256sum; do
     command -v "$_bin" >/dev/null || die "missing required command: ${_bin}"
 done
@@ -276,8 +275,7 @@ notify_event() {
 shopt -s nullglob
 pngs=("$IN_DIR"/*.png)
 (( ${#pngs[@]} )) || { log "nothing to do"; exit 0; }
-MODE="$(recording_mode)"
-log "draining ${#pngs[@]} capture(s) [recording-mode: ${MODE}]"
+log "draining ${#pngs[@]} capture(s)"
 
 # Tallied so the unit can exit non-zero when nothing worked. A oneshot that always
 # exits 0 is invisible to systemd, so OnFailure= would never fire no matter how
@@ -315,20 +313,17 @@ for png in "${pngs[@]}"; do
         continue
     fi
     png="${rec}/screenshot.${ext}"
-    # Stamp the mode NOW. archive_record reads this rather than the live setting,
-    # so a test capture tapped after a switch to prod is still counted as a test.
-    printf '%s\n' "$MODE" > "${rec}/mode"
-    # Same reasoning for the context: written before the call, so a record is
-    # attributable even when the API never answers.
-    write_context "$rec" "$MODE" "$now_h" "$png" "$(triage_prompt "$now_h")"
+    # Context is written before the call, so a record is attributable even when
+    # the API never answers.
+    write_context "$rec" "$now_h" "$png" "$(triage_prompt "$now_h")"
 
     ask_rc=0
     proposal="$(ask "$png" "$now_h" "$rec")" || ask_rc=$?
     if (( ask_rc == 2 )); then
         # Transient. Leave the record in pending/ with no proposal.json: that is
         # exactly the shape capture.sweep.sh adopts and re-queues. Deliberately
-        # NOT archived — with recording off, archiving deletes the screenshot, so
-        # a rate limit used to destroy the only copy of what the user captured.
+        # NOT archived — archiving is a resolution, and a rate limit has not
+        # resolved anything.
         FAILED=$((FAILED + 1))
         log "  left in pending/ — the sweep will re-queue it"
         continue
@@ -384,9 +379,9 @@ for png in "${pngs[@]}"; do
     # One screenshot can describe several events — a festival day, a tour, a
     # schedule. Each becomes its OWN record with its own id, screenshot (hardlinked,
     # so N events cost one image), notification and buttons. Fanning out here rather
-    # than teaching the container about indexes means the container, the sweep, the
-    # archive and the ledger all keep working on exactly the shape they already
-    # handle: one record, one event, one verdict.
+    # than teaching the container about indexes means the container, the sweep and
+    # the archive all keep working on exactly the shape they already handle: one
+    # record, one event, one verdict.
     # capture.json is already written, above the not_event branch — every record
     # carries the whole reply regardless of which branch resolves it.
 

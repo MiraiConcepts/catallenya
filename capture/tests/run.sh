@@ -49,15 +49,14 @@ echo "library surface"
 for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
           image_mime image_ext button_label diff_axis event_is_past \
           api_class api_post ai_build_request ai_extract \
-          clean_proposal validate_proposal md_escape triage_route write_context add_usage fork_record \
-          recording_mode record_mode; do
+          clean_proposal validate_proposal md_escape triage_route write_context add_usage fork_record; do
     declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
 done
 
 # And that the scripts only call helpers that exist.
 for src in "${SCRIPT_DIR}/capture.triage.sh" "${SCRIPT_DIR}/capture.sweep.sh"; do
     missing=""
-    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|ai_build_request|ai_extract|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record|recording_mode|record_mode)\b' "$src" | sort -u); do
+    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|ai_build_request|ai_extract|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record)\b' "$src" | sort -u); do
         declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
     done
     [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
@@ -213,13 +212,11 @@ echo "fork_record"
 
 FD="$(mktemp -d)"; mkdir -p "${FD}/src"
 printf '\211PNG\r\n\032\n' > "${FD}/src/screenshot.png"
-printf 'test\n' > "${FD}/src/mode"
 echo '{"model":"claude-opus-5"}' > "${FD}/src/context.json"
 
 fork_record "${FD}/src" "${FD}/e2" png CAPGROUP && ok "fork_record succeeds" || bad "fork_record" 0 1
 is "sibling has the image"     "$([ -f "${FD}/e2/screenshot.png" ] && echo yes)" "yes"
 is "image is hardlinked"       "$(stat -c %h "${FD}/src/screenshot.png")" "2"
-is "sibling carries the mode"  "$(cat "${FD}/e2/mode")" "test"
 is "sibling is linked to the capture" "$(jq -r .capture_group "${FD}/e2/context.json")" "CAPGROUP"
 is "sibling keeps the context" "$(jq -r .model "${FD}/e2/context.json")" "claude-opus-5"
 # Each record holds only its own event, so without the whole reply a truncated
@@ -428,56 +425,6 @@ is "nulls stay null" "$(jq -r '[.events[0].location,.events[0].description]|map(
 out="$(clean_proposal "$(jq -cn --arg r "line1${CR}line2" '{reason:$r, events:[]}')")"
 hasnt "control chars stripped from reason" "$(jq -r .reason <<<"$out")" "$CR"
 
-# -------------------------------------------------------------- recording mode
-echo "recording_mode / record_mode"
-
-MODED="$(mktemp -d)"
-mode_is() { # $1 = file contents (or __none__) -> resolved mode
-    local d="$MODED"
-    rm -f "${d}/recording-mode" "${d}/.recording-disabled"
-    [[ "$1" != "__none__" ]] && printf '%s' "$1" > "${d}/recording-mode"
-    MODE_FILE="${d}/recording-mode" LEGACY_OFF_FLAG="${d}/.recording-disabled" \
-        bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG="$3"; recording_mode' \
-        _ "${SCRIPT_DIR}/capture.lib.sh" "${d}/recording-mode" "${d}/.recording-disabled" 2>/dev/null
-}
-is "off is honoured"          "$(mode_is off)"      "off"
-is "test is honoured"         "$(mode_is test)"     "test"
-is "prod is honoured"         "$(mode_is prod)"     "prod"
-is "trailing newline is fine" "$(mode_is 'prod
-')"                                                 "prod"
-# Missing file means prod: retention is the documented policy, and a fresh install
-# silently recording nothing is the failure this replaces.
-is "no file means prod"       "$(mode_is __none__)" "prod"
-# A typo must not land on either extreme — prod would silently contaminate the
-# accept rate, off would silently destroy records. Both are the harms this exists
-# to prevent; test is the only value whose failure modes are reversible.
-is "typo falls back to test"  "$(mode_is prd)"      "test"
-is "empty falls back to test" "$(mode_is '')"       "test"
-
-# The legacy flag must keep meaning `off`, so a snapshot rollback or an old runbook
-# cannot silently promote the box to prod and start retaining everything.
-: > "${MODED}/.recording-disabled"; printf 'prod' > "${MODED}/recording-mode"
-is "legacy flag still wins" \
-   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG="$3"; recording_mode' \
-      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/.recording-disabled" 2>/dev/null)" \
-   "off"
-rm -f "${MODED}/.recording-disabled"
-
-# A record carries the mode it was CAPTURED under. Without this, test captures
-# tapped after a switch to prod would be counted as production data.
-printf 'prod' > "${MODED}/recording-mode"
-mkdir -p "${MODED}/rec"; printf 'test\n' > "${MODED}/rec/mode"
-is "stamped mode beats the live setting" \
-   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG=/nonexistent; record_mode "$3"' \
-      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/rec")" \
-   "test"
-rm -f "${MODED}/rec/mode"
-is "unstamped record uses the live setting" \
-   "$(bash -c 'source "$1"; MODE_FILE="$2"; LEGACY_OFF_FLAG=/nonexistent; record_mode "$3"' \
-      _ "${SCRIPT_DIR}/capture.lib.sh" "${MODED}/recording-mode" "${MODED}/rec")" \
-   "prod"
-rm -rf "$MODED"
-
 # ------------------------------------------------------------- prompt contract
 # These assert the SCHEMA and the prompt's rules, not the model's judgement — the
 # rules landed on 2026-07-27 after seven live captures exposed each gap, and a
@@ -625,13 +572,12 @@ echo "write_context / add_usage"
 
 CTXD="$(mktemp -d)"; mkdir -p "${CTXD}/rec"
 printf '\211PNG\r\n\032\n' > "${CTXD}/shot.png"
-write_context "${CTXD}/rec" test "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT ONE"
+write_context "${CTXD}/rec" "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT ONE"
 ctx="${CTXD}/rec/context.json"
 
 is "context.json is valid json" "$(jq -e . "$ctx" >/dev/null 2>&1 && echo yes)" "yes"
 is "records the model"          "$(jq -r .model "$ctx")"             "claude-opus-5"
 is "records the effort"         "$(jq -r .effort "$ctx")"            "high"
-is "records the mode"           "$(jq -r .mode "$ctx")"              "test"
 is "records the local anchor"   "$(jq -r .captured_at_local "$ctx")" "Monday 2026-07-27 21:50"
 is "records the event tz"       "$(jq -r .event_tz "$ctx")"          "Asia/Singapore"
 is "stores the prompt in full"  "$(jq -r .prompt "$ctx")"            "PROMPT ONE"
@@ -641,7 +587,7 @@ is "hashes the schema"          "$(jq -r '.schema_sha256|length' "$ctx")" "64"
 
 # The hash is what lets records be grouped by prompt version without diffing text.
 h1="$(jq -r .prompt_sha256 "$ctx")"
-write_context "${CTXD}/rec" test "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT TWO"
+write_context "${CTXD}/rec" "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT TWO"
 h2="$(jq -r .prompt_sha256 "${CTXD}/rec/context.json")"
 is  "prompt hash is 64 hex" "${#h1}" "64"
 isnt "a changed prompt changes the hash" "$h1" "$h2"
