@@ -440,7 +440,7 @@ if (( ${#clean[@]} )); then
     bid="$(new_uuid)"
     cfiles=()
     for rid in "${clean[@]}"; do cfiles+=("${PROPOSALS_DIR}/${rid}.json"); done
-    body="$(batch_tree "${cfiles[@]}")
+    body="$(batch_list "${cfiles[@]}")
 "
     # No count of flagged/blocked here — each of those already has its own
     # notification, so a tail line was the same fact twice. The truncation count
@@ -467,13 +467,13 @@ for rid in "${NEW_IDS[@]:-}"; do
     bl="$(jq -r '.blocked // "null"' "$f")"
     fl="$(jq -r '.flags[]?' "$f" | flags_sentence)"
     if [[ "$bl" != "null" ]]; then
-        notify "Blocked: 1 Document" "" warning \
+        notify "Blocked: 1 Document" high warning \
             "1. $(md_escape "$(basename "$(jq -r .staged_path "$f")")")
 
 $(reason_text "$bl")" "$(buttons "$rid" 0)"
     elif [[ -n "$fl" ]]; then
-        notify "Review: 1 Document" "" question \
-            "$(batch_tree "$f")
+        notify "Review: 1 Document" high question \
+            "$(batch_list "$f")
 
 ${fl}" "$(buttons "$rid" 1)"
     fi

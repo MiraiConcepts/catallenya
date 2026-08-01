@@ -137,13 +137,13 @@ for f in "${PROPOSALS_DIR}"/*.json; do
             continue
         fi
         if [[ "$bl" != "null" ]]; then
-            notify "Pending Blocked: 1 Document" "" warning \
+            notify "Pending Blocked: 1 Document" high warning \
                 "1. $(md_escape "$(basename "$sp")")
 
 $(reason_text "$bl")" "$(buttons "$id" 0)"
         elif [[ -n "$fl" ]]; then
-            notify "Pending Review: 1 Document" "" question \
-                "$(batch_tree "$f")
+            notify "Pending Review: 1 Document" high question \
+                "$(batch_list "$f")
 
 ${fl}" "$(buttons "$id" 1)"
         else
@@ -173,7 +173,7 @@ if (( ${#batch_members[@]} )); then
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' \
         > "${PROPOSALS_DIR}/${bid}.json"
     notify "Pending Staged: ${#batch_members[@]} Document$( (( ${#batch_members[@]} == 1 )) || printf s )" \
-        "" clipboard "$(batch_tree "${bfiles[@]}")" \
+        "" clipboard "$(batch_list "${bfiles[@]}")" \
         "$(buttons "$bid" 1)"
 fi
 
