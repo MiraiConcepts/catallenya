@@ -346,7 +346,9 @@ triage_route() {
 # arrives at the same weight. Ranking them against each other was noise — a
 # past-event note is not more or less important than the event beside it. The
 # argument is kept, not removed, because the infrastructure alarms (a capture
-# stuck in incoming/, a run that gave up) genuinely do want to shout.
+# stuck in incoming/, a run that gave up) genuinely do want to shout. One
+# calendar-facing exception: needs-a-human is high, because it fires exactly
+# once with no buttons and no sweep nudge — the rationale is at its call site.
 notify() {
     _load_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"

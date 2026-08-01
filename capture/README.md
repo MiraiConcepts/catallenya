@@ -159,11 +159,14 @@ Two captures that need you rather than a decision use the same 📅 and no butto
 **Missing Event** (the screenshot described nothing schedulable) and a needs-a-human
 capture, which leads with the event's own title where the reply carried one and falls
 back to **Needs A Human**. Notifications send no `Priority` header at all — ranking a
-proposal against the note beside it was noise.
+proposal against the note beside it was noise — with one exception: needs-a-human
+sends `high`, because it fires exactly once with no buttons and no sweep nudge, so it
+is the one calendar-facing message where a miss loses the capture.
 
 The 📅 is an emoji from the `Tags:` header, and every calendar-facing notification
-uses it; only the three infrastructure alarms (`Capture Stuck`, `Capture Failed`,
-`Capture Gave Up`) differ, because those are the pipeline reporting on itself. Custom
+uses it; only the four infrastructure alarms (`Capture Stuck`, `Capture Failed`,
+`Capture Gave Up`, `Stray Files In Capture Spool`) differ, because those are the
+pipeline reporting on itself. Custom
 icons are possible — an `Icon:` header pointing at a PNG/JPEG URL, fetched by the
 *phone* rather than the server and cached about a day — but are deliberately not used
 here: a tag emoji needs nothing hosted and nothing fetched.
