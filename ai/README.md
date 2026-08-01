@@ -6,7 +6,7 @@
 | Consumer | Job |
 |---|---|
 | `capture/scripts/capture.triage.sh` | screenshot → proposed calendar event |
-| `syncthing/scripts/documents.intake.classify.sh` | document page → filing decision |
+| `syncthing/scripts/documents.triage.sh` | document page → filing decision |
 
 ## Why a library and not a service
 
@@ -33,7 +33,9 @@ contained change, not a rewrite. That is the trigger condition; absent it, don't
 | `ai_build_request <out> <model> <effort> <max_tokens> <schema> <prompt> [img...]` | writes the `/v1/messages` body |
 | `ai_extract <response>` | `stop_reason` gate + structured-object extraction |
 
-Consumers keep only what is theirs: prompt, schema, model, effort, max_tokens.
+`AI_MODEL` / `AI_EFFORT` live here too — both pipelines run the same model at the
+same effort, so a model bump is one edit. Consumers keep only what is theirs:
+prompt, schema, max_tokens.
 
 ## Things that are load-bearing
 

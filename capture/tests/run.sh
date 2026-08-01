@@ -630,7 +630,7 @@ ctx="${CTXD}/rec/context.json"
 
 is "context.json is valid json" "$(jq -e . "$ctx" >/dev/null 2>&1 && echo yes)" "yes"
 is "records the model"          "$(jq -r .model "$ctx")"             "claude-opus-5"
-is "records the effort"         "$(jq -r .effort "$ctx")"            "medium"
+is "records the effort"         "$(jq -r .effort "$ctx")"            "high"
 is "records the mode"           "$(jq -r .mode "$ctx")"              "test"
 is "records the local anchor"   "$(jq -r .captured_at_local "$ctx")" "Monday 2026-07-27 21:50"
 is "records the event tz"       "$(jq -r .event_tz "$ctx")"          "Asia/Singapore"

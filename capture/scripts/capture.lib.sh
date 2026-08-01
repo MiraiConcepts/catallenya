@@ -85,8 +85,8 @@ record_mode() {
 SCRIPT_DIR="${CAPTURE_DIR}/scripts"
 
 NTFY_TOPIC="capture"
-MODEL="claude-opus-5"
-EFFORT="medium"          # bake-off winner ran adaptive thinking; medium caps spend
+# Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
+# documents pipeline — one edit there moves both.
 # Output ceiling for one triage call. Adaptive thinking counts against this, and a
 # festival page fanning out to MAX_EVENTS_PER_CAPTURE entries is the widest reply the
 # schema can produce. Truncation surfaces as stop_reason=max_tokens, which ai_extract
@@ -452,7 +452,7 @@ write_context() {
 
     jq -n --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           --arg captured_at_local "$now_local" --arg event_tz "$EVENT_TZ" \
-          --arg mode "$mode" --arg model "$MODEL" --arg effort "$EFFORT" \
+          --arg mode "$mode" --arg model "$AI_MODEL" --arg effort "$AI_EFFORT" \
           --arg prompt "$prompt" --arg prompt_sha256 "$psha" \
           --arg schema_sha256 "$ssha" --arg mime "$(image_mime "$img")" \
           --argjson bytes "$bytes" --argjson duration_min "$DURATION_MIN" \
