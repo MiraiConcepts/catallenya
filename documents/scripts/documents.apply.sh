@@ -205,7 +205,7 @@ if (( REFUSED > 0 )); then
         n=$((n+1))
         line="$(tr -d '\`' <<<"$line")"
         if [[ "$line" == *" — "* ]]; then
-            body+="${n}. \`${line%% — *}\`
+            body+="${n}. \`${line%% — *}\`  
    ${line#* — }
 "
         else
