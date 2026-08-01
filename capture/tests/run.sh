@@ -230,6 +230,12 @@ is "sibling keeps the whole reply" "$(jq -r .events_seen "${FD}/e4/capture.json"
 # assert the source lines exist, which is weak, but catches silent removal.
 TRI="${SCRIPT_DIR}/capture.triage.sh"
 has "triage writes capture.json"    "$(cat "$TRI")" 'capture.json'
+# The two shouting exceptions. needs-a-human fires once with no buttons and no
+# sweep nudge, so a miss loses the capture; a fatal API rejection usually means a
+# bad key, which breaks every capture after it. Both sat at default until
+# 2026-08-01 — quietly, since neither had ever fired in production.
+has "needs-a-human shouts"          "$(cat "$TRI")" 'notify "${nh_title:-Needs A Human}" high'
+has "a fatal rejection shouts"      "$(cat "$TRI")" 'notify "Capture Failed" high'
 has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
 has "truncation is logged"          "$(cat "$TRI")" 'keeping the ${MAX_EVENTS_PER_CAPTURE} soonest'
 has "triage partitions past events" "$(cat "$TRI")" 'event_is_past'

@@ -331,7 +331,9 @@ for png in "${pngs[@]}"; do
     elif (( ask_rc != 0 )); then
         FAILED=$((FAILED + 1))
         archive_record "$id" "$rec" failed "triage API call rejected"
-        notify "Capture Failed" default "warning,camera" \
+        # high like the other infrastructure alarms (was `default`, drift): a fatal
+        # rejection usually means a bad key, which breaks every capture after this one.
+        notify "Capture Failed" high "warning,camera" \
                "Could not read that screenshot (id ${id:0:8}). Not a temporary error — check the API key."
         continue
     fi
@@ -371,8 +373,12 @@ for png in "${pngs[@]}"; do
             # is wrong. The generic title is the fallback, not the default.
             # The record id is gone: it was only ever useful to someone reading the
             # journal, and they have the journal.
+            # HIGH priority, unlike every other calendar-facing message (2026-08-01):
+            # this is the one with no buttons, no pending record and no sweep nudge —
+            # it fires exactly once, and missing it loses the capture. A proposal you
+            # miss gets re-notified; this cannot be.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
-            notify "${nh_title:-Needs A Human}" "" "calendar" \
+            notify "${nh_title:-Needs A Human}" high "calendar" \
                    "$(md_escape "${reason:-Time or date unclear — not adding.}")"
             continue ;;
     esac
