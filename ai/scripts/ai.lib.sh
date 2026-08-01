@@ -6,7 +6,7 @@
 # today, both bash, both on this host:
 #
 #   capture/scripts/capture.triage.sh   screenshot -> proposed calendar event
-#   syncthing/scripts/documents.intake.classify.sh   document page -> filing decision
+#   syncthing/scripts/documents.triage.sh   document page -> filing decision
 #
 # WHY A LIBRARY AND NOT A SERVICE. The capture pipeline splits into a dumb container
 # (HTTP + CalDAV PUT) and a host-side triage that holds the intelligence, and the
@@ -36,6 +36,15 @@
 # defines neither still gets sane output out of api_post.
 declare -F log >/dev/null || log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 declare -F die >/dev/null || die() { log "FATAL: $*"; exit 1; }
+
+# Shared model configuration. Both pipelines converge on one call shape — a batch
+# of images, a prompt, a schema — so they run the same model at the same effort,
+# and a model bump is one edit here rather than a hunt through consumers. opus-5
+# won the 2026-07-24 capture bake-off (and a sonnet-5 replay over 36 archived
+# captures was rejected 2026-07-28); high effort because a misread document or a
+# wrong year costs a human round-trip that dwarfs the token delta.
+AI_MODEL="claude-opus-5"
+AI_EFFORT="high"
 
 # Transient API failure handling. In-process retries cover a rate limit or a brief
 # 5xx; anything longer (an auth outage, a provider incident) outlives the run and is

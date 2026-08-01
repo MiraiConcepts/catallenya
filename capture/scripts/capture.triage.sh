@@ -95,7 +95,7 @@ EOF
 ask() {
     local png="$1" now="$2" rec="$3" msgf out
     msgf="$(mktemp)"
-    ai_build_request "$msgf" "$MODEL" "$EFFORT" "$MAX_TOKENS" "$CAPTURE_SCHEMA" \
+    ai_build_request "$msgf" "$AI_MODEL" "$AI_EFFORT" "$MAX_TOKENS" "$CAPTURE_SCHEMA" \
         "$(triage_prompt "$now")" "$png" || { rm -f "$msgf"; return 1; }
 
     # 0 = ok, 1 = fatal, 2 = transient (attempts exhausted, sweep re-queues).

@@ -25,8 +25,8 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/zpool/catallenya/syncthing/scripts/documents.lib.sh
 source "${SELF_DIR}/documents.lib.sh"
 
-MODEL="claude-opus-4-8"
-EFFORT="high"
+# Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
+# capture pipeline — one edit there moves both.
 MAX_TOKENS=4096
 
 # How long to wait for Syncthing to go quiet before giving up. The .path unit will
@@ -148,7 +148,7 @@ ask() { # $1=newline-separated pngs $2=prompt $3=schema
     local -a imgs=()
     while IFS= read -r pg; do [[ -n "$pg" ]] && imgs+=("$pg"); done <<<"$pngs"
     msgf="$(mktemp)"
-    ai_build_request "$msgf" "$MODEL" "$EFFORT" "$MAX_TOKENS" "$schema" "$prompt" \
+    ai_build_request "$msgf" "$AI_MODEL" "$AI_EFFORT" "$MAX_TOKENS" "$schema" "$prompt" \
         "${imgs[@]}" || { rm -f "$msgf"; return 1; }
     local rc=0
     out="$(api_post "$msgf")" || rc=$?
