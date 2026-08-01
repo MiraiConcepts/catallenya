@@ -239,6 +239,19 @@ documents_base_url() {
     printf 'https://%s.%s:%s' "$TAILNET_DOMAIN" "$TAILNET_DNS_NAME" "$DOCUMENTS_REVERSE_PROXY_PORT"
 }
 
+# buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.
+# Reads $BASE, which the caller sets from documents_base_url (not passed per call:
+# every caller resolves it once per run, and the triage's call sites predate this
+# function living here). ONLY SKIP CLEARS — the notification is the undo handle,
+# so Accept and Discard leave it in place; see the state-machine comment in
+# documents.apply.sh. A blocked record is offered no Accept.
+buttons() { # $1=id $2=1 if the Accept button should be offered
+    local id="$1" b=""
+    [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1; "
+    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1; http, Skip, %s/documents/%s/skip, method=POST, headers.X-Documents=1, clear=true' \
+        "$b" "$BASE" "$id" "$BASE" "$id"
+}
+
 notify() { # $1=title $2=priority $3=tags $4=body [$5=actions]
     _load_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"

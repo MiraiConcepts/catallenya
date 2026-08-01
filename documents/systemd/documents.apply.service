@@ -31,12 +31,13 @@ StandardOutput=journal
 StandardError=journal
 
 # --- Hardening ---
-# This is the ONLY thing in the pipeline that writes to master/documents, and it is
-# deliberately the least reachable: a oneshot that runs for a second, triggered by a
-# file appearing on local disk, with no network listener of its own. The approve
-# container — long-lived, tailnet-reachable, gated by an unauthenticated ntfy topic
-# — cannot perform a move at all; it can only ask for one that was already proposed.
-# That asymmetry is the whole security argument for the redesign. Do not collapse it
+# Writes to master/documents happen only here and in documents.sweep.service (the
+# nightly staged -> bin ageing), both deliberately the least reachable things in
+# the pipeline: oneshots that run for a second, triggered by a local file or a
+# timer, with no network listener of their own. The approve container —
+# long-lived, tailnet-reachable, gated by an unauthenticated ntfy topic — cannot
+# perform a move at all; it can only ask for one that was already proposed. That
+# asymmetry is the whole security argument for the redesign. Do not collapse it
 # by giving the container a documents mount.
 #
 # Verify the sandbox ENGAGED rather than that the job succeeded:

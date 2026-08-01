@@ -262,6 +262,58 @@ is "batch empties staging"           "$(ls "${DOCS}/staging" | wc -l)" "0"
 has "a stale member is not an error" "$(cat "${TMP}/bout")" "refused 0"
 is "batch drains its marker"         "$(markers)" "0"
 
+# --------------------------------------------------------------------- sweep
+# Nightly lifecycle: one nudge at 24h, bin at 7d, bin never emptied. Ages come
+# from the record file's mtime, so backdating it is the whole test harness.
+echo "sweep — staged lifecycle"
+swp="${SCRIPT_DIR}/documents.sweep.sh"
+
+sseed() { # $1 = how long ago the record was last touched
+    seed
+    touch -d "$1" "${STATE_DIR}/proposals/${ID}.json"
+}
+run_sweep() {
+    DOCS="${TMP}/docs" STATE_DIR="${TMP}/state" DOCUMENTS_REVERSE_PROXY_PORT=1 \
+        bash "$swp" "$@" >"${TMP}/sout" 2>&1
+}
+
+sseed '1 hour ago'; run_sweep --dry-run
+hasnt "a fresh proposal is left alone"  "$(cat "${TMP}/sout")" "would"
+
+sseed '2 days ago'; run_sweep --dry-run
+has "dry-run announces the nudge"       "$(cat "${TMP}/sout")" "would re-notify"
+is  "dry-run stamps nothing"            "$(jq -r '.renotified_at // "none"' "${STATE_DIR}/proposals/${ID}.json")" "none"
+run_sweep
+is  "the nudge is stamped"              "$(jq -r '.renotified_at != null' "${STATE_DIR}/proposals/${ID}.json")" "true"
+is  "the document stays staged"         "$(state)" "staged"
+# A clean overdue proposal re-batches — same shape the triage first sent, with a
+# fresh batch record so its Accept covers exactly the overdue members.
+is  "re-batch record carries it"        "$(jq -r 'select(.kind=="batch" and .state=="staged") | .members[0]' "${STATE_DIR}"/proposals/*.json)" "$ID"
+run_sweep
+is  "the nudge happens once"            "$(grep -c 're-notified' "${TMP}/sout")" "0"
+
+sseed '8 days ago'; run_sweep --dry-run
+has "dry-run announces the bin"         "$(cat "${TMP}/sout")" "would bin"
+is  "dry-run moves nothing"             "$([ -f "${DOCS}/staging/a.pdf" ] && echo still)" "still"
+run_sweep
+is  "a week-old proposal is binned"     "$(state)" "binned"
+is  "the document is in bin/"           "$([ -f "${DOCS}/bin/a.pdf" ] && echo yes)" "yes"
+# The final note's promise: Accept on a sweep-binned record still files it.
+tap accept
+is  "binned-by-sweep -> accept -> filed" "$(state)" "filed"
+
+sseed '8 days ago'
+echo old > "${DOCS}/bin/ancient.pdf"; touch -d '90 days ago' "${DOCS}/bin/ancient.pdf"
+run_sweep
+is  "bin/ is never auto-emptied"        "$([ -f "${DOCS}/bin/ancient.pdf" ] && echo kept)" "kept"
+
+# Same rule as apply: a document that changed underneath its proposal is left for
+# a human, loudly — there is no path back through the pipeline for it.
+sseed '8 days ago'; echo tampered > "${DOCS}/staging/a.pdf"
+run_sweep
+is  "changed contents are not binned"   "$(state)" "staged"
+has "and are named in the log"          "$(cat "${TMP}/sout")" "contents changed"
+
 # ------------------------------------------------------------------ the units
 # Asserting the source lines exist is weak, but these are invariants whose breakage
 # is silent and expensive, and each was got wrong at least once during the build.
@@ -280,6 +332,10 @@ has "apply carries a start limit"    "$(cat "${UNIT_DIR}/documents.apply.service
 # apply moves files but talks to no model; keeping the key out of it is deliberate.
 is  "apply has no API key"           "$(grep -c '^EnvironmentFile=' "${UNIT_DIR}/documents.apply.service")" "0"
 has "triage has the API key"         "$(cat "${UNIT_DIR}/documents.triage.service")" "EnvironmentFile=/etc/ai.env"
+# The sweep is the same shape as apply: writes documents, holds no key — and it
+# must run morning-side, because everything it does ends in a phone notification.
+is  "sweep has no API key"           "$(grep -c '^EnvironmentFile=' "${UNIT_DIR}/documents.sweep.service")" "0"
+has "sweep timer is morning-side SGT" "$(cat "${UNIT_DIR}/documents.sweep.timer")" "07:45:00 Asia/Singapore"
 
 # A Caddyfile block whose port is not published fails SILENTLY and completely: the
 # service is healthy, the container is fine, the notification renders, and the tap
@@ -292,8 +348,8 @@ has "triage has the API key"         "$(cat "${UNIT_DIR}/documents.triage.servic
 # not dismiss it. clear=true on all three shipped once and silently removed the only
 # route to undo — invisible to every test, because no test taps twice.
 echo "the notification survives its own buttons"
-tri="$(cat "${SCRIPT_DIR}/documents.triage.sh")"
-btn="$(sed -n '/^buttons() {/,/^}/p' <<<"$tri")"
+# buttons() lives in documents.lib.sh — one copy serves the triage and the sweep.
+btn="$(sed -n '/^buttons() {/,/^}/p' "${SCRIPT_DIR}/documents.lib.sh")"
 is    "exactly one button clears"  "$(grep -c 'clear=true' <<<"$btn")" "1"
 has   "and it is Skip"             "$(grep -o 'Skip[^;]*' <<<"$btn" | tail -1)" "clear=true"
 hasnt "Accept does not clear"      "$(grep -o 'Accept[^;]*'  <<<"$btn")" "clear=true"

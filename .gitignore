@@ -101,6 +101,7 @@ ntfy/.env
 !documents/scripts/documents.vocab.json
 !documents/scripts/documents.triage.sh
 !documents/scripts/documents.apply.sh
+!documents/scripts/documents.sweep.sh
 !documents/tests/
 !documents/tests/run.sh
 !documents/systemd/
@@ -109,6 +110,8 @@ ntfy/.env
 !documents/systemd/documents.apply.path
 !documents/systemd/documents.apply.service
 !documents/systemd/documents.backstop.timer
+!documents/systemd/documents.sweep.service
+!documents/systemd/documents.sweep.timer
 
 # The documents approve/discard container — CODE ONLY, same per-file discipline.
 !documents/approve/
