@@ -84,11 +84,11 @@ for d in 0000 9999 1899 2023-02-29 2021-13 2021-00 abc '' 202 20211; do
 done
 
 # --------------------------------------------------------------------- triage
-# Driven against the sink: two payloads per document, classify then verify.
+# Driven against the sink: one classify payload per document — the human tap is
+# the verifier, so there is no second call to script.
 echo "triage — staging and the drain invariant"
 
 OKPROP='{"folder":"09_receipts-and-purchases","folder_is_new":false,"doc_type":"invoice","qualifier":"anthropic","owner":"self","date":"2026-07-08","date_source":"printed_on_document","needs_human":false,"reason_code":"OK"}'
-VERIFY='{"refuted":false,"reason_code":"CONFIRMED"}'
 
 triage() { # $1=sink codes; $2..=payloads -> runs the triage over the scratch tree
     local codes="$1"; shift
@@ -106,7 +106,7 @@ mkpdf() { convert -size 400x500 xc:white -pointsize 20 -annotate +20+40 "$2" "${
 rootn()  { find "${DOCS}" -maxdepth 1 -type f | wc -l; }
 propfield() { jq -r "$1" "${TMP}"/state/proposals/*.json 2>/dev/null | grep -v '^null$' | head -1; }
 
-fresh; mkpdf doc.pdf Invoice; triage 200 "$OKPROP" "$VERIFY"
+fresh; mkpdf doc.pdf Invoice; triage 200 "$OKPROP"
 is "happy path drains root"        "$(rootn)" "0"
 is "staged under the proposed name" "$(ls "${DOCS}/staging")" "2026-07-08_invoice_anthropic.pdf"
 is "destination recorded"          "$(propfield .dest_path)" "09_receipts-and-purchases/2026-07-08_invoice_anthropic.pdf"
@@ -115,39 +115,39 @@ is "destination recorded"          "$(propfield .dest_path)" "09_receipts-and-pu
 # a file at root means the .path unit fires again and buys another opus call.
 for case in "401:fatal API" "503,503,503:exhausted API"; do
     codes="${case%%:*}"; label="${case#*:}"
-    fresh; mkpdf doc.pdf Invoice; triage "$codes" "$OKPROP" "$VERIFY"
+    fresh; mkpdf doc.pdf Invoice; triage "$codes" "$OKPROP"
     is "${label} still drains root" "$(rootn)" "0"
     is "${label} is recorded blocked" "$(propfield .blocked)" "CLASSIFY_FAILED"
 done
 
 fresh; mkpdf doc.pdf Invoice
-triage 200 "$(jq -c '.folder="../../../etc"' <<<"$OKPROP")" "$VERIFY"
+triage 200 "$(jq -c '.folder="../../../etc"' <<<"$OKPROP")"
 is "traversal drains root"     "$(rootn)" "0"
 is "traversal is blocked"      "$(propfield .blocked)" "BAD_SEGMENT"
 
 fresh; mkpdf doc.pdf Invoice
-triage 200 "$(jq -c '.date="0000"' <<<"$OKPROP")" "$VERIFY"
+triage 200 "$(jq -c '.date="0000"' <<<"$OKPROP")"
 is "year 0000 is blocked"      "$(propfield .blocked)" "IMPOSSIBLE_DATE"
 
-fresh; printf 'not a pdf' > "${DOCS}/doc.pdf"; triage 200 "$OKPROP" "$VERIFY"
+fresh; printf 'not a pdf' > "${DOCS}/doc.pdf"; triage 200 "$OKPROP"
 is "unopenable drains root"    "$(rootn)" "0"
 is "unopenable never transmitted" "$(propfield .blocked)" "PDF_UNREADABLE_OR_ENCRYPTED"
 is "unopenable keeps its name" "$(ls "${DOCS}/staging")" "doc.pdf"
 
 fresh; mkpdf doc.pdf Invoice; cp "${DOCS}/doc.pdf" "${DOCS}/09_receipts-and-purchases/old.pdf"
-triage 200 "$OKPROP" "$VERIFY"
+triage 200 "$OKPROP"
 is "duplicate drains root"     "$(rootn)" "0"
 is "duplicate goes to bin"     "$(ls "${DOCS}/bin")" "doc.pdf"
 is "duplicate is not deleted"  "$([ -f "${DOCS}/bin/doc.pdf" ] && echo kept)" "kept"
 
 fresh; mkpdf doc.pdf Invoice; touch "${DOCS}/09_receipts-and-purchases/2026-07-08_invoice_anthropic.pdf"
-triage 200 "$OKPROP" "$VERIFY"
+triage 200 "$OKPROP"
 is "collision is blocked"      "$(propfield .blocked)" "DESTINATION_EXISTS"
 
 # A flagged proposal must still be staged and filable — flags route the
 # notification, they do not block.
 fresh; mkpdf doc.pdf Invoice
-triage 200 "$(jq -c '.folder="12_new-thing"|.folder_is_new=true' <<<"$OKPROP")" "$VERIFY"
+triage 200 "$(jq -c '.folder="12_new-thing"|.folder_is_new=true' <<<"$OKPROP")"
 is "new folder is not blocked" "$(propfield '.blocked // "none"')" "none"
 has "new folder is flagged"    "$(propfield '.flags|join(",")')" "NEW_FOLDER"
 

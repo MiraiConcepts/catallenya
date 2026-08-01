@@ -33,7 +33,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # missing file should fail the unit loudly rather than run a triage that cannot work.
 EnvironmentFile=/etc/ai.env
 
-# Generous. One document is two opus calls at ~7s each, and a synced batch is
+# Generous. One document is one opus call at ~7s, and a synced batch is
 # drained serially in a single invocation; MAX_PER_RUN bounds the worst case.
 TimeoutStartSec=30min
 
