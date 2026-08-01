@@ -468,7 +468,9 @@ for rid in "${NEW_IDS[@]:-}"; do
     fl="$(jq -r '.flags[]?' "$f" | flags_sentence)"
     if [[ "$bl" != "null" ]]; then
         notify "Blocked: 1 Document" high warning \
-            "1. $(md_escape "$(basename "$(jq -r .staged_path "$f")")")
+            "\`\`\`
+1. $(basename "$(jq -r .staged_path "$f")" | tr -d '\`')
+\`\`\`
 
 $(reason_text "$bl")" "$(buttons "$rid" 0)"
     elif [[ -n "$fl" ]]; then
