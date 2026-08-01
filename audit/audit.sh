@@ -149,8 +149,98 @@ echo "--- 12. Docker Volume Inventory ---"
 docker volume ls --format "table {{.Name}}\t{{.Driver}}"
 echo
 
+# ── Pipeline Convention Drift (see docs/intake-playbook.md) ─────
+
+echo "--- 13. OnFailure topics match the system-ntfy allowlist ---"
+# system-ntfy@<topic>.<job> derives its ntfy topic from the unit name and refuses
+# anything not in its case allowlist — so a unit wiring OnFailure= to a topic
+# missing there has alerts that die silently ("Unknown service type", and systemd
+# reports a failed OnFailure= handler nowhere). That was live for four units until
+# 2026-08-01; this check keeps the allowlist and the units in step, BOTH ways: an
+# allowlisted topic no unit wires anymore is a stale entry to remove.
+ALLOWED=$(sed -n 's/^ *\([a-z][a-z|]*\)) ;;$/\1/p' "${COMPOSE_DIR}/ntfy/system-ntfy.sh" | tr '|' '\n')
+WIRED=$(git -C "$COMPOSE_DIR" ls-files '*.service' '*.timer' '*.path' \
+  | while read -r u; do
+      grep -oP '^OnFailure=system-ntfy@\K[a-z-]+' "${COMPOSE_DIR}/${u}" 2>/dev/null || true
+    done | sort -u)
+if [[ -z "$ALLOWED" ]]; then
+  echo "  ✗ could not parse the allowlist out of ntfy/system-ntfy.sh"
+  FAIL=1
+fi
+for t in $WIRED; do
+  if grep -qx "$t" <<<"$ALLOWED"; then
+    echo "  ✓ topic '$t' is wired and allowlisted"
+  else
+    echo "  ✗ topic '$t' has OnFailure= units but is NOT in the system-ntfy.sh allowlist — those alerts die silently"
+    FAIL=1
+  fi
+done
+for t in $ALLOWED; do
+  if ! grep -qx "$t" <<<"$WIRED"; then
+    echo "  ✗ topic '$t' is allowlisted but no tracked unit wires OnFailure= to it — stale entry"
+    FAIL=1
+  fi
+done
+echo
+
+echo "--- 14. Every pipeline has an offline test suite ---"
+# A pipeline is a top-level directory that ships systemd units. ai/ carries the
+# shared transport suite and is asserted alongside.
+PIPELINES=$(git -C "$COMPOSE_DIR" ls-files | grep -oP '^[^/]+(?=/systemd/)' | sort -u)
+for d in $PIPELINES ai; do
+  if git -C "$COMPOSE_DIR" ls-files --error-unmatch "${d}/tests/run.sh" >/dev/null 2>&1; then
+    echo "  ✓ ${d}/tests/run.sh"
+  else
+    echo "  ✗ ${d}/ has no tracked tests/run.sh"
+    FAIL=1
+  fi
+done
+echo
+
+echo "--- 15. Installed units resolve to git-tracked files ---"
+# Every project unit in /etc/systemd/system is a symlink into the repo. A dangling
+# link means a move happened without install.sh; a target that exists but is not
+# tracked means the .gitignore allowlist missed it — green CI, file never
+# committed, unit unreproducible from the repo. Both were near-misses in the
+# 2026-08-01 move.
+for link in /etc/systemd/system/*; do
+  [[ -L "$link" ]] || continue
+  target=$(readlink "$link")
+  [[ "$target" == /zpool/catallenya/* ]] || continue
+  unit=$(basename "$link")
+  if [[ ! -e "$target" ]]; then
+    echo "  ✗ ${unit}: symlink dangles (${target})"
+    FAIL=1
+  elif ! git -C "$COMPOSE_DIR" ls-files --error-unmatch "${target#/zpool/catallenya/}" >/dev/null 2>&1; then
+    echo "  ✗ ${unit}: target exists but is NOT git-tracked (${target})"
+    FAIL=1
+  else
+    echo "  ✓ ${unit}"
+  fi
+done
+echo
+
+echo "--- 16. No pipeline code is silently gitignored ---"
+# The deny-by-default .gitignore means a forgotten allowlist line fails SILENTLY:
+# the file works locally, CI is green, and it simply never reaches the repo. Any
+# code-shaped file sitting ignored under a pipeline directory is that mistake.
+# Runtime state (data/, intake-state/) is ignored on purpose and excluded here.
+IGNORED_CODE=$(git -C "$COMPOSE_DIR" status --ignored --porcelain $PIPELINES ai 2>/dev/null \
+  | sed -n 's/^!! //p' \
+  | grep -vE '/(data|intake-state)/|__pycache__|\.pyc$' \
+  | grep -E '\.(sh|ts|py|json|service|timer|path)$|Dockerfile$' || true)
+if [[ -n "$IGNORED_CODE" ]]; then
+  while read -r f; do
+    echo "  ✗ ${f} is on disk but gitignored — add an allowlist line or remove it"
+  done <<<"$IGNORED_CODE"
+  FAIL=1
+else
+  echo "  ✓ nothing code-shaped is sitting ignored"
+fi
+echo
+
 if [[ "$FAIL" -ne 0 ]]; then
-  echo "=== Audit Complete — HARDENING DRIFT FOUND ==="
+  echo "=== Audit Complete — DRIFT FOUND ==="
   echo "Audit FAILED — see $LOG_FILE" >&3
   exit 1
 fi
