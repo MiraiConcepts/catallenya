@@ -242,7 +242,7 @@ notify_event() {
     fi
 
     if ! base="$(capture_base_url)"; then
-        notify "${disp_title} (no buttons)" high "calendar" \
+        notify "${disp_title} (no buttons)" high "exclamation" \
                "$body. Could not build callback URL; record ${eid:0:8} left pending."
         log "  !! could not build capture base url"
         return
@@ -309,7 +309,7 @@ for png in "${pngs[@]}"; do
     ext="$(image_ext "$png")"
     if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
-        notify "Capture Stuck" high "calendar" \
+        notify "Capture Stuck" high "exclamation" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
         continue
     fi
@@ -333,7 +333,7 @@ for png in "${pngs[@]}"; do
         archive_record "$id" "$rec" failed "triage API call rejected"
         # high like the other infrastructure alarms (was `default`, drift): a fatal
         # rejection usually means a bad key, which breaks every capture after this one.
-        notify "Capture Failed" high "calendar" \
+        notify "Capture Failed" high "exclamation" \
                "Could not read that screenshot (id ${id:0:8}). Not a temporary error — check the API key."
         continue
     fi
@@ -361,7 +361,7 @@ for png in "${pngs[@]}"; do
             OK=$((OK + 1))
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
-            notify "Missing Event" "" "calendar" \
+            notify "Missing Event" "" "exclamation" \
                    "$(md_escape "${reason:-That screenshot did not look like an event.}")"
             continue ;;
         needs_human)
@@ -378,7 +378,7 @@ for png in "${pngs[@]}"; do
             # it fires exactly once, and missing it loses the capture. A proposal you
             # miss gets re-notified; this cannot be.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
-            notify "${nh_title:-Needs A Human}" high "calendar" \
+            notify "${nh_title:-Needs A Human}" high "exclamation" \
                    "$(md_escape "${reason:-Time or date unclear — not adding.}")"
             continue ;;
     esac
