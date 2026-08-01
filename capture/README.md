@@ -71,12 +71,12 @@ event, and only then the current year, taking the nearest candidate still ahead.
 |---|---|
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/capture.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
-| `scripts/capture.sweep.sh` | hourly: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots |
+| `scripts/capture.sweep.sh` | nightly 07:30 SGT: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots, report stray files in `incoming/` |
 | `scripts/capture.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `diff_axis`, `button_label`, `md_escape`, `fork_record` |
 | `../ai/scripts/ai.lib.sh` | **shared with documents-intake** — everything that talks to the API: `api_post` retry, `api_class`, `image_mime`, `ai_build_request`, `ai_extract`. See `ai/README.md` |
 | `tests/run.sh` | offline regression suite — every case is a bug that shipped. Transport cases live in `ai/tests/run.sh`; run both |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
-| `systemd/` | `.path` trigger + `.service` + hourly sweep `.timer` |
+| `systemd/` | `.path` trigger + `.service` + nightly sweep `.timer` |
 | `client/capture.sh` | **laptop-side** hotkey script (see below) |
 
 ## The notification
@@ -298,18 +298,16 @@ ones captured by accident (the sweep prunes the image later; see below). Discard
 a capture that was already ADDED is different again: it undoes it, deleting the
 event from Radicale and recording the outcome as `undone`.
 
-**Screenshots are pruned, the rest is not.** After `PRUNE_IMAGE_AFTER_DAYS` the sweep
-deletes the IMAGE from an archived record and leaves a `screenshot.pruned` marker;
-the proposal, the `.ics`, the context and the verdict stay, because they are
-text-sized and carry the analysis value. Records the model got *wrong*
-(`PRUNE_KEEP_IMAGE_OUTCOMES`) keep their image indefinitely — those are the ones
-worth looking at again. Set the interval to 0 to disable pruning.
+**Screenshots are pruned, the rest is not.** After `PRUNE_IMAGE_AFTER_DAYS` (7) the
+sweep deletes the IMAGE from an archived record — whatever its outcome — and leaves
+a `screenshot.pruned` marker; the proposal, the `.ics`, the context and the verdict
+stay, because they are text-sized and carry the analysis value. A week is long
+enough to look again at a case the model got wrong, and the screenshot is the
+sensitive half of the record. Set the interval to 0 to disable pruning.
 
-The archive is an **eval** set, not training data: these models cannot be fine-tuned
-here. Its uses are replaying a new model against recorded verdicts, iterating the
-prompt against real failures, and few-shot examples. `context.json` is what makes
-that possible — without the prompt that produced a proposal, a difference between
-two records could be the prompt, the model or the screenshot, with no way to tell.
+The archive's text half still answers analysis questions: `context.json` records
+the prompt that produced each proposal — without it, a difference between two
+records could be the prompt, the model or the screenshot, with no way to tell.
 The prompt is hashed as a TEMPLATE, with the capture time substituted out, so
 records group by prompt version rather than every capture hashing differently.
 

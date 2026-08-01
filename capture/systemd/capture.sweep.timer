@@ -1,11 +1,15 @@
 [Unit]
-Description=Hourly capture sweep
+Description=Nightly capture sweep (07:30 SGT)
 
 [Timer]
-# Hourly rather than daily so the 24h re-notify lands within an hour of being due
-# rather than up to a day late. The sweep makes no API calls — it stats files and
-# posts to ntfy only — so running it often costs nothing.
-OnCalendar=hourly
+# Morning-side, deliberately: nearly everything the sweep does ends in a phone
+# notification (re-notify, gave-up, stray files), and hourly runs meant those
+# could land at 3am — which trains the owner to mute the topic. 07:30 SGT puts
+# them where they get read. The cost is precision: a re-notify due at 24h now
+# lands up to a day late, which for a nudge is fine. Timezone pinned rather than
+# inherited — this host runs PDT. 07:45 is the documents sweep; the offset keeps
+# the two ping bursts distinguishable.
+OnCalendar=*-*-* 07:30:00 Asia/Singapore
 RandomizedDelaySec=5min
 Persistent=true
 

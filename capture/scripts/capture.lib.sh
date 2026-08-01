@@ -43,10 +43,9 @@ NTFY_TOPIC="capture"
 MAX_TOKENS=4096
 EVENT_TZ="Asia/Singapore" # fallback when the screenshot gives no timezone clue
 DURATION_MIN=60           # default length when only a start time is known
-# Screenshots are retained indefinitely as dataset material (user, 2026-07-25).
-# They stay LOCAL: capture/ is deliberately absent from restic's path allowlist,
-# so nothing here is copied off-box. ZFS + sanoid still cover disk failure and
-# rollback. Do NOT add capture/ to restic without revisiting that decision — a
+# Everything here stays LOCAL: capture/ is deliberately absent from restic's path
+# allowlist, so nothing is copied off-box. ZFS + sanoid still cover disk failure
+# and rollback. Do NOT add capture/ to restic without revisiting that decision — a
 # screenshot can contain anything that was on screen.
 # A festival page can list a dozen acts, and each becomes its own notification, so
 # this bounds the ping storm. Raised from 4 on 2026-07-27: a real Esplanade day
@@ -67,18 +66,17 @@ ALT_SEP=" • "
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 
-# Screenshot retention. Outside `off`, Discard no longer deletes, so every capture
-# accumulates — and a screenshot can hold anything that was on screen. The dataset
-# is for EVALS, not training, and evals want the failures plus a thin slice of the
-# rest, not everything forever. So after this many days the IMAGE is deleted from an
-# archived record while the proposal, the rendered .ics, the context and the verdict
-# stay: those are small, text-only, and carry the analysis value. Records the model
-# got wrong keep their image indefinitely — those are the ones worth re-reading.
+# Screenshot retention. Discard does not delete, so every capture accumulates —
+# and a screenshot can hold anything that was on screen. After this many days the
+# IMAGE is deleted from an archived record, whatever its outcome (7, was 90 — and
+# the 90 never ran: the sweep exited early on an empty pending/ before reaching
+# the prune, so nothing was ever pruned). The proposal, the rendered .ics, the
+# context and the verdict stay forever: small, text-only, and they carry the
+# analysis value. The old carve-out that kept failure-case images indefinitely
+# retired with the ledger — a week is long enough to look at a case the model got
+# wrong, and a screenshot is the sensitive half of the record.
 # 0 disables pruning entirely.
-PRUNE_IMAGE_AFTER_DAYS=90
-# Outcomes worth keeping the picture for. An add means the model was right and the
-# image adds little; a discard or a failure is a case to look at again.
-PRUNE_KEEP_IMAGE_OUTCOMES="discard needs_human not_event failed"
+PRUNE_IMAGE_AFTER_DAYS=7
 
 # API_MAX_ATTEMPTS / API_RETRY_BASE_S / API_URL and image_mime / image_ext moved to
 # ai.lib.sh (sourced at the top). Transient-failure policy is unchanged: the record
