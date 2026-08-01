@@ -6,7 +6,7 @@
 # today, both bash, both on this host:
 #
 #   capture/scripts/capture.triage.sh   screenshot -> proposed calendar event
-#   syncthing/scripts/documents.triage.sh   document page -> filing decision
+#   documents/scripts/documents.triage.sh   document page -> filing decision
 #
 # WHY A LIBRARY AND NOT A SERVICE. The capture pipeline splits into a dumb container
 # (HTTP + CalDAV PUT) and a host-side triage that holds the intelligence, and the

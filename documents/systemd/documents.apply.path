@@ -8,7 +8,7 @@ Requires=zfs-mount.service
 # writes .part-<id> and renames to <id>.json, and this glob deliberately matches
 # only the finished name — a partially written marker is invisible here, so apply
 # never reads half a file.
-PathExistsGlob=/zpool/catallenya/syncthing/intake-state/approvals/*.json
+PathExistsGlob=/zpool/catallenya/documents/intake-state/approvals/*.json
 
 # systemd re-checks after the service exits and re-triggers while the glob still
 # matches. documents.apply.sh therefore deletes every marker it picks up, before

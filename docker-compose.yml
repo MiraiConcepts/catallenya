@@ -505,7 +505,7 @@ services:
     container_name: documents-approve
     # Built locally, same reasoning as capture: the source lives in this repo.
     build:
-      context: ./syncthing/approve
+      context: ./documents/approve
     restart: unless-stopped
     user: "1000:1000" # writes markers into a host-owned 1000:1000 directory
     read_only: true
@@ -537,7 +537,7 @@ services:
       # the apply script instead; the reason this service is safe to expose on the
       # tailnet behind an unauthenticated ntfy topic is that there is nothing here
       # to reach.
-      - ${ZPOOL_VOLUME}/syncthing/intake-state/approvals:/approvals
+      - ${ZPOOL_VOLUME}/documents/intake-state/approvals:/approvals
     # No ports: reached only through Caddy, like every other app container.
     healthcheck:
       test: ["CMD-SHELL", "bun -e 'process.exit((await fetch(\"http://127.0.0.1:8080/healthz\")).ok ? 0 : 1)' || exit 1"]

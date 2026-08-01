@@ -18,7 +18,7 @@
 #   spins systemd — and the triage spends an opus call per spin. Every failure branch
 #   is asserted to drain.
 #
-#   bash syncthing/tests/run.sh
+#   bash documents/tests/run.sh
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -266,7 +266,7 @@ is "batch drains its marker"         "$(markers)" "0"
 # Asserting the source lines exist is weak, but these are invariants whose breakage
 # is silent and expensive, and each was got wrong at least once during the build.
 echo "unit invariants"
-UNIT_DIR="$(cd "${SELF_DIR}/../../systemd" && pwd)"
+UNIT_DIR="$(cd "${SELF_DIR}/../systemd" && pwd)"
 tp="$(cat "${UNIT_DIR}/documents.triage.path")"
 # `documents/*` also matches staging/, bin/ and the numbered folders, which always
 # exist — so the condition never goes false and the unit fires forever.

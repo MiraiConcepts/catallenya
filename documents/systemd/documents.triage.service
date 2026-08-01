@@ -24,7 +24,7 @@ StartLimitBurst=12
 Type=oneshot
 User=carrein
 Group=carrein
-WorkingDirectory=/zpool/catallenya/syncthing/intake-state
+WorkingDirectory=/zpool/catallenya/documents/intake-state
 Environment=HOME=/home/carrein
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
@@ -37,7 +37,7 @@ EnvironmentFile=/etc/ai.env
 # drained serially in a single invocation; MAX_PER_RUN bounds the worst case.
 TimeoutStartSec=30min
 
-ExecStart=/zpool/catallenya/syncthing/scripts/documents.triage.sh
+ExecStart=/zpool/catallenya/documents/scripts/documents.triage.sh
 
 StandardOutput=journal
 StandardError=journal
@@ -66,7 +66,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 
 ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
-ReadWritePaths=/zpool/catallenya/syncthing/intake-state
+ReadWritePaths=/zpool/catallenya/documents/intake-state
 
 InaccessiblePaths=/zpool/catallenya/restic
 InaccessiblePaths=/zpool/catallenya/cloudflared

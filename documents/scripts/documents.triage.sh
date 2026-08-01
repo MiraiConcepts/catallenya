@@ -22,7 +22,7 @@
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=/zpool/catallenya/syncthing/scripts/documents.lib.sh
+# shellcheck source=/zpool/catallenya/documents/scripts/documents.lib.sh
 source "${SELF_DIR}/documents.lib.sh"
 
 # Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
