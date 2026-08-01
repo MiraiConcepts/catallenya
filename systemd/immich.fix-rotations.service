@@ -2,6 +2,13 @@
 Description=Immich Rotation Bake (lossless EXIF orientation)
 Requires=docker.service
 After=docker.service network-online.target
+# Backstop only. immich.fix-rotations.daily.sh already posts its own high-priority
+# "Immich rotation bake failed" to the immich topic when the bake itself fails —
+# it runs set -uo pipefail WITHOUT -e precisely so that notify survives a non-zero
+# inner run, and then propagates with exit "${RC}". This covers the case that
+# notify cannot: the script dying before it reaches it (missing .env, OOM, syntax
+# error, TimeoutStartSec kill), where the journal would otherwise be the only trace.
+OnFailure=system-ntfy@immich.fix-rotations.service
 
 [Service]
 Type=oneshot
