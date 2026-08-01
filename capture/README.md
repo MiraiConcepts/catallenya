@@ -163,11 +163,13 @@ proposal against the note beside it was noise — with one exception: needs-a-hu
 sends `high`, because it fires exactly once with no buttons and no sweep nudge, so it
 is the one calendar-facing message where a miss loses the capture.
 
-Every capture notification carries the same 📆 (`Tags: calendar`), the four
-infrastructure alarms (`Capture Stuck`, `Capture Failed`, `Capture Gave Up`,
-`Stray Files In Capture Spool`) included — one glyph for the whole topic (owner
-call, 2026-08-01; they used to wear ⚠️📷). The alarms stay distinguishable by
-their fixed titles and high priority. Custom
+Two glyphs cover the whole topic (owner call, 2026-08-01; the alarms used to wear
+⚠️📷): 📆 (`Tags: calendar`) on everything genuinely calendar-shaped — proposals,
+Already Passed, the sweep's Still Waiting — and ❗ (`Tags: exclamation`) on
+everything that means an error or missing information: the no-buttons degraded
+proposal, Missing Event, needs-a-human (both titles), and the four infrastructure
+alarms (`Capture Stuck`, `Capture Failed`, `Capture Gave Up`, `Stray Files In
+Capture Spool`). Custom
 icons are possible — an `Icon:` header pointing at a PNG/JPEG URL, fetched by the
 *phone* rather than the server and cached about a day — but are deliberately not used
 here: a tag emoji needs nothing hosted and nothing fetched.
