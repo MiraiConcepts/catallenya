@@ -309,7 +309,7 @@ for png in "${pngs[@]}"; do
     ext="$(image_ext "$png")"
     if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
-        notify "Capture Stuck" high "warning,camera" \
+        notify "Capture Stuck" high "calendar" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
         continue
     fi
@@ -333,7 +333,7 @@ for png in "${pngs[@]}"; do
         archive_record "$id" "$rec" failed "triage API call rejected"
         # high like the other infrastructure alarms (was `default`, drift): a fatal
         # rejection usually means a bad key, which breaks every capture after this one.
-        notify "Capture Failed" high "warning,camera" \
+        notify "Capture Failed" high "calendar" \
                "Could not read that screenshot (id ${id:0:8}). Not a temporary error — check the API key."
         continue
     fi

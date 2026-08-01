@@ -163,10 +163,11 @@ proposal against the note beside it was noise — with one exception: needs-a-hu
 sends `high`, because it fires exactly once with no buttons and no sweep nudge, so it
 is the one calendar-facing message where a miss loses the capture.
 
-The 📅 is an emoji from the `Tags:` header, and every calendar-facing notification
-uses it; only the four infrastructure alarms (`Capture Stuck`, `Capture Failed`,
-`Capture Gave Up`, `Stray Files In Capture Spool`) differ, because those are the
-pipeline reporting on itself. Custom
+Every capture notification carries the same 📆 (`Tags: calendar`), the four
+infrastructure alarms (`Capture Stuck`, `Capture Failed`, `Capture Gave Up`,
+`Stray Files In Capture Spool`) included — one glyph for the whole topic (owner
+call, 2026-08-01; they used to wear ⚠️📷). The alarms stay distinguishable by
+their fixed titles and high priority. Custom
 icons are possible — an `Icon:` header pointing at a PNG/JPEG URL, fetched by the
 *phone* rather than the server and cached about a day — but are deliberately not used
 here: a tag emoji needs nothing hosted and nothing fetched.

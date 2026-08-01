@@ -78,7 +78,7 @@ for rec in "${records[@]}"; do
             (( DRY )) && { log "would abandon ${id:0:8} (re-queued once, still failing)"; continue; }
             archive_record "$id" "$rec" failed "API unavailable across two attempts" \
                 && { abandoned=$((abandoned + 1)); log "abandoned ${id:0:8}"; }
-            notify "Capture Gave Up" high "warning,camera" \
+            notify "Capture Gave Up" high "calendar" \
                    "Could not reach the API for that screenshot (id ${id:0:8}) across two attempts. Take it again once things are healthy."
         else
             (( DRY )) && { log "would re-queue ${id:0:8} (${rec_age_h}h, no proposal)"; continue; }
@@ -171,7 +171,7 @@ if (( ${#strays[@]} )); then
         for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
         (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
         body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
-        notify "Stray Files In Capture Spool" high "warning,camera" "$body"
+        notify "Stray Files In Capture Spool" high "calendar" "$body"
         log "reported ${#strays[@]} stray file(s) in incoming/"
     fi
 fi
