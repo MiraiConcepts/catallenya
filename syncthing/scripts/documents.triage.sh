@@ -48,7 +48,7 @@ mkdir -p "$STATE_DIR" "$WORK_DIR" "$PROPOSALS_DIR" "$APPROVALS_DIR" "$STAGING_DI
 exec 9>"$LOCK_FILE"
 flock -n 9 || { log "another triage holds the lock; exiting"; exit 0; }
 
-cleanup() { rm -f "${WORK_DIR:?}"/*.png "${WORK_DIR:?}"/*.txt 2>/dev/null || true; }
+cleanup() { rm -f "${WORK_DIR:?}"/*.png 2>/dev/null || true; }
 trap cleanup EXIT
 
 # --- openability -----------------------------------------------------------
@@ -200,12 +200,6 @@ Rules (from the owner's filing scheme):
   Someone not listed -> owner="unknown" and needs_human=true.
 - Set needs_human=true when you are unsure of anything. It costs the owner a glance;
   a misfiling costs them a lost document.
-
-Text extracted by OCR from the same pages (may be imperfect; the images are
-authoritative):
----
-${1:-(no OCR available)}
----
 EOF
 }
 
@@ -307,15 +301,8 @@ for name in "${CANDS[@]}"; do
         continue
     fi
 
-    ocr=""
-    if command -v tesseract >/dev/null 2>&1; then
-        ocr="${WORK_DIR}/${sha:0:12}.txt"; : > "$ocr"
-        while IFS= read -r pg; do [[ -n "$pg" ]] && tesseract "$pg" stdout >> "$ocr" 2>/dev/null || true; done <<<"$pngs"
-        [[ -s "$ocr" ]] && ocr="$(head -c 4000 "$ocr")" || ocr=""
-    fi
-
     log "  CLASSIFY ${name}"
-    if ! prop="$(ask "$pngs" "$(classify_prompt "$ocr")" "$(build_schema)")"; then
+    if ! prop="$(ask "$pngs" "$(classify_prompt)" "$(build_schema)")"; then
         if staged="$(stage_file "$src" "$name")"; then
             BLOCKED=$((BLOCKED+1)); log "  BLOCK  ${name} (CLASSIFY_FAILED)"
             record "$id" "$(jq -c --argjson b "$base" --arg p "${staged#"${DOCS}/"}" \
