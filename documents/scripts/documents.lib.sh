@@ -298,22 +298,22 @@ flags_sentence() {
 # batch_list <record-file>... -> the notification body's item list: one item
 # per document — a LITERAL "1." (dot escaped, so no markdown renderer can turn
 # it into a list: the Android app renders ordered-list markers as unnumbered
-# dots, seen on the actual device 2026-08-01), the original name as an inline
-# code span, a HARD BREAK (trailing two spaces), and the destination code-
-# spanned on a second line indented with NBSPs — list indentation died with the
-# list, and ordinary leading spaces are collapsed by the web renderer. Every
-# construct here is load-bearing; plain lists, hard breaks alone, an ASCII tree
-# and a fenced block were all tried the same day and rejected on the device.
-# Inside a code span nothing else is interpreted, so no md_escape — but
-# backticks are stripped from names, since one would end the span early.
+# dots, seen on the actual device 2026-08-01), the original name, a HARD BREAK
+# (trailing two spaces), and the destination on a second line indented with
+# NBSPs — list indentation died with the list, and ordinary leading spaces are
+# collapsed by the web renderer. Every construct here is load-bearing; plain
+# lists, hard breaks alone, an ASCII tree, a fenced block and inline code spans
+# were all tried the same day and rejected on the device. Names ARE md_escaped
+# now that nothing is code-spanned: a filename is untrusted text off another
+# device, and a link inside one would otherwise render live in a notification.
 batch_list() {
     local f n=0 pad=$'    '
     for f in "$@"; do
         n=$((n+1))
-        printf '%d\\. `%s`  \n%s`%s`\n' "$n" \
-            "$(jq -r '.original_name // "?"' "$f" | tr -d '`')" \
+        printf '%d\\. %s  \n%s%s\n' "$n" \
+            "$(md_escape "$(jq -r '.original_name // "?"' "$f")")" \
             "$pad" \
-            "$(jq -r '.dest_path // "?"' "$f")"
+            "$(md_escape "$(jq -r '.dest_path // "?"' "$f")")"
     done
 }
 
