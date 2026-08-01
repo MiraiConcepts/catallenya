@@ -214,7 +214,7 @@ is  "and is back in staging"   "$([ -f "${DOCS}/staging/a.pdf" ] && echo yes)" "
 echo "apply — refusals"
 seed; echo tampered > "${DOCS}/staging/a.pdf"; tap accept
 is  "changed contents refuse"        "$(state)" "staged"
-has "and say so"                     "$(cat "${TMP}/aout")" "contents changed"
+has "and say so"                     "$(cat "${TMP}/aout")" "changed after it was proposed"
 is  "refusal still drains marker"    "$(markers)" "0"
 
 seed; rm "${DOCS}/staging/a.pdf"; tap accept
