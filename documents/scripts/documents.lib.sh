@@ -295,22 +295,25 @@ flags_sentence() {
     [[ -n "$out" ]] && printf 'Document %s.' "$out"
 }
 
-# batch_list <record-file>... -> the notification body: each document as two
-# lines, its numbered original name and the proposed destination beneath, in
-# proposal order. Plain text — ntfy renders proportional, so nothing aligns and
-# nothing is backticked into monospace. The name line ends with markdown's
-# two-space hard break so the web client keeps the two lines two; the Android
-# app shows raw text where trailing spaces are invisible.
-# (A folder-grouped ASCII tree was tried on 2026-08-01 and reverted the same
-# day — the owner judged it on the actual device and chose this.)
+# batch_list <record-file>... -> the notification body's item block: each
+# document as two lines inside ONE fenced code block — numbered original name,
+# destination indented beneath, in proposal order. The fence is the point: the
+# web client's markdown renderer RE-FLOWS consecutive plain lines, which mushed
+# every previous format (numbered lines, hard breaks, an ASCII tree — all tried
+# 2026-08-01, all rejected on the actual device); a code block renders verbatim
+# and monospace. No md_escape inside a fence — nothing is interpreted — but
+# backticks are stripped from names, since a name containing ``` would end the
+# fence early and drop the rest of the body out of it.
 batch_list() {
     local f n=0
+    printf '```\n'
     for f in "$@"; do
         n=$((n+1))
-        printf '%d. %s  \n%s\n' "$n" \
-            "$(md_escape "$(jq -r '.original_name // "?"' "$f")")" \
+        printf '%d. %s\n   %s\n' "$n" \
+            "$(jq -r '.original_name // "?"' "$f" | tr -d '`')" \
             "$(jq -r '.dest_path // "?"' "$f")"
     done
+    printf '```'
 }
 
 # buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.
