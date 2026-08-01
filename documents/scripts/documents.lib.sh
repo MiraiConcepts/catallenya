@@ -295,25 +295,24 @@ flags_sentence() {
     [[ -n "$out" ]] && printf 'Document %s.' "$out"
 }
 
-# batch_list <record-file>... -> the notification body's item block: each
-# document as two lines inside ONE fenced code block — numbered original name,
-# destination indented beneath, in proposal order. The fence is the point: the
-# web client's markdown renderer RE-FLOWS consecutive plain lines, which mushed
-# every previous format (numbered lines, hard breaks, an ASCII tree — all tried
-# 2026-08-01, all rejected on the actual device); a code block renders verbatim
-# and monospace. No md_escape inside a fence — nothing is interpreted — but
-# backticks are stripped from names, since a name containing ``` would end the
-# fence early and drop the rest of the body out of it.
+# batch_list <record-file>... -> the notification body's item list: a real
+# markdown ordered list, one item per document — the original name as an inline
+# code span, then a HARD BREAK (trailing two spaces) and the destination as a
+# second code-span line indented three spaces, so it renders hanging under the
+# item text rather than under the number. Every construct here is load-bearing
+# for the web client's markdown renderer, which otherwise RE-FLOWS consecutive
+# lines into a mush (plain lists, an ASCII tree and a fenced block were all
+# tried on 2026-08-01; the owner settled on this). Inside a code span nothing
+# else is interpreted, so no md_escape — but backticks are stripped from names,
+# since one would end the span early.
 batch_list() {
     local f n=0
-    printf '```\n'
     for f in "$@"; do
         n=$((n+1))
-        printf '%d. %s\n   %s\n' "$n" \
+        printf '%d. `%s`  \n   `%s`\n' "$n" \
             "$(jq -r '.original_name // "?"' "$f" | tr -d '`')" \
             "$(jq -r '.dest_path // "?"' "$f")"
     done
-    printf '```'
 }
 
 # buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.
