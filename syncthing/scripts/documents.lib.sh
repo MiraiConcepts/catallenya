@@ -193,8 +193,11 @@ sha256_of() { sha256sum -- "$1" 2>/dev/null | cut -d' ' -f1; }
 # Duplicate detection is by corpus hash, in the triage.
 
 # --- Vocabulary ------------------------------------------------------------
+# The vocabulary is a PROMPT HINT now, not a gate — the classifier is told to reuse
+# these values when they fit so the same vendor is spelled the same way across years,
+# but it may coin a new one and a human approves the result. vocab_has() went with the
+# scorer that was the last thing enforcing membership.
 
-vocab_has()    { jq -e --arg k "$1" --arg v "$2" '.[$k] | index($v)' "$VOCAB" >/dev/null 2>&1; }
 is_lookalike() { # $1=doc_type $2=folder
     jq -e --arg t "$1" --arg f "$2" \
        '(._lookalike_families.doc_type | index($t)) or (._lookalike_families.folder | index($f))' \
