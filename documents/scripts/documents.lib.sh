@@ -295,22 +295,24 @@ flags_sentence() {
     [[ -n "$out" ]] && printf 'Document %s.' "$out"
 }
 
-# batch_list <record-file>... -> the notification body's item list: a real
-# markdown ordered list, one item per document — the original name as an inline
-# code span, then a HARD BREAK (trailing two spaces) and the destination as a
-# second code-span line indented three spaces, so it renders hanging under the
-# item text rather than under the number. Every construct here is load-bearing
-# for the web client's markdown renderer, which otherwise RE-FLOWS consecutive
-# lines into a mush (plain lists, an ASCII tree and a fenced block were all
-# tried on 2026-08-01; the owner settled on this). Inside a code span nothing
-# else is interpreted, so no md_escape — but backticks are stripped from names,
-# since one would end the span early.
+# batch_list <record-file>... -> the notification body's item list: one item
+# per document — a LITERAL "1." (dot escaped, so no markdown renderer can turn
+# it into a list: the Android app renders ordered-list markers as unnumbered
+# dots, seen on the actual device 2026-08-01), the original name as an inline
+# code span, a HARD BREAK (trailing two spaces), and the destination code-
+# spanned on a second line indented with NBSPs — list indentation died with the
+# list, and ordinary leading spaces are collapsed by the web renderer. Every
+# construct here is load-bearing; plain lists, hard breaks alone, an ASCII tree
+# and a fenced block were all tried the same day and rejected on the device.
+# Inside a code span nothing else is interpreted, so no md_escape — but
+# backticks are stripped from names, since one would end the span early.
 batch_list() {
-    local f n=0
+    local f n=0 pad=$'    '
     for f in "$@"; do
         n=$((n+1))
-        printf '%d. `%s`  \n   `%s`\n' "$n" \
+        printf '%d\\. `%s`  \n%s`%s`\n' "$n" \
             "$(jq -r '.original_name // "?"' "$f" | tr -d '`')" \
+            "$pad" \
             "$(jq -r '.dest_path // "?"' "$f")"
     done
 }

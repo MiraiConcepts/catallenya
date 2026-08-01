@@ -200,16 +200,17 @@ if (( REFUSED > 0 )); then
     # would end the code span early.
     body=""
     n=0
+    pad=$'    '
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         n=$((n+1))
         line="$(tr -d '\`' <<<"$line")"
         if [[ "$line" == *" — "* ]]; then
-            body+="${n}. \`${line%% — *}\`  
-   ${line#* — }
+            body+="${n}\. \`${line%% — *}\`  
+${pad}${line#* — }
 "
         else
-            body+="${n}. ${line}
+            body+="${n}\. ${line}
 "
         fi
     done <<<"$REFUSALS"
