@@ -19,12 +19,15 @@ source "/zpool/catallenya/ai/scripts/ai.lib.sh"
 # Overridable ONLY so the pipeline can be exercised against a scratch tree without
 # touching the real corpus — same seam as API_URL in ai.lib.sh. Never set in
 # production; the defaults are the only values systemd ever runs with.
+# The corpus stays in Syncthing's synced folder — the move to documents/ was code
+# only, so no device re-pairing and no restic change (the corpus rides in
+# syncthing/data, which restic already takes).
 DOCS="${DOCS:-/zpool/catallenya/syncthing/data/master/documents}"
-STATE_DIR="${STATE_DIR:-/zpool/catallenya/syncthing/intake-state}"
+STATE_DIR="${STATE_DIR:-/zpool/catallenya/documents/intake-state}"
 LOCK_FILE="${STATE_DIR}/.intake.lock"
 # Scratch for rasterised pages. Under STATE_DIR because that is writable as carrein
-# without root (a manual run must work too), is NOT a restic target (restic takes
-# syncthing/data, not syncthing/), and is not synced to peers. Wiped on exit.
+# without root (a manual run must work too), is NOT a restic target (documents/ is
+# not in restic's path list), and is not synced to peers. Wiped on exit.
 WORK_DIR="${STATE_DIR}/work"
 VOCAB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/documents.vocab.json"
 

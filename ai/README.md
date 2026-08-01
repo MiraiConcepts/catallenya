@@ -6,7 +6,7 @@
 | Consumer | Job |
 |---|---|
 | `capture/scripts/capture.triage.sh` | screenshot → proposed calendar event |
-| `syncthing/scripts/documents.triage.sh` | document page → filing decision |
+| `documents/scripts/documents.triage.sh` | document page → filing decision |
 
 ## Why a library and not a service
 
