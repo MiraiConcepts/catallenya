@@ -304,10 +304,11 @@ validate_proposal() {
         if ! [[ "$v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -d "$v" >/dev/null 2>&1; then
             echo "BAD_ALT"; return 1
         fi
-        v="$(jq -r '.alternatives[0].start_time // "null"' <<<"$p")"
-        if [[ "$v" != "null" ]] && ! [[ "$v" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-            echo "BAD_ALT"; return 1
-        fi
+        for f in start_time end_time; do
+            v="$(jq -r --arg f "$f" '.alternatives[0][$f] // "null"' <<<"$p")"
+            [[ "$v" == "null" ]] && continue
+            [[ "$v" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "BAD_ALT"; return 1; }
+        done
     fi
     return 0
 }
@@ -511,9 +512,10 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
               "properties": {
                 "date":       {"type": "string"},
                 "start_time": {"type": ["string", "null"]},
+                "end_time":   {"type": ["string", "null"]},
                 "location":   {"type": ["string", "null"]}
               },
-              "required": ["date", "start_time", "location"]
+              "required": ["date", "start_time", "end_time", "location"]
             }
           }
         },
