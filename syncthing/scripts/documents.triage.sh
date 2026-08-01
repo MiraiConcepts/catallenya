@@ -129,18 +129,6 @@ build_schema() {
       }'
 }
 
-VERIFY_SCHEMA='{
-  "type":"object",
-  "properties":{
-    "refuted":{"type":"boolean"},
-    "reason_code":{"type":"string","enum":[
-      "CONFIRMED","WRONG_FOLDER_BY_PURPOSE","DATE_NOT_PRINTED_ON_DOCUMENT",
-      "DATE_IMPRECISE","WRONG_OWNER","LOOKALIKE_FAMILY","TYPE_MISMATCH","UNSURE"]}
-  },
-  "required":["refuted","reason_code"],
-  "additionalProperties":false
-}'
-
 # --- model calls -----------------------------------------------------------
 
 ask() { # $1=newline-separated pngs $2=prompt $3=schema
@@ -221,48 +209,6 @@ ${1:-(no OCR available)}
 EOF
 }
 
-# PROMPT DESIGN — do not "strengthen" this back into an instruction to refute. The
-# first version said "your job is to REFUTE that proposal" and it refuted 3/3
-# correct proposals with invented reasons. That is instruction-following, not
-# verification, and a verifier that always says no has zero specificity. The
-# adversarial intent is preserved by "point to a specific contradiction you can
-# see", not by telling the model whose side it is on.
-verify_prompt() {
-    cat <<EOF
-Check a proposed filing against the document shown.
-
-Proposed:
-  folder:    $(jq -r .folder    <<<"$1")$( [[ "$(jq -r .folder_is_new <<<"$1")" == "true" ]] && printf '  (NEW folder)' )
-  doc_type:  $(jq -r .doc_type  <<<"$1")
-  qualifier: $(jq -r .qualifier <<<"$1")
-  owner:     $(jq -r .owner     <<<"$1")
-  date:      $(jq -r .date      <<<"$1")
-
-"owner=self" means the document belongs to the repository owner — if the
-document names him as patient, customer or addressee, owner=self is CORRECT. An
-EMAIL ADDRESS identifies him too: a document addressed to owner@example.invalid
-is owner="self" and must NOT be refuted for lacking a printed name. Do not refute on
-the domain alone — protonmail.com is a mail provider, so another address there would
-be a different person.
-
-Check each claim against what you can actually see:
-- folder matches the document's PURPOSE (a clinic's invoice is a receipt, not a
-  medical record)
-- the date appears PRINTED on the document and is the most precise one printed. A
-  delivery date, a due date or a photo timestamp is not the document's date. When
-  several are printed, the report/issue/generated/statement date is the CORRECT
-  choice over received/collected/due/payment — do not refute a proposal for
-  preferring it. Singapore documents print DD/MM/YYYY.
-- owner matches who the document belongs to
-- doc_type matches what this actually is
-
-Set refuted=true ONLY if you can point to a specific contradiction you can see in
-the image. If every claim is consistent with the document, set refuted=false and
-reason_code=CONFIRMED. Do not refute merely because you cannot fully verify
-something.
-EOF
-}
-
 # --- staging ---------------------------------------------------------------
 
 # stage_file <src> <desired-basename> -> echoes the staged path
@@ -297,7 +243,7 @@ done
 mapfile -t CANDS < <(list_candidates)
 (( ${#CANDS[@]} )) || { log "nothing at root"; exit 0; }
 
-# CAP THE RUN. Two model calls per document, unattended, with no ceiling is a bill
+# CAP THE RUN. A model call per document, unattended, with no ceiling is a bill
 # waiting to happen — dropping a phone's worth of scans in at once would have spent
 # hundreds of calls before anyone noticed. The remainder stays at root, so the .path
 # unit re-fires and the next run takes the next MAX_PER_RUN. Truncation is logged and
@@ -378,11 +324,11 @@ for name in "${CANDS[@]}"; do
         continue
     fi
 
-    log "  VERIFY   ${name}"
-    verd="$(ask "$pngs" "$(verify_prompt "$prop")" "$VERIFY_SCHEMA")" \
-        || verd='{"refuted":false,"reason_code":"UNSURE"}'
-
     # --- assemble and validate the destination -----------------------------
+    # ONE call per document — the adversarial verify pass retired with the shared
+    # AI config (2026-08-01). It existed to protect unsupervised filing; every
+    # proposal now waits for a human tap, and that tap is the verifier. The
+    # mechanical checks below are not part of that trade and stay.
     # Everything below is what the closed vocabulary used to guarantee for free.
     folder="$(jq -r .folder <<<"$prop")"; dtype="$(jq -r .doc_type <<<"$prop")"
     qual="$(jq -r .qualifier <<<"$prop")"; owner="$(jq -r .owner <<<"$prop")"
@@ -402,8 +348,6 @@ for name in "${CANDS[@]}"; do
     [[ -z "$blocked" ]] && ! under_docs "$dest"        && blocked="ESCAPES_DOCS"
     [[ -z "$blocked" ]] && [[ -e "$dest" ]]            && blocked="DESTINATION_EXISTS"
     [[ -z "$blocked" ]] && ! valid_date "$ddate"       && blocked="IMPOSSIBLE_DATE"
-    [[ -z "$blocked" ]] && [[ "$(jq -r .refuted <<<"$verd")" == "true" ]] \
-        && blocked="REFUTED_$(jq -r .reason_code <<<"$verd")"
 
     # Flags do NOT block — they route the notification. A flagged document gets its
     # own message explaining why instead of riding in the batch, so "approve all"
@@ -421,10 +365,10 @@ for name in "${CANDS[@]}"; do
         continue
     fi
 
-    record "$id" "$(jq -c --argjson b "$base" --argjson p "$prop" --argjson v "$verd" \
+    record "$id" "$(jq -c --argjson b "$base" --argjson p "$prop" \
         --arg sp "${staged#"${DOCS}/"}" --arg dp "${folder}/${fname}" \
         --arg bl "$blocked" --argjson fl "$(printf '%s\n' "${flags[@]:-}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
-        '$b + {state:"staged", proposal:$p, verdict:$v, staged_path:$sp,
+        '$b + {state:"staged", proposal:$p, staged_path:$sp,
                dest_path:$dp, blocked:(if $bl=="" then null else $bl end), flags:$fl}' <<<'{}')"
 
     if [[ -n "$blocked" ]]; then
