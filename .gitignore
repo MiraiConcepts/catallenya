@@ -100,8 +100,6 @@ ntfy/.env
 !syncthing/scripts/
 !syncthing/scripts/documents.lib.sh
 !syncthing/scripts/documents.vocab.json
-!syncthing/scripts/documents.intake.classify.sh
-!syncthing/scripts/documents.intake.score.sh
 !syncthing/scripts/documents.triage.sh
 !syncthing/scripts/documents.apply.sh
 !syncthing/tests/
