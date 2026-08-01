@@ -50,6 +50,7 @@ declare -A SYMLINKS=(
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
     ["capture.sweep.timer"]="${REPO_DIR}/capture/systemd/capture.sweep.timer"
+    ["documents.sweep.timer"]="${REPO_DIR}/documents/systemd/documents.sweep.timer"
     # Paths (event-triggered, not scheduled)
     ["capture.triage.path"]="${REPO_DIR}/capture/systemd/capture.triage.path"
     # documents is two path units and no timer: one watches the folder root for a
@@ -62,6 +63,7 @@ declare -A SYMLINKS=(
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
     ["documents.triage.service"]="${REPO_DIR}/documents/systemd/documents.triage.service"
     ["documents.apply.service"]="${REPO_DIR}/documents/systemd/documents.apply.service"
+    ["documents.sweep.service"]="${REPO_DIR}/documents/systemd/documents.sweep.service"
     ["immich.fix-rotations.service"]="${REPO_DIR}/systemd/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"

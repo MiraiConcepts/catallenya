@@ -403,13 +403,10 @@ left="$(list_candidates | wc -l)"
 # staged either way, so the message going away is the entire visible effect. An
 # Accept or Discard message you are finished with is dismissed by swiping, the same
 # as any other notification.
-buttons() { # $1=id $2=1 if the Accept button should be offered
-    local id="$1" b=""
-    [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1; "
-    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1; http, Skip, %s/documents/%s/skip, method=POST, headers.X-Documents=1, clear=true' \
-        "$b" "$BASE" "$id" "$BASE" "$id"
-}
-
+# buttons() moved to documents.lib.sh — the sweep sends the same three buttons on
+# its re-notify and final-note messages, and two copies of an Actions string is how
+# one of them drifts. BASE is what it reads.
+# shellcheck disable=SC2034  # consumed by buttons() in documents.lib.sh
 if ! BASE="$(documents_base_url)"; then
     log "  !! no base URL — proposals are staged but no notification was sent"
     exit 0
