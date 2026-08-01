@@ -295,33 +295,21 @@ flags_sentence() {
     [[ -n "$out" ]] && printf 'Document %s.' "$out"
 }
 
-# batch_tree <record-file>... -> the Tree-B notification body: destination
-# folders as headers, their files beneath with ├/└ branches, numbered in DISPLAY
-# order (grouping reorders, and a number that jumps around the list reads as an
-# error), with each document's original name in parentheses. Plain text on
-# purpose — ntfy bodies render in a proportional font, so nothing here tries to
-# align, and nothing is backticked into monospace.
-batch_tree() {
-    local -a forder=() items=()
-    local -A byfolder=()
-    local f dest orig folder n=0 i count br
+# batch_list <record-file>... -> the notification body: each document as two
+# lines, its numbered original name and the proposed destination beneath, in
+# proposal order. Plain text — ntfy renders proportional, so nothing aligns and
+# nothing is backticked into monospace. The name line ends with markdown's
+# two-space hard break so the web client keeps the two lines two; the Android
+# app shows raw text where trailing spaces are invisible.
+# (A folder-grouped ASCII tree was tried on 2026-08-01 and reverted the same
+# day — the owner judged it on the actual device and chose this.)
+batch_list() {
+    local f n=0
     for f in "$@"; do
-        dest="$(jq -r '.dest_path // empty' "$f")"
-        orig="$(jq -r '.original_name // "?"' "$f")"
-        [[ -n "$dest" ]] || continue
-        folder="${dest%/*}"
-        [[ -n "${byfolder[$folder]:-}" ]] || forder+=("$folder")
-        byfolder[$folder]+="${dest##*/}|${orig}"$'\n'
-    done
-    for folder in "${forder[@]}"; do
-        printf '%s/\n' "$folder"
-        mapfile -t items <<<"${byfolder[$folder]%$'\n'}"
-        count=${#items[@]}
-        for i in "${!items[@]}"; do
-            n=$((n+1))
-            br="├"; (( i == count - 1 )) && br="└"
-            printf '%s %d. %s (was %s)\n' "$br" "$n" "${items[$i]%%|*}" "$(md_escape "${items[$i]#*|}")"
-        done
+        n=$((n+1))
+        printf '%d. %s  \n%s\n' "$n" \
+            "$(md_escape "$(jq -r '.original_name // "?"' "$f")")" \
+            "$(jq -r '.dest_path // "?"' "$f")"
     done
 }
 
