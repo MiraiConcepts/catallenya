@@ -92,6 +92,42 @@ for unit in "${!SYMLINKS[@]}"; do
     fi
 done
 
+# --- Prune symlinks for retired units ---
+# This script created and repaired links but never removed them, so retiring a unit
+# left its symlink behind pointing at a deleted file. That includes the enable links
+# systemd writes under */.wants/, which `systemctl disable` can no longer clean once
+# the unit file is gone — the disable fails with "not-found" and orphans the link.
+# Two had accumulated by 2026-08-07 (documents.intake since July, check-meta that day)
+# and both were invisible: nothing breaks, systemd just carries a ghost entry forever.
+#
+# Runs AFTER the creation loop on purpose, so anything just linked resolves and is
+# safe by construction. Guard is deliberately narrow — a link is only removed if it
+# points into the repo AND its target is gone.
+#
+# The mount check is not paranoia: every target lives on /zpool, so if ZFS is not
+# mounted then EVERY project link looks dangling and this loop would delete the lot.
+# install.sh is never run at boot (catallenya.service runs catallenya.sh, which does
+# not call this), so that only happens if a human runs it on an unmounted pool — but
+# a root-level rm loop should not have that shape at all.
+if [[ ! -f "${REPO_DIR}/docker-compose.yml" ]]; then
+    echo "Error: ${REPO_DIR} looks unmounted or wrong — refusing to prune symlinks"
+    exit 1
+fi
+
+echo "Pruning symlinks for retired units..."
+pruned=0
+while IFS= read -r link; do
+    target="$(readlink "$link")"
+    [[ "$target" == "${REPO_DIR}"/* ]] || continue
+    unit="$(basename "$link")"
+    # Best-effort: the unit may still be loaded in memory from before its file went.
+    systemctl stop "$unit" 2>/dev/null || true
+    rm -f "$link"
+    echo "  DEL ${link#"${SYSTEMD_DIR}"/} (target gone: ${target})"
+    pruned=$((pruned + 1))
+done < <(find "${SYSTEMD_DIR}" -maxdepth 2 -xtype l)
+(( pruned == 0 )) && echo "  none"
+
 # --- Reload and enable ---
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
