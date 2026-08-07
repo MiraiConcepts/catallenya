@@ -65,6 +65,17 @@ unsupported types), because silence about a thing you dropped is the worst outco
 in `ntfy/system-ntfy.sh`. New unit, new pipeline: follow `<topic>.<job>` naming,
 add the topic to the allowlist, and the audit check keeps the two in step.
 
+**A notification says what happened in its first word, and only shouts twice.**
+Documents titles are verb-first with a count — `Staged: 3 Documents`, `Blocked:
+1 Document`, `Review:`, `Refused:`, `Binned:` — so the lock screen answers "what
+happened" before "to what". Tags are semantic (`warning` blocked, `question`
+review, `wastebasket` binned) and `high` priority is reserved for the two states
+that need a human: blocked and review. Capture reached the same rule from the
+other side, with two glyphs for the whole topic (📆 calendar-shaped, ❗ trouble;
+see `capture/README.md`) because every message it sends is calendar-shaped. The
+shared part is the discipline, not the vocabulary: a phone-glanceable first
+word, and priority spent only where a tap is actually owed.
+
 ## The two containers stay separate — do not "clean this up"
 
 Capture's Bun container holds a full-scope Radicale credential and performs the
