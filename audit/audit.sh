@@ -203,11 +203,16 @@ echo "--- 15. Installed units resolve to git-tracked files ---"
 # tracked means the .gitignore allowlist missed it — green CI, file never
 # committed, unit unreproducible from the repo. Both were near-misses in the
 # 2026-08-01 move.
-for link in /etc/systemd/system/*; do
-  [[ -L "$link" ]] || continue
+# maxdepth 2, not just the top level: `systemctl enable` writes its links into
+# timers.target.wants/ and paths.target.wants/ one directory down, and those are the
+# ones `systemctl disable` cannot clean after a unit file is deleted. Scanning only
+# the top level passed green on 2026-08-07 while two dangling enable links sat
+# underneath — documents.intake's since July. install.sh now prunes them; this is
+# what notices if it ever stops.
+while IFS= read -r link; do
   target=$(readlink "$link")
   [[ "$target" == /zpool/catallenya/* ]] || continue
-  unit=$(basename "$link")
+  unit=${link#/etc/systemd/system/}
   if [[ ! -e "$target" ]]; then
     echo "  ✗ ${unit}: symlink dangles (${target})"
     FAIL=1
@@ -217,7 +222,7 @@ for link in /etc/systemd/system/*; do
   else
     echo "  ✓ ${unit}"
   fi
-done
+done < <(find /etc/systemd/system -maxdepth 2 -type l | sort)
 echo
 
 echo "--- 16. No pipeline code is silently gitignored ---"
