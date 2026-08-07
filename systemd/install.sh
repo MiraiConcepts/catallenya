@@ -46,8 +46,12 @@ declare -A SYMLINKS=(
     ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
-    ["restic.check-meta.timer"]="${REPO_DIR}/restic/check/restic.check-meta.timer"
+    # The quarterly meta check retired 2026-08-07. check-subset runs the identical
+    # structural pass monthly, so meta was strictly redundant; the yearly data check
+    # stays because only a full read closes the n/12 partition gap.
+    ["restic.check-subset.timer"]="${REPO_DIR}/restic/check/restic.check-subset.timer"
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
+    ["restic.staleness.timer"]="${REPO_DIR}/restic/staleness/restic.staleness.timer"
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
     ["capture.sweep.timer"]="${REPO_DIR}/capture/systemd/capture.sweep.timer"
     ["documents.sweep.timer"]="${REPO_DIR}/documents/systemd/documents.sweep.timer"
@@ -68,6 +72,7 @@ declare -A SYMLINKS=(
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
     ["restic.forget.service"]="${REPO_DIR}/restic/forget/restic.forget.service"
+    ["restic.staleness.service"]="${REPO_DIR}/restic/staleness/restic.staleness.service"
     ["system-ntfy@.service"]="${REPO_DIR}/ntfy/system-ntfy@.service"
     ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
     ["capture.triage.service"]="${REPO_DIR}/capture/systemd/capture.triage.service"

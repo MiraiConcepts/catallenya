@@ -1,0 +1,12 @@
+[Unit]
+Description=Restic Staleness Timer
+
+[Timer]
+# Morning-side, well after the 00:20 backup and its hour of jitter, so a missed
+# overnight run surfaces the same day rather than a day later.
+OnCalendar=*-*-* 09:00:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

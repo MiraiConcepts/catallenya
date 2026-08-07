@@ -45,6 +45,8 @@
 !restic/misc/restic.snapshots.sh
 !restic/misc/restic.unlock.sh
 !restic/misc/restic.locks.sh
+!restic/staleness/
+!restic/staleness/**
 !restic/restic.conf
 
 # Explicit includes inside .github

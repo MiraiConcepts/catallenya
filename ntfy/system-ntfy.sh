@@ -57,6 +57,8 @@ if [[ "$job_type" == "check@meta" ]]; then
     job_type="Check Metadata"
 elif [[ "$job_type" == "check@data" ]]; then
     job_type="Check Data"
+elif [[ "$job_type" == "check@subset" ]]; then
+    job_type="Check Data Subset"
 elif [[ "$job_type" == "fix-rotations" ]]; then
     # Plain capitalisation gives "Fix-rotations Failure". Match the unit's own
     # Description instead, for the same reason check@meta is spelled out.

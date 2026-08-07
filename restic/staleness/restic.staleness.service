@@ -1,0 +1,17 @@
+[Unit]
+Description=Restic Staleness
+Requires=network-online.target
+After=network-online.target
+# No OnSuccess= on purpose, unlike every other restic unit here. This runs daily, and
+# a daily "backups are fine" ping is noise you learn to swipe away — an alarm nobody
+# reads is not an alarm. Silence is the healthy state, as with immich.fix-rotations.
+OnFailure=system-ntfy@restic.staleness.service
+
+[Service]
+Type=oneshot
+User=carrein
+Group=carrein
+Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
+ExecStart=/zpool/catallenya/restic/staleness/restic.staleness.sh
+StandardOutput=journal
+StandardError=journal
