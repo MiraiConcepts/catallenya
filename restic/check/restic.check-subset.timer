@@ -1,0 +1,13 @@
+[Unit]
+Description=Restic Check Subset Timer
+
+[Timer]
+Unit=restic.check@subset.service
+# 03:00 deliberately clears the daily backup window (00:20 plus an hour of jitter).
+# check takes an exclusive lock, so overlapping the backup would just fail.
+OnCalendar=*-*-01 03:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
