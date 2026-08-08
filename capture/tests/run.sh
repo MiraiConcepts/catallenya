@@ -278,27 +278,35 @@ ne_run() { # ne_run <event-json> -> body on stdout, non-zero if the function die
     ' 2>&1
 }
 
-NOALT='{"calendar":"general","title":"Dinner","date":"2026-08-14","start_time":"19:30",
+# Dates are RELATIVE, never literals. These fixtures feed notify_event, which drops
+# an alternative whose time has passed — so a hardcoded future date is a test that
+# silently expires. Two of them already had: WITHALT's 2026-08-02 went stale on the
+# 3rd and the suite had been red since, which is worse than a failing test because a
+# red suite cannot report a real regression. Anything here that must read as upcoming
+# gets a date computed at run time.
+FUT1="$(date -u -d '+7 days' +%F)"   # the primary occasion
+FUT2="$(date -u -d '+8 days' +%F)"   # a second occasion, on another day
+NOALT='{"calendar":"general","title":"Dinner","date":"'"$FUT1"'","start_time":"19:30",
         "end_time":"21:00","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
         "location":"Candlenut","description":null,"alternatives":[]}'
 out="$(ne_run "$NOALT")"; rc=$?
 is   "no alternative does not abort"       "$rc" 0
 hasnt "no unbound-variable error"          "$out" "unbound variable"
-has  "body still carries the date"         "$out" "Friday, 14 August 2026"
+has  "body still carries the date"         "$out" "$(date -u -d "$FUT1" +'%A, %-d %B %Y')"
 has  "body still carries the time"         "$out" "19:30 - 21:00"
 hasnt "no stray 'or' with nothing to offer" "$out" "or "
 
-ALLDAY='{"calendar":"general","title":"Fest","date":"2026-09-05","start_time":null,
+ALLDAY='{"calendar":"general","title":"Fest","date":"'"$FUT1"'","start_time":null,
          "end_time":null,"all_day":true,"timezone":"Asia/Singapore","recurrence":"none",
          "location":null,"description":null,"alternatives":[]}'
 out="$(ne_run "$ALLDAY")"; rc=$?
 is   "all-day, no alternative, no location" "$rc" 0
 has  "all-day body says so"                 "$out" "All day"
 
-WITHALT='{"calendar":"general","title":"Film","date":"2026-08-02","start_time":"19:15",
+WITHALT='{"calendar":"general","title":"Film","date":"'"$FUT1"'","start_time":"19:15",
           "end_time":"21:20","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
           "location":"The Projector","description":null,
-          "alternatives":[{"date":"2026-08-02","start_time":"20:15","location":null}]}'
+          "alternatives":[{"date":"'"$FUT1"'","start_time":"20:15","location":null}]}'
 out="$(ne_run "$WITHALT")"; rc=$?
 is  "with an alternative still works" "$rc" 0
 has  "and offers the other time"      "$out" "• 20:15"
@@ -322,10 +330,10 @@ ne_alt_end() { # ne_alt_end <event-json> -> the written alt proposal's end_time
     jq -r '.end_time' "${d}/proposal.alt.json" 2>/dev/null || echo missing
     rm -rf "$d"
 }
-ALTEND='{"calendar":"general","title":"The Perfect Match","date":"2026-08-07","start_time":"18:00",
+ALTEND='{"calendar":"general","title":"The Perfect Match","date":"'"$FUT1"'","start_time":"18:00",
          "end_time":"03:00","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
          "location":"Another Bar","description":null,
-         "alternatives":[{"date":"2026-08-08","start_time":"20:00","end_time":"04:00","location":null}]}'
+         "alternatives":[{"date":"'"$FUT2"'","start_time":"20:00","end_time":"04:00","location":null}]}'
 is "alt keeps the end its session states"  "$(ne_alt_end "$ALTEND")" "04:00"
 is "primary end never leaks onto the alt"  "$(ne_alt_end "$WITHALT")" "null"
 
