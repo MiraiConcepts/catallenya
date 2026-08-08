@@ -854,15 +854,18 @@ services:
       resources:
         limits:
           memory: 1G
+    # No PLAYWRIGHT_DRIVER_URL / changedetection-browser companion: the last watch
+    # needing the html_webdriver backend was retired 2026-08-02, leaving a Chromium
+    # with cap_add SYS_ADMIN idling at ~300M for no consumer. Every remaining watch
+    # is a plain html_requests fetch of a Shopify JSON endpoint. To restore JS
+    # rendering, re-add the sockpuppetbrowser service (dgtlmoon/sockpuppetbrowser,
+    # SYS_ADMIN + shm_size 2gb) plus this env var and a depends_on; git history has
+    # the block. Watches set to html_webdriver will error until that is done.
     environment:
       - BASE_URL=${CHANGEDETECTION_URL}
-      - PLAYWRIGHT_DRIVER_URL=ws://changedetection-browser:3000
       - TZ=Asia/Singapore
     volumes:
       - ${CHANGEDETECTION_VOLUME}:/datastore
-    depends_on:
-      changedetection-browser:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "timeout 10 bash -c ':>/dev/tcp/127.0.0.1/5000'"]
       interval: 30s
@@ -874,32 +877,6 @@ services:
       - flame.name=changedetection
       - flame.url=${CHANGEDETECTION_URL}
       - flame.icon=custom
-      - com.centurylinklabs.watchtower.enable=true
-
-  changedetection-browser:
-    container_name: changedetection-browser
-    image: dgtlmoon/sockpuppetbrowser:latest
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    # Chromium's sandbox uses user namespaces; SYS_ADMIN is required for the
-    # clone() flags it needs. Upstream's own compose example sets the same.
-    cap_add:
-      - SYS_ADMIN
-    shm_size: 2gb
-    deploy:
-      resources:
-        limits:
-          memory: 3G
-    healthcheck:
-      test: ["CMD", "python3", "/usr/src/app/docker-health-check.py", "--host", "http://localhost"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    labels:
       - com.centurylinklabs.watchtower.enable=true
 
 secrets:
