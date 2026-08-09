@@ -3,7 +3,13 @@ Description=Restic Check Data Timer
 
 [Timer]
 Unit=restic.check@data.service
-OnCalendar=*-05-01 00:00:00
+# Second Tuesday of May, 05:00. This run holds an EXCLUSIVE lock for ~8h30m, so
+# it must not share a window with anything: the old *-05-01 00:00 collided with
+# the nightly backup (both drew from 00:00–01:00, coin flip as to which died),
+# with check-subset from 2027 (1st, 03:00 — this is still running at 09:30), and
+# with forget in years where 1 May is a Monday (2028). 05:00 on the second
+# Tuesday clears all three; staleness is --no-lock and immune either way.
+OnCalendar=Tue *-05-08..14 05:00:00
 RandomizedDelaySec=3600
 Persistent=true
 
