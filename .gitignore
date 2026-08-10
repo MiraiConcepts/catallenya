@@ -33,25 +33,39 @@
 !docs/
 !docs/intake-playbook.md
 
-# Explicit includes inside restic folder
+# Explicit includes inside restic folder — per-file, NOT `**`. A `**` allowlist
+# auto-tracks whatever lands in the directory later, and these hold the backup
+# credentials' neighbours: restic/backup/creds.env or restic/staleness/token would
+# have been swept up by `git add -A` into a PUBLIC repo. Same reasoning as
+# capture/ below. restic.pwd stays ignored by the default `*` deny.
 !restic/backup/
-!restic/backup/**
+!restic/backup/restic.backup.service
+!restic/backup/restic.backup.sh
+!restic/backup/restic.backup.timer
 !restic/check/
-!restic/check/**
+!restic/check/restic.check-data.timer
+!restic/check/restic.check-subset.timer
+!restic/check/restic.check.sh
+!restic/check/restic.check@.service
 !restic/forget/
-!restic/forget/**
+!restic/forget/restic.forget.service
+!restic/forget/restic.forget.sh
+!restic/forget/restic.forget.timer
 !restic/misc/
 !restic/misc/restic.restore.sh
 !restic/misc/restic.snapshots.sh
 !restic/misc/restic.unlock.sh
 !restic/misc/restic.locks.sh
 !restic/staleness/
-!restic/staleness/**
+!restic/staleness/restic.staleness.service
+!restic/staleness/restic.staleness.sh
+!restic/staleness/restic.staleness.timer
 !restic/restic.conf
 
-# Explicit includes inside .github
+# Explicit includes inside .github — per-file. A `**` here would track a
+# .github/workflows/secrets.env on sight.
 !.github/workflows/
-!.github/workflows/**
+!.github/workflows/ci.yml
 !.github/dependabot.yml
 
 # Explicit includes inside caddy and cloudflared subfolders
@@ -64,19 +78,39 @@
 !immich-public-proxy/
 !immich-public-proxy/config.json
 
-# Explicit includes notification scripts (but never a local env file)
-!ntfy/**
+# Explicit includes notification scripts — per-file. The `ntfy/.env` re-deny below
+# used to be the only guard, which shows the exposure was known; it just named one
+# filename. ntfy/api-token.txt would still have been committed.
+!ntfy/changedetection-ntfy.sh
+!ntfy/disk-ntfy.sh
+!ntfy/system-ntfy.sh
+!ntfy/system-ntfy@.service
 ntfy/.env
 
-# Explicit includes systemd services
-!systemd/**
+# Explicit includes systemd services — per-file. A `**` here would track a
+# systemd/id_rsa on sight.
+!systemd/catallenya.sh
+!systemd/changedetection.health.service
+!systemd/changedetection.health.timer
+!systemd/disk.service
+!systemd/disk.timer
+!systemd/immich.fix-rotations.service
+!systemd/immich.fix-rotations.timer
+!systemd/install.sh
+!systemd/systemd.md
+!systemd/zpool.scrub.service
+!systemd/zpool.scrub.timer
 
 # Explicit includes inside tailscale folder
 # (tailscale/data + tailscale/tmp hold runtime state and stay ignored by the default `*` deny)
+# Per-file, and this is the sharpest one: `tailscale/initrd-identity/tailscaled.state`
+# is the persistent tailnet NODE KEY baked into every initramfs. Under a `**` a debug
+# copy landing beside the generator script would have been published.
 !tailscale/initrd-identity/
-!tailscale/initrd-identity/**
+!tailscale/initrd-identity/generate-initrd-state.sh
+!tailscale/initrd-identity/wire-initrd-state.sh
 !tailscale/initramfs-hooks/
-!tailscale/initramfs-hooks/**
+!tailscale/initramfs-hooks/initrd-tailscale-state
 
 # Explicit includes inside immich folder
 # (raw photo data + .immich_api_key stay ignored by the default `*` deny)
