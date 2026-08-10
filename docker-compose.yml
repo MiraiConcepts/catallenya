@@ -42,7 +42,12 @@ services:
   memoka_postgresql:
     container_name: memoka_postgresql
     hostname: postgresql
-    image: pgvector/pgvector:pg17
+    # pinned 17.10, 2026-08-10 — floating tag + no watchtower label meant
+    # nothing updated it and nothing pinned it, so a `compose pull` could
+    # jump a major. Databases stay OFF watchtower deliberately (no semver
+    # awareness, and unattended restarts of the data layer). Bump by hand:
+    #   docker buildx imagetools inspect pgvector/pgvector:pg17 --format '{{.Manifest.Digest}}'
+    image: pgvector/pgvector@sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -72,7 +77,12 @@ services:
 
   memoka_redis:
     container_name: memoka_redis
-    image: redis:7-alpine
+    # pinned 7.4.9, 2026-08-10 — floating tag + no watchtower label meant
+    # nothing updated it and nothing pinned it, so a `compose pull` could
+    # jump a major. Databases stay OFF watchtower deliberately (no semver
+    # awareness, and unattended restarts of the data layer). Bump by hand:
+    #   docker buildx imagetools inspect redis:7-alpine --format '{{.Manifest.Digest}}'
+    image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -110,6 +120,8 @@ services:
       resources:
         limits:
           memory: 256M
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
@@ -157,6 +169,8 @@ services:
     container_name: caddy
     image: caddy:latest
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
@@ -207,6 +221,17 @@ services:
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
       - caddy-data:/data # Persistent volume for certificates.
       - caddy-config:/config # Persistent volume for config cache.
+    healthcheck:
+      # Caddy is the single front door for every tailnet service AND the public
+      # blog, but catallenya.sh only verifies containers reach `running` — a Caddy
+      # holding a broken config stays `running` forever and boot still reports
+      # green. The admin API answers on 2019 inside the container only (never
+      # published); the image ships wget. Verified 200 before adding this.
+      test: ["CMD", "wget", "-q", "--spider", "--timeout=5", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -222,9 +247,16 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-    ports:
-    - "127.0.0.1:2283:2283" # Allow expose immich server over localhost directly when on same wi-fi network.
+                    # 2G could not hold node plus a jellyfin-ffmpeg transcode: OOM-killed
+          # 2026-08-07 09:08 (the killer task was a mov,mp4 demuxer thread) and the
+          # container restarted under us. Sits at ~909 MiB idle; the ceiling is for
+          # transcode spikes, and the host has 30 GiB with ~3.7 GiB in use.
+          memory: 4G
+    # No host publish. Caddy reaches this over the compose network on
+    # immich-server:2283 (Caddyfile:89) and serves it on :9000 WITH
+    # security_headers. The old publish was a second, undocumented,
+    # header-less path to the same app reachable from every tailnet node,
+    # and appears in no port table. Confirmed the Immich client uses :9000.
     volumes:
       - ${IMMICH_VOLUME}:/usr/src/app/upload
       - /etc/localtime:/etc/localtime:ro
@@ -422,7 +454,12 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+                    # 512M was OOM-killing this 26 times (25 in June, once 2026-08-05).
+          # Syncthing v2 carries a SQLite backend and is heavier than v1. Its own
+          # supervisor respawns the killed worker, so RestartCount stayed 0 and the
+          # healthcheck read healthy while a sync had been cut mid-flight — and this
+          # is the ingest path the documents pipeline reads from. Sits at ~188 MiB.
+          memory: 1G
     environment:
       - PUID=1000
       - PGID=1000
@@ -697,6 +734,11 @@ services:
     container_name: archivebox_scheduler
     image: archivebox/archivebox:latest
     restart: unless-stopped
+    # NO no-new-privileges: `crontab` is setuid and archivebox_schedule.py calls
+    # CronTab(user=True) at startup. Under NNP that read fails with
+    #   OSError: Read crontab archivebox: crontabs/archivebox/: fopen: Permission denied
+    # and the container crash-loops. Tried and reverted 2026-08-10. The main
+    # archivebox service shares this image, so it is left unhardened too.
     cap_drop:
       - ALL
     cap_add:
@@ -834,7 +876,12 @@ services:
 
   zipline_postgresql:
     container_name: zipline-postgres
-    image: postgres:16
+    # pinned 16.14, 2026-08-10 — floating tag + no watchtower label meant
+    # nothing updated it and nothing pinned it, so a `compose pull` could
+    # jump a major. Databases stay OFF watchtower deliberately (no semver
+    # awareness, and unattended restarts of the data layer). Bump by hand:
+    #   docker buildx imagetools inspect postgres:16 --format '{{.Manifest.Digest}}'
+    image: postgres@sha256:081f1bc7bd5e143dbb6e487b710bbc27712cdcfaced4c071b8e47349aa1b4171
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
