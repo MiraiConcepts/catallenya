@@ -363,7 +363,25 @@ services:
     # data-island (#ipp-init), so IPP is version-pinned and bumped deliberately
     # in lockstep with the blog's parser.
 
+  # DEPRECATED 2026-08-09 — not started by `docker compose up -d`.
+  #
+  # Flame authenticates with `process.env.PASSWORD` ONLY (controllers/auth/login.js:11).
+  # It has no support for PASSWORD_FILE, so the `secrets: [password]` + PASSWORD_FILE
+  # below were dead config and the effective admin password was the image's published
+  # default `flame_password` (confirmed by sha256 against the running container's env).
+  # Combined with PID 1 running as root and a working /var/run/docker.sock (`:ro`
+  # restricts the bind, NOT the API — GET /containers/json returned 200 from inside),
+  # any tailnet device could reach :4000, log in with a password published in Flame's
+  # own Dockerfile, and create a container with a `/` bind = root on the host.
+  # The tailnet ACL is `{"src":["*"],"dst":["*:*"]}`, so that meant every peer.
+  #
+  # Left defined rather than deleted: flame/data/ is preserved and is in restic.
+  # To bring it back:  docker compose --profile deprecated up -d flame
+  # BEFORE re-enabling, fix both halves: replace PASSWORD_FILE with a real
+  # PASSWORD env var, and drop the docker.sock mount (entries are static in
+  # flame/data/config.json, so the socket buys nothing).
   flame:
+    profiles: ["deprecated"]
     container_name: flame
     image: pawelmalak/flame:latest
     restart: unless-stopped
@@ -864,6 +882,19 @@ services:
     environment:
       - BASE_URL=${CHANGEDETECTION_URL}
       - TZ=Asia/Singapore
+      # The UI was previously unauthenticated: / and /settings both returned 200 to
+      # anyone on the tailnet, and /settings displays the API key and the Apprise
+      # notification URLs. Adding a watch is an arbitrary server-side fetch from a
+      # container running as root with CHOWN/FOWNER/DAC_OVERRIDE on the flat bridge,
+      # so an open UI is an SSRF console against every internal service.
+      #
+      # SALTED_PASS takes precedence over datastore.settings.application.password
+      # (flask_app.py:442-445), so auth lives in compose rather than in the JSON —
+      # nothing to lose on a datastore edit, and it is version-controlled.
+      # Format is base64(salt[32] || pbkdf2_hmac('sha256', pw, salt, 100000)).
+      # The REST API is gated separately by x-api-key and is unaffected, so
+      # ntfy/changedetection-ntfy.sh keeps working.
+      - SALTED_PASS=${CHANGEDETECTION_SALTED_PASS}
     volumes:
       - ${CHANGEDETECTION_VOLUME}:/datastore
     healthcheck:
