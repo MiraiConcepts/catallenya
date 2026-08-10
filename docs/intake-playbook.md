@@ -24,7 +24,7 @@ drop zone ── .path unit ── triage (ONE vision call via ai/scripts/ai.lib
 | Drop zone | `capture/data/incoming/` | `syncthing/data/master/documents` root |
 | Trigger | `.path` on `*.png` (bytes sniffed, JPEG welcome) | `.path` on 28 typed globs |
 | AI | one opus-5 vision call, shared config | same |
-| Buttons | Add / Discard | Accept / Discard / Skip |
+| Buttons | Add / Discard | Accept / Discard (binned: Accept / Delete) |
 | State | `incoming → pending → archive` | `root → staging → (folder \| bin)` |
 | Backstop | folded into the sweep | `documents.backstop.timer` 03:00 SGT |
 | Sweep | 07:30 SGT | 07:45 SGT |
@@ -36,12 +36,25 @@ drop zone ── .path unit ── triage (ONE vision call via ai/scripts/ai.lib
 **State is the filesystem.** A thing is wherever it currently sits, `ls` answers
 "what is the system doing", and nothing can desync from anything else. No ledgers,
 no state files beside the state — per-record JSON (decision.json, the proposal
-records) exists because undo needs it, not as a second copy of history.
+records) records the verdict, not a second copy of history.
 
 **Nothing writes without a human tap**, and each button means "put this in the
-state I name, from wherever it is". That phrasing is what makes undo fall out
-instead of being built: Discard after Add undoes the add; Discard after filing
-pulls the document back to bin/.
+state I name, from wherever it is".
+
+**A notification lives exactly as long as its decision is outstanding** (2026-08-09).
+Every tap withdraws its own notification — documents after the move SUCCEEDS, capture
+the instant the container archives the record — so a message disappearing means the
+thing happened, and one still sitting there means it did not. No button sets
+`clear=true`: that dismisses on the tap, before anything has been done, and would
+make a refused move or a failed CalDAV PUT look like a completed one.
+
+This replaced the undo, which used to fall out of the state rule for free — Discard
+after Add, Discard after filing — and cost a permanent notification on everything
+you ever resolved. `skip` went with it: ignoring a notification already meant "leave
+it in staging", and each skip restarted the 7-day bin clock, so a document could be
+snoozed forever. Recovery is now the filesystem: `bin/` is never auto-emptied, the
+corpus is in Syncthing on every device, and a wrongly added event is deleted in the
+calendar app.
 
 **One API call per item, through one seam.** `ai/scripts/ai.lib.sh` is the only
 code that talks to api.anthropic.com — `AI_MODEL`/`AI_EFFORT` live there, requests

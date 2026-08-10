@@ -30,7 +30,16 @@ const PORT = Number(process.env.DOCUMENTS_PORT ?? 8080);
 const NTFY_ORIGIN = process.env.NTFY_ORIGIN ?? "";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const ACTIONS = new Set(["accept", "discard", "skip"]);
+// "delete" is destructive, and this container is deliberately not the thing that
+// decides that. It writes the same inert marker it writes for the other three; the
+// hardened apply oneshot is what enforces that only a document already sitting in
+// bin/ can be deleted. A compromised container can therefore ask for a delete it
+// was never offered — and be refused, because the check is not here.
+// No "skip". It meant "leave it in staging and ask me later", which is exactly what
+// IGNORING the notification already does — so its only remaining effect was to
+// dismiss a notification without deciding anything, and each one restarted the
+// 7-day bin clock, so a document could be snoozed forever. Removed 2026-08-09.
+const ACTIONS = new Set(["accept", "discard", "delete"]);
 
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });

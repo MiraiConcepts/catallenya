@@ -317,20 +317,65 @@ batch_list() {
     done
 }
 
-# buttons <id> <1|0 offer-Accept> — the Actions header for one proposal's buttons.
+# buttons <id> <1|0 offer-Accept> — the Actions header for a STAGED proposal.
 # Reads $BASE, which the caller sets from documents_base_url (not passed per call:
 # every caller resolves it once per run, and the triage's call sites predate this
-# function living here). ONLY SKIP CLEARS — the notification is the undo handle,
-# so Accept and Discard leave it in place; see the state-machine comment in
-# documents.apply.sh. A blocked record is offered no Accept.
+# function living here). A blocked record is offered no Accept.
+#
+# NO clear=true on any of them, deliberately. documents.apply.sh withdraws the
+# notification once the move has actually SUCCEEDED, which makes its disappearance
+# the receipt: gone means done, still there means it did not happen (and a Refused
+# ping says why). clear=true would dismiss it on the tap instead — instant, and a
+# lie every time the move is refused.
+#
+# THE UNDO IS GONE (2026-08-09, owner's call). These buttons used to stay live after
+# a tap so that `filed → discard` could walk the document back, which fell out of the
+# state rule for free. It also meant every document you ever filed left a permanent
+# notification. One action, one outcome, notification gone is the trade; a document
+# filed to the wrong place is recovered by MOVING THE FILE — it is in Syncthing on
+# every device, bin/ is never emptied, and ZFS snapshots sit behind both.
 buttons() { # $1=id $2=1 if the Accept button should be offered
     local id="$1" b=""
     [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1; "
-    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1; http, Skip, %s/documents/%s/skip, method=POST, headers.X-Documents=1, clear=true' \
-        "$b" "$BASE" "$id" "$BASE" "$id"
+    printf '%shttp, Discard, %s/documents/%s/discard, method=POST, headers.X-Documents=1' \
+        "$b" "$BASE" "$id"
 }
 
-notify() { # $1=title $2=priority $3=tags $4=body [$5=actions]
+# bin_buttons <id> <1|0 offer-Accept> — for the note a document gets when it ages
+# into bin/ after its week. Two terminal choices and no Skip: it has already had
+# its week, and offering to send it back to staging just restarts a clock it
+# already ran out.
+#
+# Delete is the ONLY destructive button in the pipeline. It does not conflict with
+# "the sweep never empties bin/" — that rule is really "nothing is destroyed
+# without a tap", and this is the tap. Behind it: bin/ rides in Syncthing (so the
+# delete propagates, which is the point) and under ZFS/sanoid snapshots plus
+# restic, which is the actual recovery path for a mis-tap.
+bin_buttons() { # $1=id $2=1 if the Accept button should be offered
+    local id="$1" b=""
+    [[ "$2" == "1" ]] && b="http, Accept, ${BASE}/documents/${id}/accept, method=POST, headers.X-Documents=1; "
+    printf '%shttp, Delete, %s/documents/%s/delete, method=POST, headers.X-Documents=1' \
+        "$b" "$BASE" "$id"
+}
+
+# ntfy sequence id for the batch notification. A STABLE literal, not a record id:
+# there is only ever one live batch message, exactly as there is only ever one
+# batch record that is not `superseded`, and giving it a fixed id lets each new
+# batch withdraw the last one without having to look up which id that was.
+# Per-topic, so it cannot collide with anything outside this pipeline.
+BATCH_NTFY_ID="documents-batch"
+
+# notify <title> <priority> <tags> <body> [actions] [id]
+#
+# `id` is an ntfy sequence id (X-Sequence-ID) — what retract() addresses, and the only way
+# to take a notification off the phone. Tag anything that a later message will
+# supersede: solo proposals with the RECORD id, batches with $BATCH_NTFY_ID.
+#
+# Retracting here is not symmetric with capture. A documents notification is the
+# UNDO HANDLE (see buttons()), so it may only be withdrawn when the message
+# replacing it carries the same buttons — the nudge and the binned note both do.
+# Nothing withdraws a notification on a tap; that would delete the handle.
+notify() { # $1=title $2=priority $3=tags $4=body [$5=actions] [$6=id]
     _load_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
     # Title carries a filename, which is untrusted — it arrives over Syncthing from
@@ -341,11 +386,68 @@ notify() { # $1=title $2=priority $3=tags $4=body [$5=actions]
     # Sanitised here rather than left to callers: the URLs are ours, but the labels
     # beside them are not always going to be.
     [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$5")")
+    # X-Sequence-ID, and only this spelling family. `X-ID` looks like the obvious
+    # name, is accepted with a 200, and is SILENTLY IGNORED — the message comes back
+    # with no sequence_id and every later retract addresses nothing. Verified
+    # against 2.27.0 by diffing our header against the CLI's own --sequence-id:
+    # X-Sequence-ID / Sequence-ID / Sid work, X-ID / X-Seq / Seq do not.
+    [[ -n "${6:-}" ]] && hdr+=(-H "X-Sequence-ID: $(ntfy_id_safe "$6")")
     # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
     # and POSTs that file's contents. The body starts with a filename from the root
     # of master/documents, so a synced file named "@/zpool/catallenya/.env" would
     # exfiltrate that file to this (unauthenticated) topic. --data-raw is
     # byte-identical except it never interprets a leading @.
+    ntfy_muted && return 0
     curl -sS "${hdr[@]}" \
          --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
+}
+
+# Test seam, same rationale as DOCS/STATE_DIR above and API_URL in ai.lib.sh — and
+# the only one of the three that was missing, which cost something real: the suite
+# runs the REAL triage and apply against a scratch tree, so while their FILES went
+# to /tmp, every notification they raised went to the live `documents` topic. A
+# full test run put dozens of "Refused: 1 Document" pings on the owner's phone,
+# and there was no seam to stop it. Capture never showed the same symptom only
+# because its suite runs the sweep exclusively with --dry-run.
+#
+# Deliberately placed just BEFORE the curl in both functions, not at the top: the
+# header construction, hdr_safe and ntfy_id_safe still run under test, so a crash
+# in any of them is still caught. Only the wire call is suppressed.
+# Never set in production.
+ntfy_muted() { [[ "${NTFY_DISABLE:-}" == "1" ]]; }
+
+# ntfy_id_safe <id> — reduce an id to what is safe in BOTH a header value and a
+# URL path segment. Record ids are UUIDs and the batch id is a literal, so this
+# changes nothing today; it is here because the id reaches ntfy through two
+# different syntaxes and a stray slash would silently retract the wrong path.
+#
+# Leading dots go too, which is not fussiness: the charset alone leaves ".." whole,
+# and DELETE on <topic>/.. resolves to the topic root rather than to a message.
+# Stripping them empties that value, and retract() declines an empty id.
+ntfy_id_safe() { tr -cd 'A-Za-z0-9._-' <<<"$1" | sed 's/^\.*//'; }
+
+# retract <id> — take a previously tagged notification off the phone.
+#
+# ntfy has no per-message expiry and no scheduled delete (checked against 2.27.0,
+# our server): the only way a notification disappears is an explicit DELETE
+# addressed to its sequence id, which the server broadcasts to subscribers as a
+# message_delete event. Hence the X-Sequence-ID on everything retractable.
+#
+# Best-effort, like notify(): a failed retract leaves clutter, never a wrong
+# outcome. The server answers 200 for an id it has never seen, so a speculative
+# call is free — which is what makes "retract, then publish the replacement" a
+# safe unconditional pair even for a record that was never notified solo.
+#
+# Known gap: the delete event is cached like any message, so a phone offline
+# longer than the cache window (NTFY_CACHE_DURATION, widened to 72h in
+# docker-compose.yml for exactly this reason) never receives it and keeps the
+# stale notification. The app's own auto-delete mops up that straggler.
+retract() {
+    local id="${1:-}"
+    [[ -n "$id" ]] || return 0
+    _load_env || return 0
+    local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
+    ntfy_muted && return 0
+    curl -sS --max-time 15 -X DELETE \
+         "${url}/${NTFY_TOPIC}/$(ntfy_id_safe "$id")" >/dev/null || true
 }

@@ -33,6 +33,17 @@ const DAV_B64 = (() => {
 // intact, because browsers set Origin and a page cannot forge it, so an arbitrary
 // tab still cannot reach these callbacks. The phone app is unaffected either way.
 const NTFY_ORIGIN = process.env.NTFY_ORIGIN ?? "";
+// Withdrawing the notification on a tap is the ONE thing this container does that
+// is not "accept an upload" or "write to Radicale", and it is here rather than in
+// the nightly sweep because the owner wanted the notification gone the instant the
+// button is pressed, not by morning.
+//
+// Container-to-container over plain HTTP, exactly like RADICALE above: no TLS, no
+// tailnet round trip, and nothing new in the trust model — ntfy is unauthenticated
+// on this network already. Empty NTFY_URL disables it, which is what the tests use
+// and what keeps this optional rather than load-bearing.
+const NTFY_URL = process.env.NTFY_URL ?? "";
+const NTFY_TOPIC = process.env.NTFY_TOPIC ?? "capture";
 const CAL: Record<string, string> = {
   general: process.env.CAL_GENERAL ?? "",
   birthday: process.env.CAL_BIRTHDAY ?? "",
@@ -74,6 +85,31 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
       return;
     }
     throw e;
+  }
+  await retract(id);
+}
+
+// Take this record's notification off the phone. ntfy has no message expiry and no
+// scheduled delete: a DELETE addressed to the sequence id (which the host triage
+// set with X-Sequence-ID when it published) is the only thing that removes one.
+//
+// Called only AFTER the record has moved to archive/ — the notification outliving a
+// failed archive is strictly better than the reverse, where the buttons vanish while
+// the record is still pending and the capture becomes unreachable.
+//
+// Never throws and never blocks the outcome: the tap's real work is the Radicale PUT
+// and the archive, both already done by here. A failed retract leaves clutter, which
+// the nightly sweep's archive pass then clears — that pass is the backstop for this
+// call, not a duplicate of it.
+async function retract(id: string): Promise<void> {
+  if (!NTFY_URL) return;
+  try {
+    await fetch(`${NTFY_URL}/${NTFY_TOPIC}/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (e: any) {
+    console.log(`[retract failed] ${id} — ${e?.message ?? e} (sweep will clear it)`);
   }
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -198,57 +234,24 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
 // POST /capture/:id/drop — the Discard button. A rejection is as much a labelled
 // example as an acceptance ("the model proposed this and I said no"), so the
 // record is archived with the verdict rather than deleted.
-// POST /capture/:id/drop — the Discard button.
 //
-// If the capture is still pending this is a plain rejection. If it has ALREADY been
-// added, Discard means undo: delete the event from Radicale and record that.
-// Previously this branch found no pending record, returned early, and answered
-// {ok:true} — so a tap reported success while the event stayed in the calendar,
-// and the only way to remove it was by hand (2026-07-27).
+// Discard used to double as UNDO: on an already-added record it deleted the event
+// back out of Radicale and restamped the outcome as `undone`. That went with the
+// undo (2026-08-09) — Add now withdraws its own notification, taking the Discard
+// button with it, so nothing could reach that branch from a phone. The ordinary
+// undo for a wrong Add is deleting the event in the calendar app.
+//
+// A drop on a record that is no longer pending answers 409, NOT {ok:true}. The
+// difference matters: answering ok while doing nothing is precisely the bug fixed
+// on 2026-07-27, where a tap reported success and the event stayed in the calendar.
+// Removing undoAdd must not quietly reintroduce it.
 async function handleDrop(id: string): Promise<Response> {
   if (!existsSync(spool("pending", id))) {
-    const undone = await undoAdd(id);
-    if (undone) return undone;
+    return json({ error: "already resolved", id }, 409);
   }
   await archive(id, "discard");
   await rm(spool("incoming", `${id}.png`), { force: true });
   return json({ ok: true });
-}
-
-// Undo an add: DELETE the calendar item and restamp the record.
-// Returns a Response if this record was an add, or null if it was not (so the
-// caller falls through to ordinary discard handling).
-async function undoAdd(id: string): Promise<Response | null> {
-  const rec = spool("archive", id);
-  let decision: { outcome?: string };
-  let proposal: { calendar?: string };
-  try {
-    decision = JSON.parse(readFileSync(`${rec}/decision.json`, "utf8"));
-    proposal = JSON.parse(readFileSync(`${rec}/proposal.json`, "utf8"));
-  } catch { return null; }
-  if (decision.outcome !== "add" && decision.outcome !== "add_alt") return null;
-
-  const collection = proposal.calendar === "birthday" ? CAL.birthday : CAL.general;
-  if (!collection) return json({ error: "collection not configured" }, 500);
-
-  const res = await fetch(`${RADICALE}/${DAV_USER}/${collection}/${id}.ics`, {
-    method: "DELETE",
-    headers: { authorization: `Basic ${DAV_B64}` },
-  });
-  // 404 means it is already gone — removed by hand or on a previous tap. That is
-  // the state the caller asked for, so it counts as done.
-  if (!(res.ok || res.status === 404)) {
-    return json({ error: "caldav delete failed", status: res.status }, 502);
-  }
-
-  const now = new Date().toISOString();
-  // `undone_from` keeps the original verdict readable after the overwrite —
-  // decision.json is the only record of this tap, so it must tell both halves.
-  const updated = { ...decision, outcome: "undone", undone_from: decision.outcome,
-                    note: `caldav delete ${res.status}`, decided_at: now };
-  await Bun.write(`${rec}/decision.json`, JSON.stringify(updated));
-  console.log(`[undone] ${id} — removed from calendar (caldav ${res.status})`);
-  return json({ ok: true, undone: true, status: res.status });
 }
 
 Bun.serve({

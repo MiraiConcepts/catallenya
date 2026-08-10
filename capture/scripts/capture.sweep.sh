@@ -114,14 +114,51 @@ for rec in "${records[@]}"; do
         when="$(jq -r 'if .all_day then .date + " (all day)" else .date + " " + (.start_time // "") end' \
                 "${rec}/proposal.json")"
         if base="$(capture_base_url)"; then
-            actions="http, Add, ${base}/capture/${id}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${id}/drop, method=POST, headers.X-Capture=1, clear=true"
+            actions="http, Add, ${base}/capture/${id}/add, method=POST, headers.X-Capture=1; http, Discard, ${base}/capture/${id}/drop, method=POST, headers.X-Capture=1"
+            # Withdraw the original, then publish the nudge under the SAME id, so
+            # the phone ends up with one notification rather than two. Deliberately
+            # retract-then-publish and not an in-place update: an update may be
+            # applied silently, and a nudge that does not alert is not a nudge.
+            retract "$id"
             notify "Still Waiting: ${title}" "" "calendar" \
-                   "${when} — proposed ${age_h}h ago, no action yet." "$actions"
+                   "${when} — proposed ${age_h}h ago, no action yet." "$actions" "$id"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
             log "re-notified ${id:0:8} (${age_h}h)"
         fi
     fi
+done
+
+# --- withdraw notifications for resolved records ---------------------------
+# A record in archive/ is resolved, however it got there — the ignore branch
+# above, a triage failure, or a tap the CONTAINER archived. pending/<id> is gone,
+# so its Add button now answers 404: the notification is not just clutter, it
+# lies. This is the one place that withdraws it, precisely because archiving
+# happens in both host bash and the container and only the sweep sees both.
+#
+# Marker-guarded, so each record costs exactly one DELETE ever. Records archived
+# longer ago than RETRACT_WITHIN_DAYS get the marker WITHOUT the call: on the
+# first run after this shipped, archive/ already held months of history whose
+# notifications are long expired, and firing a delete for each would have pushed
+# a burst of no-op events through the topic to no purpose.
+retracted=0
+for rec in "$ARCHIVE_DIR"/*/; do
+    rec="${rec%/}"
+    [[ -f "${rec}/retracted" ]] && continue
+    rid="$(basename "$rec")"
+    # decision.json is written as the record is archived, so its mtime is the
+    # resolution time. Fall back to the directory for a record that predates it.
+    anchor="${rec}/decision.json"; [[ -f "$anchor" ]] || anchor="$rec"
+    arch_age_d=$(( (now - $(stat -c %Y "$anchor" 2>/dev/null || echo "$now")) / 86400 ))
+    if (( DRY )); then
+        (( arch_age_d < RETRACT_WITHIN_DAYS )) && log "would retract ${rid:0:8} (archived ${arch_age_d}d ago)"
+        continue
+    fi
+    if (( arch_age_d < RETRACT_WITHIN_DAYS )); then
+        retract "$rid"
+        retracted=$((retracted + 1))
+    fi
+    : > "${rec}/retracted"
 done
 
 # --- prune old screenshots -------------------------------------------------
@@ -176,6 +213,6 @@ if (( ${#strays[@]} )); then
     fi
 fi
 
-(( renotified || ignored || requeued || abandoned || pruned )) && \
-    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned, ${pruned} images pruned"
+(( renotified || ignored || requeued || abandoned || pruned || retracted )) && \
+    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned, ${retracted} notifications withdrawn, ${pruned} images pruned"
 exit 0

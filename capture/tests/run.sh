@@ -12,6 +12,11 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_DIR="$(cd "${SELF_DIR}/../scripts" && pwd)"
+# Nothing here may reach the real phone. This suite drives the sweep only with
+# --dry-run, which returns before notify(), so it has never had the symptom that
+# the documents suite did — but a future case that runs something for real would
+# publish to the live `capture` topic, and would look like it passed.
+export NTFY_DISABLE=1
 # shellcheck source=../scripts/capture.lib.sh
 source "${SCRIPT_DIR}/capture.lib.sh"
 
@@ -722,6 +727,98 @@ is "a fresh upload-in-progress is not"       "$(stray_check .part-x 'now')"     
 #
 # What stays below is capture's own: config it owns, not config it shares.
 
+# ------------------------------------------------------ withdrawing notifications
+echo "resolved records lose their notification"
+
+# ntfy has no message TTL and no scheduled delete — a notification only goes away
+# if something sends a DELETE addressed to its sequence id. So a proposal whose
+# record has been archived sits on the phone forever showing an Add button that
+# now answers 404. This pass is also the ONLY thing that covers a tap: the
+# container archives those and never tells the host.
+retract_verdict() { # $1 = id $2 = age of decision.json -> withdrawn | left
+    local d="${ARCHIVE_DIR}/$1"
+    mkdir -p "$d"; echo '{"id":"x","outcome":"add"}' > "${d}/decision.json"
+    touch -d "$2" "${d}/decision.json"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    [[ "$o" == *"would retract ${1:0:8}"* ]] && echo withdrawn || echo left
+}
+is "a freshly archived record is withdrawn" \
+   "$(retract_verdict aaaaaaaa-0000-4000-8000-000000000001 '2 hours ago')" "withdrawn"
+# Bounded on purpose: the first run after this shipped met an archive/ holding
+# months of history whose notifications had long expired, and a DELETE for each
+# would have pushed a burst of no-op events through the topic for nothing.
+is "history older than the window is not" \
+   "$(retract_verdict bbbbbbbb-0000-4000-8000-000000000001 '60 days ago')" "left"
+
+# Without the marker the sweep re-deletes every archived record every night,
+# forever — invisible, because a DELETE for an unknown id answers 200.
+marked_once() {
+    local d="${ARCHIVE_DIR}/cccccccc-0000-4000-8000-000000000001"
+    mkdir -p "$d"; echo '{}' > "${d}/decision.json"; : > "${d}/retracted"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    [[ "$o" == *"would retract cccccccc"* ]] && echo again || echo once
+}
+is "an already-withdrawn record is left alone" "$(marked_once)" "once"
+
+# The marker is the whole guard, so a dry run that writes one would silently
+# suppress the real retract on the next run.
+dry_writes_nothing() {
+    local d="${ARCHIVE_DIR}/dddddddd-0000-4000-8000-000000000001" v
+    mkdir -p "$d"; echo '{}' > "${d}/decision.json"
+    bash "$sweep" --dry-run >/dev/null 2>&1
+    [[ -f "${d}/retracted" ]] && v=wrote || v=clean
+    rm -rf "$d"; echo "$v"
+}
+is "--dry-run leaves no marker behind" "$(dry_writes_nothing)" "clean"
+
+# The id rides in both a header and a URL path, so it is reduced to what is legal
+# in both. A slash would retract some other path entirely.
+is "a uuid survives intact"     "$(ntfy_id_safe '3f2a-9c1e_ok.v2')"   '3f2a-9c1e_ok.v2'
+is "a slash cannot escape"      "$(ntfy_id_safe 'a/../b')"            'a..b'
+is "nor can a newline"          "$(ntfy_id_safe "$(printf 'a\nb')")"  'ab'
+# The charset alone leaves ".." whole, and DELETE on <topic>/.. addresses the
+# topic root rather than a message. Emptied here; retract() declines an empty id.
+is "a bare traversal empties"   "$(ntfy_id_safe '../..')"             ''
+
+nt="$(sed -n '/^notify() {/,/^}/p' "${SCRIPT_DIR}/capture.lib.sh")"
+has "notify can carry an id"    "$nt" 'X-Sequence-ID:'
+# X-ID is accepted with a 200 and silently ignored — the message stores no
+# sequence_id and every retract then addresses nothing. Verified against 2.27.0.
+hasnt "and not the header that looks right"   "$nt" 'X-ID:'
+has "and sanitises it"          "$nt" 'ntfy_id_safe "$6"'
+# The proposal is the message that goes stale. If it ships untagged, nothing above
+# can ever withdraw it and the whole pass is decorative.
+has "the proposal is tagged"    "$(cat "${SCRIPT_DIR}/capture.triage.sh")" '"$actions" "$eid"'
+
+# No clear=true anywhere. It dismissed the notification on the TAP, before the
+# CalDAV PUT had happened — and a failed PUT deliberately leaves the record in
+# pending/ so the buttons can be used again, buttons the tap had just hidden. The
+# container withdraws the notification when it ARCHIVES instead, so a message that
+# is gone means the event actually landed. Dropped 2026-08-09 with documents'.
+is "triage sets no clear=true" "$(grep -c 'clear=true' "${SCRIPT_DIR}/capture.triage.sh")" "0"
+is "sweep sets no clear=true"  "$(grep -c 'clear=true' "${SCRIPT_DIR}/capture.sweep.sh")"  "0"
+# The container is what makes the withdrawal instant rather than overnight; without
+# this call the sweep's archive pass is the only thing clearing a tapped capture.
+srv="$(cat "${SELF_DIR}/../src/server.ts")"
+has "the container retracts on archive" "$srv" "await retract(id);"
+has "and addresses ntfy directly"       "$srv" 'method: "DELETE"'
+# undoAdd went with the undo (2026-08-09). What must NOT come back with its removal
+# is the 2026-07-27 bug underneath it: a drop on a record that is no longer pending
+# answering {ok:true} while doing nothing at all.
+hasnt "undoAdd is gone"                 "$srv" "async function undoAdd"
+has   "and a resolved drop 409s"        "$srv" '"already resolved"'
+
+# The mute is what keeps a test run off the real phone. This suite is dry-run only
+# today, so it does not depend on it — which is exactly why it needs asserting: the
+# first case that runs something for real would otherwise publish to the live topic
+# and still report green.
+rt="$(sed -n '/^retract() {/,/^}/p' "${SCRIPT_DIR}/capture.lib.sh")"
+has "notify is muteable"        "$nt" 'ntfy_muted && return 0'
+has "retract is muteable"       "$rt" 'ntfy_muted && return 0'
+has "the suite sets the mute"   "$(cat "${BASH_SOURCE[0]}")" 'export NTFY_DISABLE=1'
+
 # ---------------------------------------------------------------- retry config
 echo "retry configuration"
 # Must exceed the triage's TimeoutStartSec (15min) or the sweep could adopt a
@@ -732,27 +829,21 @@ is "requeue waits out a live run" "$(( REQUEUE_AFTER_HOURS >= 1 ))" "1"
 is "max_tokens leaves room" "$(( MAX_TOKENS >= 2048 ))" "1"
 
 # ------------------------------------------------------- container integration
-# Not automated: the undo path lives in server.ts and needs the running container
-# plus a real Radicale, so a test here would write to the live calendar. Verified
-# by hand on 2026-07-27 and repeatable with this procedure:
+# The undo path this section used to document is GONE (2026-08-09). Discard on an
+# already-added record used to delete the event back out of Radicale and restamp
+# the outcome as `undone`; Add now withdraws its own notification and takes the
+# Discard button with it, so nothing could reach that branch from a phone.
 #
-#   TID=deadbeef-0000-4000-8000-000000000001
-#   B64=$(cat capture/dav-secret); CAL=<general collection uuid>
-#   # 1. seed an event exactly as an Add would
-#   docker run --rm --network catallenya_default -v /tmp/undo.ics:/e.ics curlimages/curl \
-#     -X PUT -H "Authorization: Basic ${B64}" -H 'Content-Type: text/calendar' \
-#     --data-binary @/e.ics "http://radicale:5232/carrein/${CAL}/${TID}.ics"
-#   # 2. fake the archived record an Add would have left
-#   mkdir -p capture/data/archive/$TID
-#   echo '{"calendar":"general"}' > capture/data/archive/$TID/proposal.json
-#   echo "{\"id\":\"$TID\",\"outcome\":\"add\"}" \
-#     > capture/data/archive/$TID/decision.json
-#   # 3. tap Discard, then assert: event gone, decision.json outcome=undone
-#   curl -X POST -H 'X-Capture: 1' "http://<ip>:8080/capture/${TID}/drop"
+# What replaced it is asserted above where it can be: the container retracts on
+# archive, and a drop on a non-pending record answers 409 rather than {ok:true} —
+# that distinction is the 2026-07-27 bug (a tap reporting success while the event
+# stayed in the calendar), and removing undoAdd must not reintroduce it.
 #
-# Expected: {"ok":true,"undone":true,"status":200}. REMOVE the archive record
-# afterwards — it is a fake verdict that would otherwise sit in the archive
-# looking real.
+# Still not automated: the Add path itself writes to the live calendar, so it is
+# exercised by using the pipeline. The retract half WAS verified end to end on
+# 2026-08-09 — seed a pending record, publish a notification carrying
+# `X-Sequence-ID: <id>`, POST /capture/<id>/drop, and confirm both that the record
+# moved to archive/ and that a message_delete for that id appears on the topic.
 
 # --------------------------------------------------------------------- result
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
