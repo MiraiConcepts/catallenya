@@ -1,0 +1,18 @@
+[Unit]
+Description=Check changedetection watch health daily
+
+[Timer]
+# Daily is deliberate. Hourly would re-send the same broken watch 24 times before you
+# had a chance to fix it — a watch that breaks stays broken until a human intervenes,
+# so there is nothing to gain from noticing it sooner than once a day.
+# Morning-side and SGT-pinned, matching the other notifying timers — this only ever
+# speaks when something is wrong, and a 3am ping trains you to mute the topic. 08:00
+# SGT lands just after capture/documents sweeps so the morning batch arrives together.
+OnCalendar=*-*-* 08:00:00 Asia/Singapore
+RandomizedDelaySec=10min
+# A box that was powered off must still get its check, otherwise the one condition most
+# likely to have broken a watch (an outage) is also the one that skips the check for it.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

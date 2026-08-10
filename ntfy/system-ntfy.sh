@@ -36,8 +36,12 @@ job_type="${service_name#*.}"
 # the outcome itself, and systemd/immich.fix-rotations.service wires OnFailure= here as
 # a backstop for the script dying before it can. That unit is the only thing justifying
 # the immich entry below — if it ever loses its OnFailure=, drop the entry too.
+# changedetection is here for systemd/changedetection.health.service, which wires
+# OnFailure= as a backstop for its own script dying. Its script publishes the normal
+# findings itself, exactly like immich — if that unit ever loses its OnFailure=, drop
+# this entry too.
 case "$topic" in
-    restic|capture|documents|immich) ;;
+    restic|capture|documents|immich|changedetection) ;;
     *)
         echo "Unknown service type: $service_name"
         exit 1
