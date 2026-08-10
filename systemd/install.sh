@@ -40,6 +40,9 @@ EOF
 declare -A SYMLINKS=(
     # Timers
     ["disk.timer"]="${REPO_DIR}/systemd/disk.timer"
+    # changedetection cannot self-report a broken watch — every fetch error just sets
+    # last_error and notifies nobody. This is the only thing that looks.
+    ["changedetection.health.timer"]="${REPO_DIR}/systemd/changedetection.health.timer"
     # Not a schedule for the documents pipeline — that is event-driven. This is the
     # once-a-day look for a file type the path unit's globs cannot see.
     ["documents.backstop.timer"]="${REPO_DIR}/documents/systemd/documents.backstop.timer"
@@ -65,6 +68,7 @@ declare -A SYMLINKS=(
     ["documents.apply.path"]="${REPO_DIR}/documents/systemd/documents.apply.path"
     # Services
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
+    ["changedetection.health.service"]="${REPO_DIR}/systemd/changedetection.health.service"
     ["documents.triage.service"]="${REPO_DIR}/documents/systemd/documents.triage.service"
     ["documents.apply.service"]="${REPO_DIR}/documents/systemd/documents.apply.service"
     ["documents.sweep.service"]="${REPO_DIR}/documents/systemd/documents.sweep.service"
