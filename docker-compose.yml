@@ -503,9 +503,14 @@ services:
       # Where this container sends the DELETE that withdraws a notification on a tap.
       # Container-to-container and plain HTTP, exactly like radicale above — no TLS,
       # no tailnet round trip, and ntfy is unauthenticated on this network anyway, so
-      # this adds a destination rather than a privilege. A literal, not a ${VAR}:
-      # nothing about it is environment-specific. Unset it to fall back to the
-      # nightly sweep clearing notifications instead.
+      # this adds a destination rather than a privilege. Hardcoded rather than
+      # interpolated from .env: nothing about it is environment-specific. Unset it
+      # to fall back to the nightly sweep clearing notifications instead.
+      #
+      # Do NOT write an interpolation-shaped example in a comment here. The CI
+      # drift guard greps this file for that pattern WITHOUT skipping comments, so
+      # prose describing one reads as a variable that .env.ci fails to declare —
+      # which is exactly how this line broke the build once (2026-08-10).
       NTFY_URL: http://ntfy
       NTFY_TOPIC: capture
     # The Radicale password comes in as a file, not an env var: `docker inspect`
