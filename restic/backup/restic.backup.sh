@@ -8,10 +8,27 @@ set -euo pipefail
 # since copying live PG files is unsafe. This dump is the authoritative DB backup.
 MEMOKA_BACKUP_DIR=/zpool/catallenya/memoka/backup
 mkdir -p ${MEMOKA_BACKUP_DIR}
-echo "Dumping Memoka database..."
-docker exec memoka_postgresql pg_dump -U memoka_user memoka \
-    | gzip > ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz
-echo "Memoka database dump complete."
+# Guarded the same way the upvotes dump below is. Unguarded, a stopped or
+# unhealthy memoka_postgresql made `docker exec` exit non-zero, `set -e` killed
+# the script, and NOTHING was backed up that night — Immich, Syncthing and
+# Radicale included. One minor container should cost its own dump, not 1.5 TiB.
+if ! docker ps --format '{{.Names}}' | grep -qx memoka_postgresql; then
+    echo "Memoka postgres container not running; skipping database dump."
+else
+    echo "Dumping Memoka database..."
+    # Write to .tmp and move on success: the old `> …dump.sql.gz` truncated the
+    # previous good dump before pg_dump was known to work, so a failure midway
+    # left a corrupt archive where a stale-but-valid one had been.
+    if docker exec memoka_postgresql pg_dump -U memoka_user memoka \
+        | gzip > ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp; then
+        mv ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp \
+           ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz
+        echo "Memoka database dump complete."
+    else
+        rm -f ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp
+        echo "Memoka dump FAILED; keeping the previous dump and continuing."
+    fi
+fi
 
 # Dump the upvotes SQLite DB via the online-backup API. VACUUM INTO is run
 # inside the upvotes container itself (same Bun-bundled SQLite engine that
