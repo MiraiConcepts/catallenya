@@ -281,8 +281,10 @@ archive/<id>/
                     diagnosable after the fan-out has split it up
   proposal.json     the one event this record is about
   event.ics         what would have been written
-  decision.json     add | add_alt | add_duplicate | undone | discard | ignored |
+  decision.json     add | add_alt | add_duplicate | discard | ignored |
                     needs_human | not_event | failed
+                    (`undone` appears on older records only — the undo path was
+                     removed 2026-08-09)
 ```
 
 There is **no ledger and no recording mode** (both retired 2026-08-01, with the
@@ -300,9 +302,19 @@ that record's `outcome` (or leave a `note` saying it was a test) so the archive
 measures the model rather than your workarounds.
 
 **Discard does not delete** — every screenshot you tap away is retained, including
-ones captured by accident (the sweep prunes the image later; see below). Discard on
-a capture that was already ADDED is different again: it undoes it, deleting the
-event from Radicale and recording the outcome as `undone`.
+ones captured by accident (the sweep prunes the image later; see below).
+
+**A tap withdraws its own notification** (2026-08-09), so Add and Discard are each
+terminal: the container sends ntfy a `DELETE` for the record's sequence id the
+moment it archives. A failed CalDAV PUT does NOT archive, so that notification
+stays — which is what makes its disappearance mean the event actually landed. No
+button carries `clear=true` any more; it dismissed on the tap and would have hidden
+exactly that failure. One consequence: **the undo is gone** — Add takes the Discard
+button away with it, so nothing could reach `undoAdd()` from a phone, and the code
+was removed rather than left as an unreachable branch. A drop on a record that is no
+longer pending now answers **409**, not `{ok:true}`: reporting success while doing
+nothing is the 2026-07-27 bug, and it must not come back by accident. The undo for a
+wrong Add is deleting the event in your calendar app.
 
 **Screenshots are pruned, the rest is not.** After `PRUNE_IMAGE_AFTER_DAYS` (7) the
 sweep deletes the IMAGE from an archived record — whatever its outcome — and leaves

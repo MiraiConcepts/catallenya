@@ -500,6 +500,14 @@ services:
       # web UI taps buttons via browser fetch, so CORS applies to it; the phone app
       # does native HTTP and never sees this. Any other page is still refused.
       NTFY_ORIGIN: https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}
+      # Where this container sends the DELETE that withdraws a notification on a tap.
+      # Container-to-container and plain HTTP, exactly like radicale above — no TLS,
+      # no tailnet round trip, and ntfy is unauthenticated on this network anyway, so
+      # this adds a destination rather than a privilege. A literal, not a ${VAR}:
+      # nothing about it is environment-specific. Unset it to fall back to the
+      # nightly sweep clearing notifications instead.
+      NTFY_URL: http://ntfy
+      NTFY_TOPIC: capture
     # The Radicale password comes in as a file, not an env var: `docker inspect`
     # and /proc/1/environ both expose environment, and this credential is good for
     # read/write/delete across the whole /carrein/ tree. Same pattern as immich's
@@ -612,6 +620,14 @@ services:
       # batch). 16K keeps verbose log batches inline. Self-hosted only — no
       # Firebase/APNS in play, so exceeding the upstream 4K default is safe.
       - NTFY_MESSAGE_SIZE_LIMIT=16384
+      # 72h, up from the 12h default (2026-08-09). This is how long the server
+      # holds a message for a client that reconnects and asks for what it missed,
+      # and the capture/documents pipelines now rely on it for more than replay:
+      # they withdraw a stale notification by publishing a message_delete event,
+      # which is cached like any other message. A phone offline longer than this
+      # window misses the deletion and keeps a notification for a record that has
+      # already been archived or binned. 12h was narrower than a weekend away.
+      - NTFY_CACHE_DURATION=72h
     volumes:
       - ntfy-cache:/var/cache/ntfy
       - ntfy:/etc/ntfy

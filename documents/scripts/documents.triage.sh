@@ -378,8 +378,8 @@ left="$(list_candidates | wc -l)"
 (( TRUNCATED > 0 )) && log "  ${TRUNCATED} deferred; the path unit will re-fire for them"
 
 # --- notify ----------------------------------------------------------------
-# THE BATCH ACCUMULATES, THE INDIVIDUALS DO NOT. Skip means "leave it in staging",
-# so a clean proposal you ignored must reappear alongside the next arrival — that is
+# THE BATCH ACCUMULATES, THE INDIVIDUALS DO NOT. Ignoring a proposal leaves it in
+# staging, so a clean one you ignored must reappear alongside the next arrival — that is
 # the whole point of the batch and it is built from everything currently staged and
 # clean, not from this run. Individual notifications go out once, for documents
 # triaged in THIS run only: they each need their own decision, and re-sending three
@@ -391,19 +391,17 @@ left="$(list_candidates | wc -l)"
 # authentication — it forces a CORS preflight so a stray browser tab cannot fire
 # these callbacks.
 #
-# ONLY SKIP CLEARS, and the asymmetry is the whole undo story. Accept and Discard
-# leave the notification in place because THE NOTIFICATION IS THE UNDO HANDLE: tap
-# Discard on something you just filed and it comes back out to bin/, tap Skip on
-# something binned and it returns to staging. Clearing on tap — which is what
-# shipped on 2026-07-31, copied from capture where one tap genuinely ends the
-# decision — deleted the only route to a feature the design is built around, and it
-# looked correct in every test because no test taps a notification twice.
+# NOTHING USES clear=true, and that is deliberate. clear=true dismisses on the TAP,
+# before apply has done anything; a refused move would then leave the notification
+# gone and the document unmoved. documents.apply.sh withdraws the notification after
+# the move SUCCEEDS instead, so a message disappearing means the thing happened, and
+# a message still sitting there means it did not.
 #
-# Skip keeps clear=true because dismissing IS what skip does; the document stays
-# staged either way, so the message going away is the entire visible effect. An
-# Accept or Discard message you are finished with is dismissed by swiping, the same
-# as any other notification.
-# buttons() moved to documents.lib.sh — the sweep sends the same three buttons on
+# There were three buttons here until 2026-08-09. Skip went because ignoring the
+# notification already did the same thing, and Accept/Discard stopped being an undo
+# pair because keeping a notification alive after a tap meant every filed document
+# left one behind forever. Two buttons, one outcome each.
+# buttons() moved to documents.lib.sh — the sweep sends the same buttons on
 # its re-notify and final-note messages, and two copies of an Actions string is how
 # one of them drifts. BASE is what it reads.
 # shellcheck disable=SC2034  # consumed by buttons() in documents.lib.sh
@@ -453,8 +451,13 @@ _${TRUNCATED} more still queued_
     jq -nc --arg i "$bid" --argjson m "$(printf '%s\n' "${clean[@]}" | jq -R -s -c 'split("\n")|map(select(length>0))')" \
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' > "${PROPOSALS_DIR}/${bid}.json"
+    # Withdraw the batch message this one supersedes — the on-disk records were
+    # just marked `superseded` above, and this is the same step on the phone.
+    # Retract-then-publish rather than an in-place update: an update may be applied
+    # silently, and a batch that grew a document has to alert.
+    retract "$BATCH_NTFY_ID"
     notify "Staged: ${#clean[@]} Document$( (( ${#clean[@]} == 1 )) || printf s )" \
-        "" clipboard "$body" "$(buttons "$bid" 1)"
+        "" clipboard "$body" "$(buttons "$bid" 1)" "$BATCH_NTFY_ID"
     log "  notified batch of ${#clean[@]}"
 fi
 
@@ -466,16 +469,18 @@ for rid in "${NEW_IDS[@]:-}"; do
     [[ "$(jq -r '.state' "$f")" == "staged" ]] || continue
     bl="$(jq -r '.blocked // "null"' "$f")"
     fl="$(jq -r '.flags[]?' "$f" | flags_sentence)"
+    # Tagged with the record id: the sweep's nudge and its binned note both replace
+    # this message rather than stacking beside it.
     if [[ "$bl" != "null" ]]; then
         notify "Blocked: 1 Document" high warning \
             "1\. $(md_escape "$(basename "$(jq -r .staged_path "$f")")")
 
-$(reason_text "$bl")" "$(buttons "$rid" 0)"
+$(reason_text "$bl")" "$(buttons "$rid" 0)" "$rid"
     elif [[ -n "$fl" ]]; then
         notify "Review: 1 Document" high question \
             "$(batch_list "$f")
 
-${fl}" "$(buttons "$rid" 1)"
+${fl}" "$(buttons "$rid" 1)" "$rid"
     fi
 done
 

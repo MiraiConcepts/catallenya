@@ -18,13 +18,32 @@
 # can replay an approval; it cannot invent one, redirect one, or name a path.
 #
 # THE STATE RULE. Each action means "put this document into the state that action
-# names, from wherever it is now" — which is what makes undo fall out rather than
-# being built:
+# names, from wherever it is now":
 #
-#            accept              discard          skip
-#   staged   -> dest             -> bin/          stays
-#   filed    no-op               -> bin/          -> staging/
-#   binned   -> dest             no-op            -> staging/
+#            accept              discard          delete
+#   staged   -> dest             -> bin/          refused
+#   filed    no-op               -> bin/          refused
+#   binned   -> dest             no-op            -> gone
+#
+# Two columns left this table on 2026-08-09, both because a tap now WITHDRAWS its
+# own notification (see the drain loop) and neither survived that:
+#
+#   the undo. `filed → discard` walked a document back out, and fell out of the
+#   state rule for free. It only worked because the notification stayed live after
+#   a tap — which also meant every document ever filed left one behind forever.
+#
+#   `skip`. It meant "leave it in staging and ask me later", which is exactly what
+#   IGNORING the notification already does, so its one distinct effect was to
+#   dismiss a notification without deciding anything. It also rewrote the record,
+#   restarting the 7-day bin clock, so a document could be snoozed indefinitely and
+#   never bin. Its `filed → staging` and `binned → staging` arms went with it:
+#   Accept already files a document straight out of bin/, which is the case they
+#   actually served.
+#
+# The rule itself is unchanged and the remaining rows are still reachable by a
+# fresh proposal. delete is restricted to binned deliberately — it is the one
+# destructive arm, and a mis-tap on a document you are still working with must not
+# be able to reach it.
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,7 +56,7 @@ mkdir -p "$APPROVALS_DIR" "$PROPOSALS_DIR" "$STAGING_DIR" "$BIN_DIR"
 exec 9>"${STATE_DIR}/.apply.lock"
 flock -n 9 || { log "another apply holds the lock; exiting"; exit 0; }
 
-FILED=0; BINNED=0; RETURNED=0; REFUSED=0
+FILED=0; BINNED=0; DELETED=0; REFUSED=0
 REFUSALS=""
 
 # move_verified <src> <dst> <expected-sha> -> 0 on success
@@ -149,20 +168,25 @@ apply_one() {
             refuse "$id" "$(jq -r .original_name <<<"$rec") — Could not move to bin."
         fi ;;
 
-      skip)
-        [[ "$st" == "staged" ]] && return 0                      # already where skip means
-        # Restore the name the triage PROPOSED, not whatever the file is called
-        # right now. A document binned into a name collision picked up a timestamp
-        # prefix, and returning it as 20260731T…-a.pdf would defeat the point of
-        # staging — what you see there is meant to be the name accepting will use.
-        dest="${STAGING_DIR}/$(basename "$(jq -r --arg b "$(basename "$cur")" '.staged_path // $b' <<<"$rec")")"
-        [[ -e "$dest" ]] && { refuse "$id" "$(jq -r .original_name <<<"$rec") — Staging already holds that name."; return; }
-        if move_verified "$cur" "$dest" "$sha"; then
-            RETURNED=$((RETURNED+1)); log "  STAGED ${dest#"${DOCS}/"}"
-            jq -c --arg p "staging/$(basename "$dest")" \
-               '. + {state:"staged", staged_path:$p, at:$p}' <<<"$rec" > "$f"
+      delete)
+        # The only arm that destroys anything. Reachable solely from the note a
+        # document gets after a week in bin/ — by then it has been decided against
+        # twice, once by a week of silence and once by this tap.
+        #
+        # The bin/ restriction is the safety property, and it is checked HERE rather
+        # than trusted from the button: a marker is just a filename the container
+        # wrote, so "the UI only offers Delete on a binned note" is not a guarantee
+        # this script may rely on. Anything not currently in bin/ is refused.
+        [[ "$st" == "deleted" ]] && return 0
+        [[ "$cur" == "${BIN_DIR}/"* ]] || {
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — Only a document in bin/ can be deleted."; return; }
+        if rm -f -- "$cur" && [[ ! -e "$cur" ]]; then
+            DELETED=$((DELETED+1)); log "  DELETED ${cur#"${DOCS}/"}"
+            # `at` goes with it: where_is reads that field, and a path that no longer
+            # exists would make every later tap refuse with the wrong reason.
+            jq -c '. + {state:"deleted"} | del(.at)' <<<"$rec" > "$f"
         else
-            refuse "$id" "$(jq -r .original_name <<<"$rec") — Could not return to staging."
+            refuse "$id" "$(jq -r .original_name <<<"$rec") — Could not delete."
         fi ;;
 
       *) refuse "$id" "unknown action: ${action}" ;;
@@ -184,10 +208,20 @@ for mk in "${markers[@]}"; do
     # in a later edit. The action is already in hand; losing the file loses nothing.
     rm -f "$mk"
     [[ -n "$action" ]] || { log "  !! unreadable marker ${id:0:8} — dropped"; continue; }
+    before=$REFUSED
     apply_one "$id" "$action"
+    # Withdraw the notification this tap came from — but ONLY if the action actually
+    # happened. A refused tap keeps its notification, because the document did not
+    # move and those buttons are still the way to act on it. That conditional is
+    # what lets a notification's disappearance mean "done" rather than "tapped".
+    #
+    # Comparing the REFUSED counter is deliberate: apply_one reports failure by
+    # incrementing it, not by a return code, and a batch that refuses one member of
+    # five must not withdraw the notification covering the other four.
+    (( REFUSED == before )) && retract "$id"
 done
 
-log "filed ${FILED}, binned ${BINNED}, returned ${RETURNED}, refused ${REFUSED}"
+log "filed ${FILED}, binned ${BINNED}, deleted ${DELETED}, refused ${REFUSED}"
 
 # Silent on success — the button clearing is the confirmation, and a ping per tap is
 # how a useful topic becomes one you mute. A refusal is the opposite: you tapped,

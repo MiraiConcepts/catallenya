@@ -39,6 +39,11 @@ trap cleanup EXIT
 
 # Source the library against a scratch tree so nothing here can touch the real corpus.
 export DOCS="${TMP}/docs" STATE_DIR="${TMP}/state"
+# ...and nothing here can reach the real PHONE either. This suite runs the actual
+# triage and apply, not dry-runs of them, so before this existed a full run put
+# every notification they raised — dozens of "Refused: 1 Document" pings — on the
+# live `documents` topic. The files were always scratch; the notifications were not.
+export NTFY_DISABLE=1
 # shellcheck source=../scripts/documents.lib.sh
 source "${SCRIPT_DIR}/documents.lib.sh"
 
@@ -194,13 +199,19 @@ markers() { find "${STATE_DIR}/approvals" -name '*.json' | wc -l; }
 seed
 tap accept;  is "staged -> accept -> filed"   "$(state)" "filed"
 is "the document is at the destination" "$([ -f "${DOCS}/09_receipts-and-purchases/a.pdf" ] && echo yes)" "yes"
-tap discard; is "filed -> discard -> binned (UNDO)" "$(state)" "binned"
-tap skip;    is "binned -> skip -> staged"    "$(state)" "staged"
-tap accept;  is "staged -> accept -> filed"   "$(state)" "filed"
-tap skip;    is "filed -> skip -> staged"     "$(state)" "staged"
-tap discard; is "staged -> discard -> binned" "$(state)" "binned"
+# Still true, and still worth pinning: the STATE RULE survived the removal of undo
+# (2026-08-09). What went is the notification that used to stay live long enough to
+# send this second action — the table is reachable by a fresh proposal or a marker,
+# no longer by a button on a spent notification.
+tap discard; is "filed -> discard -> binned"  "$(state)" "binned"
 tap accept;  is "binned -> accept -> filed"   "$(state)" "filed"
+tap discard; is "and back to bin/"            "$(state)" "binned"
 is "every tap drained its marker" "$(markers)" "0"
+# There is no skip arm any more, and an action nothing emits must not quietly
+# succeed: a stray marker naming one is a refusal, not a move.
+tap skip
+is  "a skip marker is refused"    "$(state)" "binned"
+has "and says the action is gone" "$(cat "${TMP}/aout")" "unknown action"
 
 # A document binned when bin/ already holds that name gets a timestamp prefix. An
 # earlier where_is() rebuilt the bin path from the ORIGINAL name, so that document
@@ -208,8 +219,10 @@ is "every tap drained its marker" "$(markers)" "0"
 seed; touch "${DOCS}/bin/a.pdf"
 tap discard; is "collision-binned document is binned"  "$(state)" "binned"
 is  "and got a distinct name"  "$(ls "${DOCS}/bin" | wc -l)" "2"
-tap skip;    is "collision-binned CAN be un-discarded"  "$(state)" "staged"
-is  "and is back in staging"   "$([ -f "${DOCS}/staging/a.pdf" ] && echo yes)" "yes"
+# Accept is the path that has to find it now that skip is gone — same where_is
+# lookup, same regression guarded.
+tap accept;  is "collision-binned is still reachable"   "$(state)" "filed"
+is  "and lands at its destination" "$([ -f "${DOCS}/09_receipts-and-purchases/a.pdf" ] && echo yes)" "yes"
 
 echo "apply — refusals"
 seed; echo tampered > "${DOCS}/staging/a.pdf"; tap accept
@@ -234,6 +247,27 @@ is  "a blocked record cannot be accepted" "$(state)" "staged"
 seed; jq -nc '{}' > "${STATE_DIR}/approvals/${ID}.json"
 DOCS="${TMP}/docs" STATE_DIR="${TMP}/state" bash "${SCRIPT_DIR}/documents.apply.sh" >/dev/null 2>&1
 is "an unreadable marker is dropped, not retried" "$(markers)" "0"
+
+echo "apply — delete"
+# Delete is the only arm that destroys anything, so both halves are tested: that it
+# works from bin/, and that it is REFUSED everywhere else. The button is only ever
+# offered on a binned note, but a marker is just a filename the container wrote —
+# the restriction has to hold in the script that does the removing, not in the UI
+# that asks for it.
+seed; tap discard
+tap delete
+is "binned -> delete -> deleted"      "$(state)" "deleted"
+is "and the file is gone"             "$([ -e "${DOCS}/bin/a.pdf" ] && echo present || echo gone)" "gone"
+is "delete drained its marker"        "$(markers)" "0"
+
+seed; tap delete
+is  "a STAGED document cannot be deleted" "$(state)" "staged"
+is  "and is untouched on disk"            "$([ -f "${DOCS}/staging/a.pdf" ] && echo yes)" "yes"
+has "and the refusal says why"            "$(cat "${TMP}/aout")" "Only a document in bin/"
+
+seed; tap accept; tap delete
+is "a FILED document cannot be deleted"   "$(state)" "filed"
+is "and is untouched on disk"             "$([ -f "${DOCS}/09_receipts-and-purchases/a.pdf" ] && echo yes)" "yes"
 
 echo "apply — batches"
 fresh
@@ -307,6 +341,22 @@ echo old > "${DOCS}/bin/ancient.pdf"; touch -d '90 days ago' "${DOCS}/bin/ancien
 run_sweep
 is  "bin/ is never auto-emptied"        "$([ -f "${DOCS}/bin/ancient.pdf" ] && echo kept)" "kept"
 
+# The binned note was the last notification able to outlive its decision, so it got
+# a clock of its own: a week in staging to decide, a week in bin/ to rescue. What it
+# withdraws is the MESSAGE — the document is not touched, because the only thing in
+# this pipeline that removes a document is a Delete tap.
+sseed '8 days ago'; run_sweep                       # staged -> binned, note sent
+touch -d '8 days ago' "${STATE_DIR}/proposals/${ID}.json"
+run_sweep --dry-run
+has "an aged binned note is withdrawn"  "$(cat "${TMP}/sout")" "would withdraw the binned note"
+is  "dry-run stamps nothing"            "$(jq -r '.note_withdrawn // "none"' "${STATE_DIR}/proposals/${ID}.json")" "none"
+run_sweep
+is  "and is stamped once withdrawn"     "$(jq -r '.note_withdrawn // false' "${STATE_DIR}/proposals/${ID}.json")" "true"
+is  "the document is STILL in bin/"     "$([ -f "${DOCS}/bin/a.pdf" ] && echo yes)" "yes"
+is  "and the record is still binned"    "$(state)" "binned"
+run_sweep
+is  "the withdrawal happens once"       "$(grep -c 'withdrew the binned note' "${TMP}/sout")" "0"
+
 # Same rule as apply: a document that changed underneath its proposal is left for
 # a human, loudly — there is no path back through the pipeline for it.
 sseed '8 days ago'; echo tampered > "${DOCS}/staging/a.pdf"
@@ -344,16 +394,75 @@ has "sweep timer is morning-side SGT" "$(cat "${UNIT_DIR}/documents.sweep.timer"
 # in caddy's own compose entry were not. Both are needed: the env var, because the
 # Caddyfile reads {$DOCUMENTS_REVERSE_PROXY_PORT} from caddy's environment, and the
 # publish, because otherwise nothing listens.
-# Undo is reached by tapping the SAME notification again, so Accept and Discard must
-# not dismiss it. clear=true on all three shipped once and silently removed the only
-# route to undo — invisible to every test, because no test taps twice.
-echo "the notification survives its own buttons"
+echo "a tap withdraws its own notification"
 # buttons() lives in documents.lib.sh — one copy serves the triage and the sweep.
 btn="$(sed -n '/^buttons() {/,/^}/p' "${SCRIPT_DIR}/documents.lib.sh")"
-is    "exactly one button clears"  "$(grep -c 'clear=true' <<<"$btn")" "1"
-has   "and it is Skip"             "$(grep -o 'Skip[^;]*' <<<"$btn" | tail -1)" "clear=true"
-hasnt "Accept does not clear"      "$(grep -o 'Accept[^;]*'  <<<"$btn")" "clear=true"
-hasnt "Discard does not clear"     "$(grep -o 'Discard[^;]*' <<<"$btn")" "clear=true"
+# NO button clears any more. clear=true dismisses on the TAP, before apply has done
+# anything, so a refused move would leave you with a notification gone and a file
+# unmoved. apply withdraws it after the move succeeds instead, which is what makes
+# "the notification is gone" mean "it actually happened".
+is "no button clears optimistically" "$(grep -c 'clear=true' <<<"$btn")" "0"
+# Two buttons, one outcome each. Skip went on 2026-08-09: ignoring the notification
+# already meant "leave it in staging", and each skip rewrote the record and so
+# restarted the 7-day bin clock, which made the deadline unenforceable.
+hasnt "and no Skip button survives"  "$btn" "Skip,"
+hasnt "nor a skip route"             "$btn" "/skip"
+ap="$(cat "${SCRIPT_DIR}/documents.apply.sh")"
+hasnt "nor a skip arm in apply"      "$ap"  "      skip)"
+has "apply withdraws, and only when nothing refused" "$ap" '(( REFUSED == before )) && retract "$id"'
+
+# The binned note is the one notification meant to outlive your attention, so it
+# gets the two terminal choices and no Skip — sending it back to staging would
+# restart a clock it already ran out.
+bb="$(sed -n '/^bin_buttons() {/,/^}/p' "${SCRIPT_DIR}/documents.lib.sh")"
+has   "the binned note offers Accept" "$bb" "Accept,"
+has   "and Delete"                    "$bb" "Delete,"
+hasnt "and no Skip"                   "$bb" "Skip,"
+hasnt "and no Discard"                "$bb" "Discard,"
+has   "the sweep uses it"             "$(cat "${SCRIPT_DIR}/documents.sweep.sh")" 'bin_buttons "$id"'
+
+echo "a superseded notification is withdrawn"
+# ntfy has no message TTL and no scheduled delete: a notification only disappears
+# if something sends a DELETE addressed to its sequence id. Hence the X-Sequence-ID on
+# every message a later one replaces.
+is "a uuid survives intact"   "$(ntfy_id_safe '3f2a-9c1e_ok.v2')"  '3f2a-9c1e_ok.v2'
+is "a slash cannot escape"    "$(ntfy_id_safe 'a/../b')"           'a..b'
+# The charset alone leaves ".." whole, and DELETE on <topic>/.. addresses the
+# topic root rather than a message. Emptied here; retract() declines an empty id.
+is "a bare traversal empties" "$(ntfy_id_safe '../..')"            ''
+
+nt="$(sed -n '/^notify() {/,/^}/p' "${SCRIPT_DIR}/documents.lib.sh")"
+has "notify can carry an id"  "$nt" 'X-Sequence-ID:'
+# X-ID is accepted with a 200 and silently ignored — the message stores no
+# sequence_id and every retract then addresses nothing. Verified against 2.27.0.
+hasnt "and not the header that looks right" "$nt" 'X-ID:'
+has "and sanitises it"        "$nt" 'ntfy_id_safe "$6"'
+
+# One live batch message, addressed by a stable literal rather than by whichever
+# record id happened to carry it — the sweep has to withdraw the previous batch
+# without looking up which one that was.
+tri="$(cat "${SCRIPT_DIR}/documents.triage.sh")"
+swp="$(cat "${SCRIPT_DIR}/documents.sweep.sh")"
+has "triage tags the batch"   "$tri" 'buttons "$bid" 1)" "$BATCH_NTFY_ID"'
+has "sweep tags the batch"    "$swp" 'buttons "$bid" 1)" "$BATCH_NTFY_ID"'
+has "the binned note is tagged" "$swp" '"$(bin_buttons "$id" "$offer_accept")" "$id"'
+
+# The delete route has to exist on the container or the button is dead on arrival —
+# and the container must NOT be where the bin/-only rule lives.
+apsrc="$(cat "${SELF_DIR}/../approve/src/server.ts")"
+has   "the container accepts a delete tap" "$apsrc" '"delete"'
+hasnt "but does not police it"             "$apsrc" "BIN_DIR"
+
+# This suite runs the real triage and apply, so the mute is the only thing between
+# a test run and the owner's phone. Assert it on both wire calls, and that the
+# suite still sets it — removing either line makes every future run publish for
+# real, and nothing else would notice.
+rt="$(sed -n '/^retract() {/,/^}/p' "${SCRIPT_DIR}/documents.lib.sh")"
+has "notify is muteable"      "$nt" 'ntfy_muted && return 0'
+has "retract is muteable"     "$rt" 'ntfy_muted && return 0'
+has "the suite sets the mute" "$(cat "${BASH_SOURCE[0]}")" 'export NTFY_DISABLE=1'
+NTFY_DISABLE=1 notify "probe" "" x "body" "" "probe-id"; is "muted notify still exits 0" "$?" "0"
+NTFY_DISABLE=1 retract "probe-id";                       is "muted retract still exits 0" "$?" "0"
 
 echo "caddy reaches the approve container"
 cd="$(cat "${SELF_DIR}/../../caddy/Caddyfile")"

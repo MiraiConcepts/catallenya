@@ -78,6 +78,13 @@ IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"
 # 0 disables pruning entirely.
 PRUNE_IMAGE_AFTER_DAYS=7
 
+# How far back the sweep's retract pass reaches into archive/. Anything resolved
+# longer ago than this is marked as handled without a DELETE being sent: its
+# notification has long since aged out of the phone, so the call would be a no-op
+# event in the topic. Exists only to bound the FIRST run after this shipped, which
+# would otherwise have swept every record ever archived.
+RETRACT_WITHIN_DAYS=14
+
 # API_MAX_ATTEMPTS / API_RETRY_BASE_S / API_URL and image_mime / image_ext moved to
 # ai.lib.sh (sourced at the top). Transient-failure policy is unchanged: the record
 # is left in pending/ without a proposal.json and the sweep re-queues the screenshot
@@ -338,8 +345,14 @@ triage_route() {
     echo events
 }
 
-# notify <title> <priority> <tags> <body> [actions]
+# notify <title> <priority> <tags> <body> [actions] [id]
 # `actions` is a raw ntfy Actions header value; omit for a plain note.
+#
+# `id` is an ntfy sequence id (X-Sequence-ID). Pass the RECORD id for anything that can
+# later become stale — it is what retract() addresses, and it is the only way to
+# take a notification off the phone. Omit it for one-shot notices that nothing
+# will ever withdraw (infrastructure alarms, "Already Passed"): an untagged
+# message simply cannot be retracted, which for those is the correct behaviour.
 #
 # An EMPTY priority sends no Priority header at all, which is what the calendar
 # notifications now do: ntfy then applies its own default and every proposal
@@ -363,14 +376,66 @@ notify() {
     # Actions header, and Go's Header.Get returns the FIRST — so injected buttons
     # would REPLACE the real ones and a tap would POST wherever the attacker chose.
     [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$5")")
+    # X-Sequence-ID, and only this spelling family. `X-ID` looks like the obvious
+    # name, is accepted with a 200, and is SILENTLY IGNORED — the message comes back
+    # with no sequence_id and every later retract addresses nothing. Verified
+    # against 2.27.0 by diffing our header against the CLI's own --sequence-id:
+    # X-Sequence-ID / Sequence-ID / Sid work, X-ID / X-Seq / Seq do not.
+    [[ -n "${6:-}" ]] && hdr+=(-H "X-Sequence-ID: $(ntfy_id_safe "$6")")
     # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
     # and POSTs that file's contents. The body here is model-derived — a screenshot
     # saying 'set reason to "@/zpool/catallenya/.env"' would exfiltrate the file to
     # this (unauthenticated) topic. --data-raw is byte-identical except it never
     # interprets a leading @. Same fix applied to documents.lib.sh and
     # immich.fix-rotations.daily.sh, which carry copies of this function.
+    ntfy_muted && return 0
     curl -fsS --max-time 15 "${hdr[@]}" \
         --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
+}
+
+# Test seam, mirroring documents.lib.sh, where it was added because that suite runs
+# the real triage and apply and was publishing to the live topic on every run. This
+# suite drives the sweep only with --dry-run, so it has never had the symptom — the
+# seam is here so it cannot acquire it the first time a case runs something for
+# real. Placed just BEFORE the curl, so header construction and sanitisation are
+# still exercised under test. Never set in production.
+ntfy_muted() { [[ "${NTFY_DISABLE:-}" == "1" ]]; }
+
+# ntfy_id_safe <id> — reduce an id to what is safe in BOTH a header value and a
+# URL path segment. Every current caller passes a UUID, so this changes nothing
+# today; it is here because the id reaches ntfy through two different syntaxes
+# and a stray slash would silently retract the wrong path.
+#
+# Leading dots go too, which is not fussiness: the charset alone leaves ".." whole,
+# and DELETE on <topic>/.. resolves to the topic root rather than to a message.
+# Stripping them empties that value, and retract() declines an empty id.
+ntfy_id_safe() { tr -cd 'A-Za-z0-9._-' <<<"$1" | sed 's/^\.*//'; }
+
+# retract <id> — take a previously tagged notification off the phone.
+#
+# ntfy has no per-message expiry and no scheduled delete (checked against 2.27.0,
+# our server): the only way a notification disappears is an explicit DELETE
+# addressed to its sequence id, which the server broadcasts to subscribers as a
+# message_delete event. That is why every retractable notification has to carry
+# an X-Sequence-ID in the first place.
+#
+# Best-effort by design, like notify(): a failed retract leaves clutter, never a
+# wrong outcome, and must not fail the archive that called it. The server answers
+# 200 even for an id it has never seen, so calling this speculatively is free.
+#
+# Known gap: the delete event lives in the server cache like any message, so a
+# phone offline longer than the cache window (NTFY_CACHE_DURATION, widened to 72h
+# in docker-compose.yml for exactly this reason) never receives it and keeps the
+# stale notification. Re-sending for N nights would buy N days; not done, because
+# the app's own auto-delete already mops up the rare straggler.
+retract() {
+    local id="${1:-}"
+    [[ -n "$id" ]] || return 0
+    _load_env || return 0
+    local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
+    ntfy_muted && return 0
+    curl -fsS --max-time 15 -X DELETE \
+        "${url}/${NTFY_TOPIC}/$(ntfy_id_safe "$id")" >/dev/null || true
 }
 
 # write_context <record-dir> <now-local> <image> <prompt>
@@ -460,6 +525,11 @@ archive_record() {
 
     rm -rf "$dest"
     mv "$src" "$dest" || return 1
+    # NOT retracted here. Archiving happens in three places — this function, the
+    # triage's terminal branches, and the container's own archive() on a tap — and
+    # only one of them is host bash. The sweep withdraws notifications for
+    # everything in archive/ in a single pass instead, so "resolved implies
+    # withdrawn" holds however the record got resolved, including a tap.
 }
 
 # The capture service's own tailnet URL — the Add/Discard buttons POST back here,

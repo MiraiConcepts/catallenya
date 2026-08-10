@@ -242,8 +242,12 @@ notify_event() {
     fi
 
     if ! base="$(capture_base_url)"; then
+        # Tagged even though it has no buttons: the record IS left pending, so the
+        # sweep will nudge it and eventually archive it, and both of those want to
+        # withdraw this message rather than leave it beside their own.
         notify "${disp_title} (no buttons)" high "exclamation" \
-               "$body. Could not build callback URL; record ${eid:0:8} left pending."
+               "$body. Could not build callback URL; record ${eid:0:8} left pending." \
+               "" "$eid"
         log "  !! could not build capture base url"
         return
     fi
@@ -260,16 +264,18 @@ notify_event() {
         # the generic "Add" instead of the venue it had just been trimmed to.
         [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
         [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || alt_label="Alternative"
-        actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, ${alt_label}, ${base}/capture/${eid}/add?alt=1, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
+        actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1; http, ${alt_label}, ${base}/capture/${eid}/add?alt=1, method=POST, headers.X-Capture=1; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day} (alt: ${alt_label})"
     else
         primary="$(button_label "$ev" "$ev")"
         [[ "$primary" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
-        actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1, clear=true; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1, clear=true"
+        actions="http, ${primary}, ${base}/capture/${eid}/add, method=POST, headers.X-Capture=1; http, Discard, ${base}/capture/${eid}/drop, method=POST, headers.X-Capture=1"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
     # No priority: every proposal arrives at the same weight (see notify()).
-    notify "${disp_title}" "" "calendar" "$body" "$actions"
+    # Tagged with the record id so the sweep's nudge can replace this message and
+    # the archive pass can withdraw it — one live notification per record, ever.
+    notify "${disp_title}" "" "calendar" "$body" "$actions" "$eid"
 }
 
 # --- drain incoming/ -------------------------------------------------------

@@ -21,9 +21,11 @@
 #      tap, and the sweep taps nothing.
 #
 # Ages are measured from the record file's mtime — the time of the last state
-# change, which apply rewrites on every tap — so a document you skipped back to
-# staging gets a fresh week, and the re-notify itself resets the clock (a bin
-# lands ~a day after the nudge, not the same morning).
+# change, which apply rewrites on every tap — and the re-notify itself resets the
+# clock, so a nudged proposal bins a week after the nudge rather than a week after
+# it was staged. Nothing else moves a document back to staged any more: `skip` was
+# the only action that did, and it is gone (2026-08-09), which is what turned the
+# 7-day bin into a deadline rather than something a tap could postpone forever.
 #
 # Makes no API calls and holds no API key — pure filesystem + ntfy.
 set -uo pipefail
@@ -34,6 +36,13 @@ source "${SELF_DIR}/documents.lib.sh"
 
 RENOTIFY_AFTER_HOURS=24
 BIN_AFTER_DAYS=7
+# How long the binned note stays on the phone before it withdraws itself. Mirrors
+# the staging week deliberately: one week to decide, one week to rescue. After that
+# the DOCUMENT is untouched — it lives in bin/ exactly as before, and bin/ is still
+# never emptied by anything but a Delete tap — but the notification stops being a
+# thing you scroll past. This is the last notification in either pipeline that can
+# outlive its decision, so it is the last one that needed a clock.
+BIN_NOTE_DAYS=7
 
 DRY=0
 usage() { printf 'usage: %s [--dry-run]\n' "${0##*/}" >&2; }
@@ -119,11 +128,21 @@ for f in "${PROPOSALS_DIR}"/*.json; do
 
 "
             if (( offer_accept )); then
-                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Accept still files it; Skip returns it to staging._"
+                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Accept still files it; Delete removes it for good._"
             else
-                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Skip returns it to staging._"
+                binbody+="_In bin/ after $(( age_h / 24 )) days with no decision. Delete removes it for good._"
             fi
-            notify "Binned: 1 Document" "" wastebasket "$binbody" "$(buttons "$id" "$offer_accept")"
+            # Withdraw this document's own earlier message (its blocked/review
+            # proposal, or its nudge) and let the binned note stand in its place.
+            # Safe to do unconditionally: the note below carries the SAME buttons,
+            # so the undo handle survives — and a clean document never had a solo
+            # message at all, which makes this a free no-op for it.
+            retract "$id"
+            # bin_buttons, not buttons: this note is the document's last handle, so
+            # it offers the two terminal choices and no Skip. It is also the ONE
+            # notification that is meant to outlive your attention — everything else
+            # here is withdrawn the moment it stops being actionable.
+            notify "Binned: 1 Document" "" wastebasket "$binbody" "$(bin_buttons "$id" "$offer_accept")" "$id"
         else
             log "  !! could not bin ${sp}"
         fi
@@ -137,15 +156,17 @@ for f in "${PROPOSALS_DIR}"/*.json; do
             continue
         fi
         if [[ "$bl" != "null" ]]; then
+            retract "$id"
             notify "Pending Blocked: 1 Document" high warning \
                 "1\. $(md_escape "$(basename "$sp")")
 
-$(reason_text "$bl")" "$(buttons "$id" 0)"
+$(reason_text "$bl")" "$(buttons "$id" 0)" "$id"
         elif [[ -n "$fl" ]]; then
+            retract "$id"
             notify "Pending Review: 1 Document" high question \
                 "$(batch_list "$f")
 
-${fl}" "$(buttons "$id" 1)"
+${fl}" "$(buttons "$id" 1)" "$id"
         else
             batch_members+=("$id")      # clean ones re-batch below, as one message
         fi
@@ -172,10 +193,67 @@ if (( ${#batch_members[@]} )); then
         --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{id:$i, kind:"batch", state:"staged", members:$m, staged_at:$t}' \
         > "${PROPOSALS_DIR}/${bid}.json"
+    retract "$BATCH_NTFY_ID"
     notify "Pending Staged: ${#batch_members[@]} Document$( (( ${#batch_members[@]} == 1 )) || printf s )" \
         "" clipboard "$(batch_list "${bfiles[@]}")" \
-        "$(buttons "$bid" 1)"
+        "$(buttons "$bid" 1)" "$BATCH_NTFY_ID"
 fi
+
+# --- withdraw a binned note that has had its week ---------------------------
+# The binned note is the only notification left that outlives its decision, and
+# this is its clock. It withdraws the MESSAGE and nothing else: the document stays
+# in bin/ untouched, and the only thing that ever removes a document is a Delete
+# tap. Age is the record's mtime, which the bin move rewrote, so a document you
+# tapped back out of bin/ is not counted here at all — its state stops being
+# "binned" and this pass skips it.
+#
+# note_withdrawn guards it, so the DELETE is sent once rather than every night for
+# the life of the record.
+for f in "${PROPOSALS_DIR}"/*.json; do
+    rec="$(cat "$f")"
+    [[ "$(jq -r '.state // ""' <<<"$rec")" == "binned" ]] || continue
+    [[ "$(jq -r '.note_withdrawn // false' <<<"$rec")" == "true" ]] && continue
+    age_d=$(( (now - $(stat -c %Y "$f" 2>/dev/null || echo "$now")) / 86400 ))
+    (( age_d >= BIN_NOTE_DAYS )) || continue
+    id="$(basename "$f" .json)"
+    if (( DRY )); then
+        log "would withdraw the binned note for ${id:0:8} (${age_d}d in bin/)"
+        continue
+    fi
+    retract "$id"
+    stamp "$f" '. + {note_withdrawn:true}'
+    log "withdrew the binned note for ${id:0:8} (${age_d}d in bin/) — document untouched"
+done
+
+# --- withdraw a batch message that has outlived its members ------------------
+# The batch notification is the one message that does not belong to a single
+# document, so nothing above can retire it: its members leave staging one at a
+# time, by tap or by bin, and the message sits there listing documents that have
+# all moved on. When the LAST member is gone it is pure clutter — and unlike a
+# solo proposal there is no replacement message to inherit the undo handle, which
+# is fine, because a batch whose members are all filed has nothing left to undo.
+#
+# A batch that still has one live member is left alone. Rebuilding its body on
+# every departure would be the tidier result and a good deal more code; the stale
+# entry meanwhile stays correct for the members it still lists, and the ones it
+# no longer should list are all Accept-able from bin/ anyway.
+for b in "${PROPOSALS_DIR}"/*.json; do
+    [[ "$(jq -r '.kind  // ""' "$b")" == "batch"  ]] || continue
+    [[ "$(jq -r '.state // ""' "$b")" == "staged" ]] || continue
+    live=0
+    while read -r m; do
+        [[ -n "$m" ]] || continue
+        [[ "$(jq -r '.state // ""' "${PROPOSALS_DIR}/${m}.json" 2>/dev/null)" == "staged" ]] && { live=1; break; }
+    done < <(jq -r '.members[]?' "$b")
+    (( live )) && continue
+    if (( DRY )); then
+        log "would withdraw the batch notification (no members still staged)"
+        continue
+    fi
+    retract "$BATCH_NTFY_ID"
+    stamp "$b" '. + {state:"superseded"}'
+    log "withdrew the batch notification (no members still staged)"
+done
 
 (( renotified || binned )) && log "sweep: ${renotified} re-notified, ${binned} binned"
 exit 0
