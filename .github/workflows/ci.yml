@@ -22,6 +22,15 @@ jobs:
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pin the SCANNER, not just the action. The action SHA above only fixes the
+          # wrapper; the gitleaks binary it downloads is whatever that release bundles,
+          # so a dependabot SHA bump silently changes the scanner version. 8.30.1 does
+          # not flag the same things 8.24.3 does, and .gitleaksignore fingerprints are
+          # version-sensitive — a silent bump could mask a real finding or resurface a
+          # suppressed false positive. Verify locally with the SAME version:
+          #   docker run --rm -v "$PWD:/repo" -w /repo \
+          #     zricethezav/gitleaks:v8.24.3 detect --redact
+          GITLEAKS_VERSION: "8.24.3"
 
   compose-validate:
     runs-on: ubuntu-latest
