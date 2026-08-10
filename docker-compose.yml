@@ -633,6 +633,16 @@ services:
       # window misses the deletion and keeps a notification for a record that has
       # already been archived or binned. 12h was narrower than a weekend away.
       - NTFY_CACHE_DURATION=72h
+      # Without a cache FILE the cache is in-memory only, so the 72h above
+      # survived nothing: every ntfy restart dropped all of it. Watchtower polls
+      # hourly and recreates this container on any image update, so those
+      # restarts are unscheduled. That took the retract/withdraw mechanism with
+      # it — a message_delete event is cached like any other message, so a phone
+      # reconnecting after a restart would never see the deletion and would keep
+      # a notification for a record already archived or binned. The ntfy-cache
+      # volume mounted at /var/cache/ntfy already persists; this puts the cache
+      # in it. Duration and file are two halves of one setting.
+      - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
     volumes:
       - ntfy-cache:/var/cache/ntfy
       - ntfy:/etc/ntfy
@@ -746,6 +756,13 @@ services:
     # Note: No cap_drop/security_opt — Watchtower needs full Docker socket
     # access for self-update and container lifecycle management. Hardening
     # breaks its self-update pull and prevents scanning other containers.
+    # That exemption is about CAPABILITIES though; a memory ceiling does not
+    # touch the socket, and every other service in this file has one. Idles
+    # at ~14 MB, so 128M is headroom rather than a constraint.
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${ZPOOL_VOLUME}/watchtower/config.json:/config.json:ro
@@ -754,7 +771,13 @@ services:
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_NOTIFICATION_URL=${NTFY_PROTOCOL_URL}/${WATCHTOWER_NTFY_TOPIC}
       - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_REMOVE_VOLUMES=true
+      # WATCHTOWER_REMOVE_VOLUMES removed 2026-08-10. It deletes a container's
+      # ANONYMOUS volumes on update. Safe today only by accident: every
+      # watchtower-labelled service (radicale, syncthing, upvotes) happens to
+      # have its image's VOLUME paths covered by a bind mount, so no anonymous
+      # volume exists to delete. Label a service whose VOLUME is not bind-covered
+      # and the next auto-update silently discards its state. CLEANUP=true above
+      # already reclaims the old IMAGES, which is what this was reached for.
       - WATCHTOWER_POLL_INTERVAL=3600
     labels:
       - com.centurylinklabs.watchtower.enable=true
