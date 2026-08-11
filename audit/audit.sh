@@ -137,9 +137,13 @@ echo "--- 10. Environment Variable Secrets ---"
 # result first, then decide — same output, exit codes intact.
 docker ps --format '{{.Names}}' | sort | while read container; do
   echo "Container: $container"
+  # `|| true` is load-bearing: this script runs under `set -euo pipefail`, and a
+  # container with no matching vars makes grep exit 1, which under pipefail fails
+  # the whole substitution and would kill the run mid-section. The original code
+  # survived only because `|| echo ...` consumed grep's status.
   found=$(docker inspect "$container" --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | grep -iE 'password|secret|key|token|psk' \
-    | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1=<set>/')
+    | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1=<set>/' || true)
   if [[ -n "$found" ]]; then
     echo "$found"
   else
