@@ -44,8 +44,15 @@ jobs:
         # and .env.ci would otherwise pass silently.
         run: |
           # shellcheck disable=SC2016  # the ${...} in the grep pattern is a regex, not an expansion
+          # Full-line comments are stripped first. Without that, prose DESCRIBING an
+          # interpolation reads as one, and the guard demands a .env.ci entry for a
+          # variable that does not exist — which is exactly how a comment about
+          # interpolation failed this job on 2026-08-10. Comments are not config.
+          # Note this strips whole-line comments only: a trailing `# ... ${VAR}` on a
+          # real config line would still be counted, because stripping from the first
+          # `#` would corrupt any value legitimately containing one.
           missing=$(comm -23 \
-            <(grep -oE '\$\{[A-Z_0-9]+\}' docker-compose.yml | tr -d '${}' | sort -u) \
+            <(grep -v '^[[:space:]]*#' docker-compose.yml | grep -oE '\$\{[A-Z_0-9]+\}' | tr -d '${}' | sort -u) \
             <(grep -v '^#' .env.ci | cut -d= -f1 | sort -u))
           if [ -n "$missing" ]; then
             echo "Variables used in docker-compose.yml but missing from .env.ci:"
