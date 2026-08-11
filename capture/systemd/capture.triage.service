@@ -8,6 +8,23 @@ Wants=network-online.target
 # Per-capture failures are reported over ntfy by the script itself.
 OnFailure=system-ntfy@capture.triage.service
 
+# The start limit the comment above relies on was never actually set, so until
+# 2026-08-10 this unit ran on systemd's defaults of 5 starts in 10s — and those
+# cannot catch the failure that costs money. capture.triage.path keys on
+# PathExistsGlob, which re-fires for as long as a file REMAINS in incoming/, so a
+# screenshot the triage cannot move spins the unit forever at one opus-5 vision
+# call per run. Observed runs take ~4-6s, so five of them span 20-30s and never
+# reach a 10s window; the counter resets and the brake never engages. Only a
+# script dying in under two seconds — i.e. before the API call, the case that
+# costs nothing — ever tripped it.
+#
+# Same values and same reasoning as documents.triage.service: a slow spin evades
+# a narrow window entirely, because starts several minutes apart never reach the
+# burst. Twelve starts in thirty minutes catches the runaway while leaving normal
+# operation nowhere near it.
+StartLimitIntervalSec=1800
+StartLimitBurst=12
+
 [Service]
 Type=oneshot
 User=carrein
