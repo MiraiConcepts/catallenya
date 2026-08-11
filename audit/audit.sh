@@ -124,15 +124,27 @@ docker compose -f "${SCRIPT_DIR}/../docker-compose.yml" config | grep -B 2 -A 2 
 echo
 
 echo "--- 10. Environment Variable Secrets ---"
+# The point of this check is WHICH variables look secret-shaped, never their values.
+# It used to pipe `docker inspect` straight into grep, and grep prints the whole
+# matching line — so every run wrote live credentials into $LOG_FILE (mode 0664,
+# world-readable), including ZIPLINE_CORE_SECRET, MEMOKA_DB_PASSWORD and two
+# POSTGRES_PASSWORDs. Seven such logs existed going back to 2025-11-10. Masked
+# 2026-08-10.
+#
+# The masking sed CANNOT go on the end of the existing pipeline: `|| echo "No
+# obvious secrets found"` fires on GREP's exit status, and sed always exits 0, so
+# appending it would silently kill that branch for every container. Capture the
+# result first, then decide — same output, exit codes intact.
 docker ps --format '{{.Names}}' | sort | while read container; do
-  # Skip known false positives
-  if [[ "$container" == "flame" ]]; then
-    echo "Container: $container"
-    echo "   (Skipping known false positive: PASSWORD env var)"
-    continue
-  fi
   echo "Container: $container"
-  docker inspect "$container" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -iE 'password|secret|key|token|psk' || echo "   No obvious secrets found"
+  found=$(docker inspect "$container" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | grep -iE 'password|secret|key|token|psk' \
+    | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1=<set>/')
+  if [[ -n "$found" ]]; then
+    echo "$found"
+  else
+    echo "   No obvious secrets found"
+  fi
 done
 echo
 
