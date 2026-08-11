@@ -544,10 +544,11 @@ services:
       # interpolated from .env: nothing about it is environment-specific. Unset it
       # to fall back to the nightly sweep clearing notifications instead.
       #
-      # Do NOT write an interpolation-shaped example in a comment here. The CI
-      # drift guard greps this file for that pattern WITHOUT skipping comments, so
-      # prose describing one reads as a variable that .env.ci fails to declare —
-      # which is exactly how this line broke the build once (2026-08-10).
+      # An interpolation-shaped example in a WHOLE-LINE comment is now safe: the CI
+      # drift guard strips those before grepping (fixed 2026-08-10, after prose
+      # describing an interpolation read as one and broke this build). Still avoid
+      # it in a TRAILING comment on a config line — the guard cannot strip those
+      # without corrupting values that legitimately contain a `#`.
       NTFY_URL: http://ntfy
       NTFY_TOPIC: capture
     # The Radicale password comes in as a file, not an env var: `docker inspect`
