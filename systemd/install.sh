@@ -27,14 +27,28 @@ set -euo pipefail
 
 SYSTEMD_DIR="/etc/systemd/system"
 REPO_DIR="/zpool/catallenya"
-POLICY_DIR="${REPO_DIR}/systemd/policy"
-STATE_DIR="${REPO_DIR}/systemd/state"
 
 # --check validates the contract and exits without touching anything. It needs no
 # root, which is the point: the gate can then run in CI and be tested on its own,
 # rather than only being exercised by the thing it is supposed to guard.
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+
+# The offline suite points --check at a tree of COPIED units, so its mutation
+# cases never write the real files — which are the live targets of the
+# /etc/systemd/system symlinks. The old mutate-in-place suite put broken content
+# into the running config for the duration of every case, and would have left it
+# there had the suite died between mutate and restore (found in the 2026-08-13
+# audit as NeedDaemonReload drift on five units plus mktemp-mode files).
+#
+# Honored ONLY under --check, deliberately: an override that could reach a real
+# install would let one stray environment variable symlink the fleet at /tmp.
+if (( CHECK_ONLY )) && [[ -n "${INSTALL_CHECK_REPO:-}" ]]; then
+    REPO_DIR="${INSTALL_CHECK_REPO}"
+fi
+
+POLICY_DIR="${REPO_DIR}/systemd/policy"
+STATE_DIR="${REPO_DIR}/systemd/state"
 
 if [[ $EUID -ne 0 && $CHECK_ONLY -eq 0 ]]; then
     echo "Error: must run as root (sudo bash systemd/install.sh)"
