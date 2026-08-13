@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Regression tests for the systemd job factory: the gate and the watchdog.
 #
-# Everything here runs offline and free. The gate is tested by breaking a REAL
-# unit and confirming it refuses — a synthetic fixture would only prove the gate
-# agrees with a fixture. The watchdog is tested against the per-user systemd
-# manager, so real systemd does the parsing and drop-in merging rather than a mock
-# that agrees with whatever the script already believes.
+# Everything here runs offline and free. The gate is tested by breaking a COPY of
+# a REAL unit and confirming it refuses — a synthetic fixture would only prove the
+# gate agrees with a fixture, while the real file is never written: it is the live
+# target of an /etc/systemd/system symlink, so the old sed-in-place version put
+# broken content into the running config for the duration of every case (and left
+# NeedDaemonReload drift plus mktemp-mode files behind — 2026-08-13 audit). The
+# watchdog is tested against the per-user systemd manager, so real systemd does
+# the parsing and drop-in merging rather than a mock that agrees with whatever the
+# script already believes.
 #
-# Nothing here touches the system manager or /etc/systemd/system. Run before commit:
+# Nothing here touches the system manager, /etc/systemd/system, or any file a
+# system unit resolves. Run before commit:
 #   bash systemd/tests/run.sh
 set -uo pipefail
 
@@ -29,21 +34,27 @@ hasnt(){ [[ "$2" != *"$3"* ]] && ok "$1" || bad "$1" "must not contain: $3" "$2"
 
 # ================================================================== the gate
 #
-# Each case mutates one real unit, runs the gate, and restores. The restore is in
-# a trap as well as inline: a suite that leaves a broken unit behind would be
-# worse than no suite.
+# Each case mutates a COPY of one real unit inside CHECK_TREE and points the gate
+# at that tree via INSTALL_CHECK_REPO (honored only under --check). No restore and
+# no trap gymnastics: a suite killed mid-case leaves nothing behind but a temp
+# directory, where the old in-place version left a deliberately broken unit as
+# the running config.
 
-MUTATED="" BACKUP=""
-restore() { [[ -n "$MUTATED" && -f "$BACKUP" ]] && mv -f "$BACKUP" "$MUTATED"; MUTATED="" BACKUP=""; }
-trap restore EXIT
+CHECK_TREE="$(mktemp -d)"
+trap 'rm -rf "$CHECK_TREE"' EXIT
+# Everything the gate reads, layout preserved: units, timers, paths, the policy
+# fragments and the instance stickers.
+(cd "$REPO" && find systemd restic capture/systemd documents/systemd ntfy \
+    \( -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name '*.conf' \) \
+    -exec cp --parents -t "$CHECK_TREE" {} +)
 
 # gate_says <name> <unit-path> <sed-expr> <expected substring>
 gate_says() {
     local name="$1" unit="$2" expr="$3" want="$4"
-    MUTATED="$unit"; BACKUP="$(mktemp)"; cp "$unit" "$BACKUP"
-    sed -i -E "$expr" "$unit"
-    local out; out="$(bash "$INSTALL" --check 2>&1)"
-    restore
+    local rel="${unit#"${REPO}/"}"
+    cp -f "$unit" "${CHECK_TREE}/${rel}"    # fresh copy — also resets the previous case
+    sed -i -E "$expr" "${CHECK_TREE}/${rel}"
+    local out; out="$(INSTALL_CHECK_REPO="$CHECK_TREE" bash "$INSTALL" --check 2>&1)"
     has "$name" "$out" "$want"
 }
 
@@ -193,7 +204,7 @@ hb_cleanup() {
     for f in "${FIXTURES[@]:-}"; do [[ -n "$f" ]] && rm -f "${UD}/${f}"; done
     rm -rf "$STATE"
     systemctl --user daemon-reload 2>/dev/null
-    restore
+    rm -rf "$CHECK_TREE"
 }
 trap hb_cleanup EXIT
 
