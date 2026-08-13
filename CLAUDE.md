@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Open work is tracked as GitHub issues** (`gh issue list`) — check there before re-deriving open items or proposing new work. This file carries decisions, traps and accepted risks (things that are never "done"); anything with a done-state belongs in an issue, and a decided-not-done issue graduates back into this file as a "do not re-raise" entry when closed.
+
 ## Project Overview
 
 catallenya is a self-hosted infrastructure project replacing third-party cloud services with open-source alternatives. It runs on a ZFS-backed storage pool (`/zpool/catallenya`) and is orchestrated entirely through Docker Compose.
