@@ -12,9 +12,11 @@
 # before it reaches that point (missing .env, OOM, syntax error, timeout kill),
 # where the journal would otherwise be the only trace.
 #
-# That same no-`-e` structure is why the completion stamp in this script must be
-# written conditionally on RC == 0. Reaching the end of this script does NOT mean
-# the bake succeeded.
+# That same no-`-e` structure is why the `exit "${RC}"` propagation matters: the
+# completion stamp is written by the base policy's ExecStartPost=, which systemd
+# runs only when ExecStart succeeded. Reaching the end of this script does NOT
+# mean the bake succeeded — the exit code is what keeps a failed bake from
+# stamping healthy.
 
 [Unit]
 Description=Immich Rotation Bake (lossless EXIF orientation)
