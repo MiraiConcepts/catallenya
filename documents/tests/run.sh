@@ -383,6 +383,13 @@ has "apply glob matches only finished markers" \
 # and the class provides the limit. Both halves matter — a unit that silently lost
 # its Class= would still find StartLimitBurst in the policy file and look fine.
 ADHOC_POLICY="$(cat "${UNIT_DIR}/../../systemd/policy/20-adhoc.conf" 2>/dev/null)"
+# A sweep that cannot reach its base URL used to exit 0, which told systemd it had
+# succeeded: the completion stamp was written and the watchdog reported it fresh
+# while documents piled up unswept. "Nothing to sweep" is still a success; "cannot
+# sweep" is not.
+has "a sweep that cannot run fails loudly" \
+    "$(sed -n '/no base URL/,/^fi/p' "${SCRIPT_DIR}/documents.sweep.sh")" "exit 1"
+
 has "triage claims the adhoc class"  "$(cat "${UNIT_DIR}/documents.triage.service")" "Class=adhoc"
 has "apply claims the adhoc class"   "$(cat "${UNIT_DIR}/documents.apply.service")"  "Class=adhoc"
 has "the adhoc class carries a start limit" "$ADHOC_POLICY" "StartLimitBurst"
