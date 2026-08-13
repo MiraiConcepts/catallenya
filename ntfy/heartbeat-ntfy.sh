@@ -63,8 +63,16 @@ note()    { NOTES+=("$(printf '%-13s %s' "$1" "$2")"); }
 # --- helpers ---------------------------------------------------------------
 
 # How long this box has been up. Used to tell "the job stopped" apart from "the
-# box was off", which are indistinguishable from a stamp alone.
-UPTIME_S=$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null || echo 0)
+# box was off", which are indistinguishable from a stamp alone. Overridable for
+# the offline suite only, which cannot reboot the box to exercise both branches
+# of the downtime check; nothing else sets it.
+UPTIME_S=${HEARTBEAT_UPTIME_S:-$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null || echo 0)}
+
+# How long after boot a stale artifact is still explained by catch-up rather than
+# reported. 24h: the longest legitimate catch-up run (restic.check@data) is
+# bounded at TimeoutStartSec=12h, and the roll call is daily, so one full cycle
+# of grace covers every job that is going to self-heal. See stale_or_downtime.
+BOOT_GRACE_S=${HEARTBEAT_BOOT_GRACE_S:-86400}
 
 # systemd's own time parser, so MaxAge accepts anything a timer would — but the
 # result must be a plain finite integer we can compare.
@@ -92,14 +100,26 @@ human() {
     fi
 }
 
-# Report staleness, unless the box simply has not been up long enough for the job
-# to have run. This host has no UPS, goes fully dark on AC loss, and every timer
-# is Persistent=true — so the boot after an outage fires a dozen catch-up runs at
-# once. Without this, that boot produces a burst of high-priority pushes that all
-# self-resolve within minutes, which is the fastest way to train someone to mute
-# the topic. Downtime is logged, never pushed.
+# Report staleness, unless the box simply has not been up long enough for the
+# missed run to have caught up yet. This host has no UPS, goes fully dark on AC
+# loss, and every timer is Persistent=true — so the boot after an outage fires a
+# dozen catch-up runs at once. Without this, that boot produces a burst of
+# high-priority pushes that all self-resolve within hours, which is the fastest
+# way to train someone to mute the topic. Downtime is logged, never pushed.
+#
+# The window is min(MaxAge, BOOT_GRACE_S), NOT MaxAge alone. The first version
+# compared uptime against MaxAge, which muted exactly the jobs this check matters
+# most for: restic.check@data (MaxAge=400d) could never page unless the box
+# stayed up 400 days straight, and any reboot muted every long-cadence job for
+# its whole MaxAge — a disabled zpool.scrub.timer would have stayed silent
+# forever on a box that reboots more often than every 40 days (2026-08-13
+# audit). A day of grace is enough for every catch-up that is going to happen,
+# and a catch-up that FAILS already pages through the inherited OnFailure=. The
+# min() keeps the old, tighter window for jobs whose MaxAge is under a day.
 stale_or_downtime() {   # $1 unit, $2 age, $3 max, $4 literal, $5 description
-    if (( UPTIME_S < $3 )); then
+    local grace=$3
+    (( grace > BOOT_GRACE_S )) && grace=${BOOT_GRACE_S}
+    if (( UPTIME_S < grace )); then
         note "WAS OFF" "$1 — $5 $(human "$2") (max $4), but the box has only been up $(human "$UPTIME_S")"
     else
         finding "STALE" "$1 — $5 $(human "$2") (max $4)"

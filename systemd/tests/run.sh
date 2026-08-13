@@ -205,11 +205,15 @@ fixture() {
     FIXTURES+=("$n")
 }
 
+# run_hb [uptime-seconds] — uptime is pinned so the suite does not change its
+# answers depending on when the HOST last rebooted: the stale-stamp cases assert
+# STALE, which the downtime check would demote to WAS OFF on a freshly-booted box.
 run_hb() {
     HEARTBEAT_ADOPTED="" \
     HEARTBEAT_SYSTEMD_DIR="$ENUM" \
     HEARTBEAT_REPO_DIR="$STATE" \
     HEARTBEAT_SYSTEMCTL="systemctl --user" \
+    HEARTBEAT_UPTIME_S="${1:-604800}" \
     bash "$HEARTBEAT" 2>&1
 }
 
@@ -296,6 +300,35 @@ systemctl --user daemon-reload 2>/dev/null
 CLEAR="$(run_hb)"
 has  "a healthy round says all clear" "$CLEAR" "all clear"
 hasnt "…and raises no findings"       "$CLEAR" "STALE"
+
+# --- the WAS OFF window is min(MaxAge, 24h), not MaxAge ----------------------
+#
+# The first version compared uptime against MaxAge, so restic.check@data
+# (MaxAge=400d) could never page on a box that ever reboots, and any reboot muted
+# every long-cadence job for its whole MaxAge. Two fixtures pin both halves: the
+# grace still suppresses right after boot, and it caps at a day instead of
+# scaling with MaxAge.
+fixture "zzhb-shortoff.service" \
+    "[Service]" "Type=oneshot" "ExecStart=/bin/true" \
+    "" "[X-Catallenya]" "Class=scheduled" "MaxAge=1h" "Freshness=stamp:${STATE}/shortoff"
+touch -d '3 days ago' "${STATE}/shortoff"
+
+fixture "zzhb-longstale.service" \
+    "[Service]" "Type=oneshot" "ExecStart=/bin/true" \
+    "" "[X-Catallenya]" "Class=scheduled" "MaxAge=1000d" "Freshness=stamp:${STATE}/longstale"
+touch -d '1001 days ago' "${STATE}/longstale"
+
+systemctl --user daemon-reload 2>/dev/null
+
+BOOTED="$(run_hb 1800)"      # 30 minutes up: inside the grace
+has   "just after boot a stale job is downtime, not a page" "$BOOTED" "WAS OFF"
+hasnt "…so it raises no STALE for it" "$(grep -E '^STALE' <<<"$BOOTED")" "zzhb-shortoff"
+
+DAYSUP="$(run_hb 172800)"    # 2 days up: far inside MaxAge=1000d, past the grace
+has   "a long-MaxAge job pages once the grace passes" "$DAYSUP" "STALE         zzhb-longstale.service"
+
+for f in shortoff longstale; do rm -f "${UD}/zzhb-${f}.service" "${ENUM}/zzhb-${f}.service"; done
+systemctl --user daemon-reload 2>/dev/null
 
 # The adopted units are the two whose documented failure mode is going quiet, and
 # neither can appear in the symlink-based drift pass — catallenya.service is a
