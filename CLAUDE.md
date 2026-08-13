@@ -166,7 +166,7 @@ Each layer can **set** (inherited, final) or **require** (the gate refuses to in
 
 ### The Watchdog
 
-`catallenya.heartbeat.timer` (daily 08:15 SGT) answers the question nothing else could: **did each job actually run, and did it do anything.** Silent when healthy; findings go to the host-health topic. It reads each job's `[X-Catallenya]` sticker from the merged view, so a job registered with `install.sh` is covered automatically — and a job that escaped the contract is itself a finding.
+`catallenya.heartbeat.timer` (daily 08:15 SGT) answers the question nothing else could: **did each job actually run, and did it do anything.** Silent when healthy; findings go to the `host` topic — the same channel boot events use. It reads each job's `[X-Catallenya]` sticker from the merged view, so a job registered with `install.sh` is covered automatically — and a job that escaped the contract is itself a finding.
 
 | Class | What "fresh" means |
 |---|---|
@@ -189,7 +189,7 @@ Each layer can **set** (inherited, final) or **require** (the gate refuses to in
 2. Starts all project timers
 3. `docker compose up -d` — brings up containers (as `carrein`)
 4. Verifies all containers reach `running` state
-5. Posts success/failure notification to ntfy `/boot` topic
+5. Posts success/failure notification to the ntfy `host` topic (renamed from `boot` on 2026-08-13; it now carries watchdog findings too)
 
 **Key commands:**
 - `systemctl status catallenya` — check boot state (green = all OK)

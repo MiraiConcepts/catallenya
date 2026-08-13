@@ -74,10 +74,10 @@ fi
 # This is not hypothetical: catallenya and catallenya.heartbeat both derive the
 # topic `catallenya`, which is not subscribed and never will be.
 #
-# HOST_TOPIC is `boot` until the boot -> host rename lands; both change together,
-# after the phone is subscribed, so there is never a window where either points at
-# a channel nobody is watching.
-HOST_TOPIC="boot"
+# Renamed from `boot` on 2026-08-13 after the phone was subscribed and a test
+# publish confirmed, never before — an unsubscribed topic accepts a publish with a
+# 200 OK and discards it.
+HOST_TOPIC="host"
 SUBSCRIBED="restic capture documents immich changedetection disk zpool ${HOST_TOPIC}"
 
 routed_note=""
