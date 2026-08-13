@@ -68,8 +68,20 @@ if ! BASE="$(documents_base_url)"; then
     # Without a base URL every button would be dead on arrival. Renotifying with
     # dead buttons is worse than staying quiet a day; binning still needs the
     # final note's buttons, so it waits too.
-    log "  !! no base URL — leaving everything for the next run"
-    exit 0
+    #
+    # EXIT 1, not 0. Exiting successfully told systemd the sweep had done its work,
+    # so ExecStartPost wrote a completion stamp and the watchdog reported the job
+    # fresh — while nothing was nudged, nothing was binned, and documents piled up
+    # in staging indefinitely with no signal at all.
+    #
+    # "Nothing to sweep" is still a success and still exits 0 further down; this is
+    # the different case of not being ABLE to sweep. A broken precondition must fail
+    # loudly: OnFailure= then fires, and the missing stamp makes the watchdog say so
+    # too.
+    log "  !! no base URL — cannot renotify or bin, failing loudly rather than"
+    log "     reporting a sweep that did not happen (check TAILNET_DOMAIN,"
+    log "     TAILNET_DNS_NAME and DOCUMENTS_REVERSE_PROXY_PORT in .env)"
+    exit 1
 fi
 
 now=$(date +%s)
