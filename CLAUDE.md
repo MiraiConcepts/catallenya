@@ -178,7 +178,11 @@ Each layer can **set** (inherited, final) or **require** (the gate refuses to in
 
 `zpool.scrub` uses `zfs-scrub:` rather than a stamp deliberately: `zpool scrub` returns in about a second, so a stamp would record that the scrub was *requested*. Sanoid is covered too — it is a vendor unit given a sticker by `install.sh`, which is why the watchdog identifies jobs by "declares a Class" rather than "is one of our symlinks".
 
-**Known regress:** the heartbeat is now the one unit nothing watches. A crash is covered by the inherited `OnFailure=`; a heartbeat that never *runs* is silent. That is one blind spot instead of six, and closing it needs an off-box dead-man's switch.
+**Known regress, ACCEPTED 2026-08-13 — do not re-raise without new information.** The heartbeat is the one unit nothing watches. A crash is covered by the inherited `OnFailure=`; a heartbeat that never *runs* is silent.
+
+This is irreducible on-box: any watcher-of-the-watcher needs a watcher itself, forever. The only shape that escapes it is an **off-box dead-man's switch** — the box pings an external service on a schedule and that service alerts when the ping *stops*, so silence becomes the alarm rather than the failure mode. **Your own ntfy cannot serve this**: it runs as a container on this host, so it dies with the box, and ntfy has no concept of a message that failed to arrive — it relays what you send, nothing more. It would need something like healthchecks.io (free tier); `NTFY_FAILURE_URL` in CI is the existing precedent for reaching a service outside the tailnet.
+
+Declined deliberately. The exposure is one blind spot replacing six, and it only bites if the heartbeat *and* whatever it would have caught both fail. Against that, an external dependency and an account are a real cost for a personal box whose owner would notice it being dead by other means. Revisit if the machine ever becomes something others depend on.
 
 ### Boot Orchestration
 
