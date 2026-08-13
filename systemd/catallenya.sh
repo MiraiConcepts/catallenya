@@ -105,7 +105,7 @@ fi
 # --- Step 5: Notify via ntfy ---
 source "${COMPOSE_DIR}/.env"
 NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-TOPIC="boot"
+TOPIC="host"
 
 TIMER_COUNT=$(systemctl list-timers "${TIMERS[@]}" --no-pager 2>/dev/null | grep -c "\.timer" || true)
 # Path units have no list-timers equivalent, so ask systemd directly. Guarded on a

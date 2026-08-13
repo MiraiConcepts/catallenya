@@ -26,13 +26,15 @@ fi
 
 NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
 
-# `boot`, NOT `host`. The rename to `host` happens only once the phone is
-# subscribed; until then publishing to `host` would create the topic on first
-# publish, return 200 OK, and drop every finding on the floor — the exact failure
-# this whole watchdog exists to prevent, committed by the watchdog itself. Change
-# this in the same commit as catallenya.sh and system-ntfy.sh's HOST_TOPIC, never
-# before.
-TOPIC="${HEARTBEAT_NTFY_TOPIC:-boot}"
+# The host-health channel, carrying boot events and watchdog findings alike.
+#
+# Renamed from `boot` on 2026-08-13, and the ORDER mattered: subscribe first, test
+# publish, confirm arrival, and only then flip. ntfy creates a topic on first
+# publish and returns 200 OK, so flipping first would have dropped every finding on
+# the floor — the exact failure this watchdog exists to prevent, committed by the
+# watchdog itself. Changed together with catallenya.sh and system-ntfy.sh's
+# HOST_TOPIC; they must never disagree.
+TOPIC="${HEARTBEAT_NTFY_TOPIC:-host}"
 
 # Both overridable for the offline suite only, which points them at a scratch tree
 # and the per-user systemd manager. That lets every finding type be provoked with
