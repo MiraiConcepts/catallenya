@@ -22,7 +22,8 @@ Unit=documents.triage.service
 #
 # So: once a day, look anyway. The triage exits in milliseconds when the root is
 # empty, which it almost always is, and an unsupported file gets staged and reported
-# as UNSUPPORTED_TYPE with Discard/Skip buttons.
+# as UNSUPPORTED_TYPE with a Discard button (blocked proposals get no Accept, and
+# skip retired 2026-08-09).
 #
 # 03:00 SGT, the slot the retired nightly used — clear of the immich rotation bake at
 # 04:00. Timezone pinned rather than inherited: this host runs PDT.
