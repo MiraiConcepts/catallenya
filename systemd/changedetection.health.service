@@ -1,20 +1,38 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening, and from the monitor class the read-only sandbox, the 10-minute
+# bound (this unit ran at `infinity`) and the writable stamp directory.
+#
+# The inherited OnFailure is a BACKSTOP only. changedetection-ntfy.sh posts its own
+# findings to the changedetection topic — a broken watch, a stalled worker, a
+# container that is not running. What OnFailure covers is the case the script
+# cannot report itself: dying before it gets that far (missing .env, docker
+# unreachable, syntax error). A monitor that cannot report its own death would
+# reintroduce the exact silent-failure problem this unit exists to close.
+#
+# Verified that the monitor class's ProtectSystem=strict does NOT break this job's
+# `docker exec`: connecting to a unix socket does not require the mount to be
+# writable. This was the single most likely breakage in the whole refactor, so it
+# was tested before the class was written rather than after.
+
 [Unit]
 Description=Changedetection Watch Health Check
 Requires=docker.service
 After=docker.service network-online.target
-# Backstop only. changedetection-ntfy.sh posts its own findings to the changedetection
-# topic — a broken watch, a stalled worker, a container that is not running. This covers
-# the case the script cannot report itself: dying before it gets that far (missing .env,
-# docker unreachable, syntax error). A monitor that cannot report its own death would
-# reintroduce the exact silent-failure problem this unit exists to close.
-OnFailure=system-ntfy@changedetection.health.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
-NoNewPrivileges=true
-PrivateTmp=true
 ExecStart=/zpool/catallenya/ntfy/changedetection-ntfy.sh
-StandardOutput=journal
-StandardError=journal
+
+[X-Catallenya]
+Class=monitor
+# Daily at 08:00 SGT with 10 minutes of jitter. 36h allows one missed run.
+#
+# This matters more than it looks: changedetection cannot self-report a broken
+# watch — every fetch error just sets last_error and notifies nobody — so this job
+# is the ONLY thing that ever notices. A monitor that silently stops is a watch
+# list that silently rots.
+MaxAge=36h

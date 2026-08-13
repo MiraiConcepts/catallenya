@@ -1,12 +1,29 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure (this unit had none — the
+# disk alarm posts only when over threshold, so a crashed run and a healthy one
+# looked identical), Type, journal logging, the base hardening, and from the
+# monitor class the read-only sandbox, the 10-minute bound and the writable stamp
+# directory.
+#
+# Worth knowing about the failure this now covers: disk-ntfy.sh runs `set -euo
+# pipefail` and reads the zpool capacity with `read ... < <(zpool list ...)`. If
+# the pool is unavailable, that read returns non-zero and the script dies —
+# silently, until now. The alarm died at precisely the moment the pool was in
+# trouble.
+
 [Unit]
 Description=Disk Space Monitor
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
-ProtectSystem=strict
-ProtectHome=read-only
-NoNewPrivileges=true
-PrivateTmp=true
 ExecStart=/zpool/catallenya/ntfy/disk-ntfy.sh
+
+[X-Catallenya]
+Class=monitor
+# Hourly. 3h allows two consecutive misses before the watchdog speaks — enough to
+# ride out a reboot without crying wolf, short enough that a stopped disk monitor
+# is caught the same morning.
+MaxAge=3h

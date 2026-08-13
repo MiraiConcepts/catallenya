@@ -1,21 +1,42 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging and
+# the base hardening.
+#
+# The inherited OnFailure is a BACKSTOP only, as it was before.
+# immich.fix-rotations.daily.sh already posts its own high-priority "Immich
+# rotation bake failed" to the immich topic — it runs `set -uo pipefail` WITHOUT
+# -e precisely so that notify survives a non-zero inner run, then propagates with
+# exit "${RC}". What OnFailure covers is the case notify cannot: the script dying
+# before it reaches that point (missing .env, OOM, syntax error, timeout kill),
+# where the journal would otherwise be the only trace.
+#
+# That same no-`-e` structure is why the completion stamp in this script must be
+# written conditionally on RC == 0. Reaching the end of this script does NOT mean
+# the bake succeeded.
+
 [Unit]
 Description=Immich Rotation Bake (lossless EXIF orientation)
 Requires=docker.service
 After=docker.service network-online.target
-# Backstop only. immich.fix-rotations.daily.sh already posts its own high-priority
-# "Immich rotation bake failed" to the immich topic when the bake itself fails —
-# it runs set -uo pipefail WITHOUT -e precisely so that notify survives a non-zero
-# inner run, and then propagates with exit "${RC}". This covers the case that
-# notify cannot: the script dying before it reaches it (missing .env, OOM, syntax
-# error, TimeoutStartSec kill), where the journal would otherwise be the only trace.
-OnFailure=system-ntfy@immich.fix-rotations.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
-NoNewPrivileges=true
-PrivateTmp=true
+
+# Runs complete in about a second on a normal day, because there is usually
+# nothing to bake. An hour is far beyond a day with a large backlog of rotate
+# edits, and bounds a run that hangs against the Immich API.
+TimeoutStartSec=1h
+
 ExecStart=/zpool/catallenya/immich/scripts/immich.fix-rotations.daily.sh
-StandardOutput=journal
-StandardError=journal
+
+[X-Catallenya]
+Class=scheduled
+# Daily at 04:00 SGT with 10 minutes of jitter. 36h allows one missed run.
+MaxAge=36h
+# No artifact. Silence is the healthy state — a day with no pending rotate edits
+# writes nothing at all, which is exactly why a stopped bake is invisible without
+# this.
+Freshness=stamp:/zpool/catallenya/systemd/state/immich.fix-rotations

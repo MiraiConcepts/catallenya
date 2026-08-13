@@ -1,0 +1,35 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# The roll call. Every other alarm here answers "did this job crash"; this answers
+# the question nothing else could — "did this job actually run, and did it do
+# anything". It is the general form of what restic.staleness does for backups.
+#
+# It reads each job's [X-Catallenya] sticker from the merged view, so it needs no
+# list of its own: a job registered with install.sh is checked here automatically,
+# and a job that escaped the contract is itself a finding.
+#
+# KNOWN REGRESS, recorded rather than hidden: this is now the one unit nothing
+# watches. A crash is covered — it inherits OnFailure like everything else — but a
+# heartbeat that never RUNS is silent, which is the exact failure it exists to
+# catch elsewhere. That is one blind spot instead of the six it replaces, and
+# closing it properly needs an off-box dead-man's switch.
+
+[Unit]
+Description=Catallenya Watchdog (did every job actually run?)
+After=network-online.target docker.service
+Wants=network-online.target
+# Producer= checks ask docker whether a container is running. Ordering only —
+# not Requires=, because a docker that is down should surface as NO PRODUCER
+# findings for the three event jobs, not as a watchdog that refused to run.
+
+[Service]
+User=carrein
+Group=carrein
+ExecStart=/zpool/catallenya/ntfy/heartbeat-ntfy.sh
+
+[X-Catallenya]
+Class=monitor
+# Daily. 36h allows one missed run before the watchdog complains about itself on
+# the next round — which is the only self-check available to it.
+MaxAge=36h

@@ -47,6 +47,8 @@
 !restic/check/restic.check-subset.timer
 !restic/check/restic.check.sh
 !restic/check/restic.check@.service
+!restic/check/instance-subset.conf
+!restic/check/instance-data.conf
 !restic/forget/
 !restic/forget/restic.forget.service
 !restic/forget/restic.forget.sh
@@ -85,6 +87,7 @@
 !ntfy/disk-ntfy.sh
 !ntfy/system-ntfy.sh
 !ntfy/system-ntfy@.service
+!ntfy/heartbeat-ntfy.sh
 ntfy/.env
 
 # Explicit includes systemd services — per-file. A `**` here would track a
@@ -100,6 +103,22 @@ ntfy/.env
 !systemd/systemd.md
 !systemd/zpool.scrub.service
 !systemd/zpool.scrub.timer
+!systemd/catallenya.heartbeat.service
+!systemd/catallenya.heartbeat.timer
+# The job factory. Per-file, never !systemd/policy/** — a glob would auto-track
+# whatever lands there later, and this repo is public.
+!systemd/policy/
+!systemd/policy/10-base.conf
+!systemd/policy/10-base-timer.conf
+!systemd/policy/20-scheduled.conf
+!systemd/policy/20-monitor.conf
+!systemd/policy/20-adhoc.conf
+!systemd/policy/30-intake.conf
+!systemd/policy/30-restic.conf
+!systemd/tests/
+!systemd/tests/run.sh
+# systemd/state/ is deliberately absent: completion stamps are runtime state,
+# recreated by install.sh and refreshed by every successful run.
 
 # Explicit includes inside tailscale folder
 # (tailscale/data + tailscale/tmp hold runtime state and stay ignored by the default `*` deny)

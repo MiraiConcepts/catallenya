@@ -1,17 +1,46 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Family: restic    (see systemd/policy/30-restic.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening, network-online ordering, RCLONE_CONFIG, and from the monitor
+# class the read-only sandbox, the 10-minute bound (this unit ran at `infinity`),
+# the writable stamp directory, and the OnSuccess= reset.
+#
+# That reset is what this unit used to say for itself: no success ping, because a
+# daily "backups are fine" is noise you learn to swipe away, and an alarm nobody
+# reads is not an alarm. The class now guarantees it for every monitor.
+#
+# This job stays separate from the heartbeat deliberately. It is not a freshness
+# check that happens to hit the network — it is an END-TO-END PROBE that proves
+# credentials, connectivity, the B2 bucket and repository readability, and reports
+# age as a side effect. Folding it into the heartbeat would let a network hang take
+# out the one unit that watches everything else. The heartbeat backstops it at 72h
+# against a local stamp; this fires first, at 48h, against the repository itself.
+
 [Unit]
 Description=Restic Staleness
-Requires=network-online.target
-After=network-online.target
-# No OnSuccess= on purpose, unlike every other restic unit here. This runs daily, and
-# a daily "backups are fine" ping is noise you learn to swipe away — an alarm nobody
-# reads is not an alarm. Silence is the healthy state, as with immich.fix-rotations.
-OnFailure=system-ntfy@restic.staleness.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
-Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
 ExecStart=/zpool/catallenya/restic/staleness/restic.staleness.sh
-StandardOutput=journal
-StandardError=journal
+
+# The monitor class sets ProtectHome=read-only, which blocks restic's cache at
+# ~/.cache/restic. restic does NOT degrade to cacheless as expected — measured
+# 2026-08-13, it exits 1 with "chtimes ...: read-only file system", so the one job
+# that watches your backups would have failed every night.
+#
+# One hole rather than dropping ProtectHome: everything else under /home stays
+# read-only, and the cache is regenerable by definition.
+ReadWritePaths=/home/carrein/.cache/restic
+
+[X-Catallenya]
+Class=monitor
+Family=restic
+# Daily at 09:00 with 15 minutes of jitter. 36h allows one missed run before the
+# watchdog complains that the thing which watches backups has itself stopped.
+MaxAge=36h
+# Freshness is implied for the monitor class — its own completion stamp at
+# /zpool/catallenya/systemd/state/restic.staleness. Declaring it here would be
+# redundant and the gate rejects it.

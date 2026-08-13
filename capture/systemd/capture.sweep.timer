@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Nightly capture sweep (07:30 SGT)
 
@@ -11,7 +13,3 @@ Description=Nightly capture sweep (07:30 SGT)
 # the two ping bursts distinguishable.
 OnCalendar=*-*-* 07:30:00 Asia/Singapore
 RandomizedDelaySec=5min
-Persistent=true
-
-[Install]
-WantedBy=timers.target

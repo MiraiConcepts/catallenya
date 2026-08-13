@@ -1,32 +1,36 @@
+# Class: adhoc      (see systemd/policy/20-adhoc.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening, the intake sandbox and its three InaccessiblePaths,
+# Environment=PATH, and the 1800/12 start limit.
+#
+# That start limit is the backstop this design is most exposed to, and it now
+# arrives by class rather than by being remembered: the .path unit re-triggers
+# while anything remains at the root, so a branch that returns without moving the
+# file would spin at one opus call per iteration. The script asserts the invariant
+# itself and every branch is tested, but the limit is what holds when the
+# assertion is the part that broke. Reasoning for the specific values, including
+# why a narrow window is worse than none, lives in 20-adhoc.conf.
+
 [Unit]
 Description=Documents triage (classify a dropped document, stage a proposal)
 After=network-online.target docker.service
 Wants=network-online.target
-OnFailure=system-ntfy@documents.triage.service
-
-# Backstop against the failure mode this design is most exposed to. The .path unit
-# re-triggers while anything remains at the root, so a branch that returns without
-# moving the file would spin — and each spin is an opus call. The script asserts the
-# invariant itself and every branch is tested, but a start limit is the thing that
-# holds when the assertion is the part that broke.
-#
-# The window is WIDE on purpose. Two legitimate cases re-fire this unit repeatedly:
-# a drop larger than MAX_PER_RUN, which is drained one capped batch per run, and a
-# Syncthing that stays busy, which the script waits out and exits. With a five-minute
-# window those look identical to a spin — and worse, a slow spin evades a narrow
-# window entirely, because starts three minutes apart never reach the burst. Thirty
-# minutes and twelve starts catches the runaway while letting a 240-document import
-# finish.
-StartLimitIntervalSec=1800
-StartLimitBurst=12
+# Also set by the base policy, but stated here because this job is .path-triggered
+# and documents.triage.path already requires zfs-mount: the service must not be
+# weaker than its watcher. It also matters for the backstop timer, which fires
+# this unit directly — without the requirement a boot where /zpool failed to mount
+# would run the triage against a nonexistent root and report "nothing at root",
+# which is a false all-clear.
+Requires=zfs-mount.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
 WorkingDirectory=/zpool/catallenya/documents/intake-state
 Environment=HOME=/home/carrein
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Shared with capture.triage.service. Root-owned 0600, read by systemd (PID 1) and
 # injected here, so the key is never in a carrein-readable file. No `-` prefix: a
@@ -39,35 +43,13 @@ TimeoutStartSec=30min
 
 ExecStart=/zpool/catallenya/documents/scripts/documents.triage.sh
 
-StandardOutput=journal
-StandardError=journal
-
-# --- Hardening ---
-# The triage sends plain /v1/messages requests with no `tools` key, so the model has
-# no tool surface and no path to the filesystem. What this sandbox actually does is
-# bound the blast radius of the API key sitting in this unit's environment: even
-# with the key, the process cannot read restic.pwd and cannot write anywhere outside
-# the documents tree and its own state.
-#
-# It CAN still read /zpool/catallenya/.env — ProtectSystem=strict makes the tree
-# read-only, not inaccessible, and .env is owned by the user this runs as.
-#
-# Verify the sandbox ENGAGED rather than that the job succeeded:
-#   sudo systemd-run --wait --pipe --uid=carrein \
-#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
-#     --property=InaccessiblePaths=/zpool/catallenya/restic \
-#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-
 ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
 ReadWritePaths=/zpool/catallenya/documents/intake-state
 
-InaccessiblePaths=/zpool/catallenya/restic
-InaccessiblePaths=/zpool/catallenya/cloudflared
-InaccessiblePaths=/zpool/catallenya/rclone
+[X-Catallenya]
+Class=adhoc
+Family=intake
+# No MaxAge: event-driven, no cadence. It ran on 11 of the last 60 days and every
+# one of those was correct — a day with no dropped document is a day with no run.
+Freshness=unit:documents.triage.path
+Producer=container:syncthing

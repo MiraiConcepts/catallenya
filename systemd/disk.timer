@@ -1,10 +1,14 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Monitor disk space hourly
 
 [Timer]
 OnBootSec=5min
 OnCalendar=hourly
-Persistent=true
 
-[Install]
-WantedBy=timers.target
+# The only timer here that had no jitter, so it fired exactly on the hour
+# alongside everything else scheduled on the hour — including logrotate,
+# man-db and the sysstat collector. Five minutes is proportionate for an
+# hourly job and is not an OnCalendar change, so it triggers no catch-up run.
+RandomizedDelaySec=5min

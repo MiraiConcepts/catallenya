@@ -27,33 +27,63 @@ service_name="$1"
 topic="${service_name%%.*}"
 job_type="${service_name#*.}"
 
-# The allowlist is the part that must not be dropped for "simplicity". ntfy creates a
-# topic on first publish, so a typo'd or unexpected unit name would publish into a
-# channel nobody is subscribed to and the alert would vanish with a 200 OK. Refusing
-# is the safe failure. Only topics that actually have a unit wired to this template
-# belong here — disk/boot publish to ntfy directly from their own scripts and must NOT
-# be added just because they are valid topic names. immich does BOTH: its script sends
-# the outcome itself, and systemd/immich.fix-rotations.service wires OnFailure= here as
-# a backstop for the script dying before it can. That unit is the only thing justifying
-# the immich entry below — if it ever loses its OnFailure=, drop the entry too.
-# changedetection is here for systemd/changedetection.health.service, which wires
-# OnFailure= as a backstop for its own script dying. Its script publishes the normal
-# findings itself, exactly like immich — if that unit ever loses its OnFailure=, drop
-# this entry too.
-case "$topic" in
-    restic|capture|documents|immich|changedetection) ;;
-    *)
-        echo "Unknown service type: $service_name"
-        exit 1
-        ;;
-esac
-
-# A unit named with no dot at all would leave topic == job_type and pass the case above
-# only if it were literally one of the allowlisted names. Reject it anyway: the title
-# would be nonsense and it means the caller broke the convention.
+# A single-word unit name has no topic to split off, so it is its own. This is not
+# a broken caller — catallenya.service is exactly that shape, and since every job
+# now inherits OnFailure= from the base policy, the boot orchestrator reaches here
+# too. An earlier version rejected these outright.
 if [[ "$service_name" != *.* ]]; then
-    echo "Service name is not <topic>.<job>: $service_name"
-    exit 1
+    topic="$service_name"
+    job_type="$service_name"
+fi
+
+# --- Is this one of ours? ---
+#
+# This replaces a hand-maintained `case` allowlist of five topic names. That list
+# had already eaten alerts once: four units wired OnFailure= here through the
+# template and every one hit the else branch and died with "Unknown service type",
+# silently, because systemd does not report a failed OnFailure= handler anywhere.
+# Fixing the list is a fix that lasts until the next unit; asking the system is a
+# fix that lasts.
+#
+# The question the allowlist was really asking is "did we install this unit", and
+# systemd can answer it directly. A typo'd or foreign unit has no fragment under
+# the repo and is still refused — which was the point of the list.
+fragment=$(systemctl show "${service_name}.service" -p FragmentPath --value 2>/dev/null)
+if [[ -z "$fragment" ]] || [[ "$(readlink -f "$fragment" 2>/dev/null)" != /zpool/catallenya/* ]]; then
+    # catallenya.service is written to /etc rather than symlinked from the repo —
+    # it must load before ZFS mounts — so it is named explicitly rather than
+    # discovered.
+    if [[ "$service_name" != "catallenya" ]]; then
+        echo "Not a catallenya unit, refusing to publish: ${service_name} (fragment: ${fragment:-none})"
+        exit 1
+    fi
+fi
+
+# --- Where does it go? ---
+#
+# Deriving the topic from the unit name is what makes a new job work with no edit
+# here. What cannot be derived is whether a PHONE is subscribed to the result:
+# ntfy creates a topic on first publish, so an unsubscribed one accepts the alert
+# with a 200 OK and drops it on the floor.
+#
+# So rather than refuse an unknown topic — which guarantees the alert is lost —
+# route it to the host-health channel with its intended topic in the title, which
+# guarantees it is delivered. Worst case you get a correctly-labelled alert on the
+# wrong-but-watched channel.
+#
+# This is not hypothetical: catallenya and catallenya.heartbeat both derive the
+# topic `catallenya`, which is not subscribed and never will be.
+#
+# HOST_TOPIC is `boot` until the boot -> host rename lands; both change together,
+# after the phone is subscribed, so there is never a window where either points at
+# a channel nobody is watching.
+HOST_TOPIC="boot"
+SUBSCRIBED="restic capture documents immich changedetection disk zpool ${HOST_TOPIC}"
+
+routed_note=""
+if [[ " ${SUBSCRIBED} " != *" ${topic} "* ]]; then
+    routed_note=" [${topic}]"
+    topic="${HOST_TOPIC}"
 fi
 
 # Handle special cases
@@ -74,11 +104,11 @@ fi
 
 if systemctl is-failed --quiet "${service_name}.service"; then
     tag="mending_heart"
-    title="${job_type} Failure"
+    title="${job_type} Failure${routed_note}"
     priority="high"
 else
     tag="green_heart"
-    title="${job_type} Success"
+    title="${job_type} Success${routed_note}"
     priority="default"
 fi
 

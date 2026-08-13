@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Daily sweep for documents the path unit could not see
 
@@ -25,8 +27,4 @@ Unit=documents.triage.service
 # 03:00 SGT, the slot the retired nightly used — clear of the immich rotation bake at
 # 04:00. Timezone pinned rather than inherited: this host runs PDT.
 OnCalendar=*-*-* 03:00:00 Asia/Singapore
-Persistent=true
 RandomizedDelaySec=300
-
-[Install]
-WantedBy=timers.target

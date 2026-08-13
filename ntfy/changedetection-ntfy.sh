@@ -96,6 +96,41 @@ except Exception as exc:  # noqa: BLE001 - any failure here means we cannot judg
     print(f"BROKEN: cannot reach the changedetection API ({exc})")
     raise SystemExit(0)
 
+# An EMPTY watch list is byte-identical to a clean bill of health: the loop below
+# never runs, `problems` stays empty, nothing prints, and the check reports all
+# clear. That is the same door as the `docker exec -i` bug — python read an empty
+# program, printed nothing, exited 0, and the health check said fine forever while
+# looking at nothing.
+#
+# But zero watches is also a LEGITIMATE state if you deleted the last one on
+# purpose, so "zero is broken" would cry wolf every day. What is never legitimate
+# is the count SILENTLY FALLING to zero. So remember it, and report the drop.
+#
+# The count lives here, not in the watchdog: the watchdog's job is "did this script
+# run", and it has no business knowing what a watch is.
+COUNT_FILE = "/zpool/catallenya/systemd/state/.changedetection-watch-count"
+previous = None
+try:
+    with open(COUNT_FILE) as fh:
+        previous = int(fh.read().strip())
+except Exception:  # noqa: BLE001 - first run, or unreadable: treat as unknown
+    pass
+
+if not watches:
+    if previous:
+        problems.append(
+            f"BROKEN: the watch list is EMPTY (was {previous} last run) — "
+            "every check below has nothing to look at, and silence here would "
+            "otherwise read as all clear"
+        )
+    # previous 0 or unknown: a deliberate empty list, or the first run. Say nothing.
+
+try:
+    with open(COUNT_FILE, "w") as fh:
+        fh.write(str(len(watches)))
+except Exception:  # noqa: BLE001 - a bookkeeping failure must not fail the check
+    pass
+
 # The API exposes no global check interval, so assume a conservative 3h for watches
 # left on "use default". Only ever widens the stall window, never narrows it.
 global_default = 3 * 3600
