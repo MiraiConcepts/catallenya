@@ -1,16 +1,55 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Family: restic    (see systemd/policy/30-restic.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening (this unit had none before), network-online ordering, and
+# RCLONE_CONFIG.
+
 [Unit]
 Description=Restic Backup
-Requires=network-online.target
-After=network-online.target
+# Kept, unlike the other restic jobs' silence: this is the one whose success is
+# worth confirming, because a night without it is a night of data at risk and the
+# ping is once a day at most.
 OnSuccess=system-ntfy@restic.backup.service
-OnFailure=system-ntfy@restic.backup.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
+
+# Load-bearing. 15 paths across the backup targets are unreadable by carrein —
+# 10 in changedetection, 3 in syncthing, 2 in memoka — and without this capability
+# restic SILENTLY SKIPS them: the run still exits 0 and the snapshot is simply
+# incomplete. Do not remove.
+#
+# It survives the base policy's NoNewPrivileges: the capability is granted by
+# systemd before exec, and NNP only blocks privileges gained AT exec (setuid bits,
+# file capabilities).
 AmbientCapabilities=CAP_DAC_READ_SEARCH
-Environment="RCLONE_CONFIG=/zpool/catallenya/rclone/.rclone.conf"
+
+# Was `infinity`. A hung rclone or B2 connection would run forever holding a
+# repository lock, and a hung run is never collected by the `restic unlock` at the
+# top of the script either — restic refreshes its own lock every 5 minutes, so a
+# live-but-stuck run never reaches the 30-minute staleness threshold. This timeout
+# is the only thing that ends it.
+#
+# Sized against the worst observed run, not the typical one: nightly runs take
+# 1-2 minutes, but 2026-08-12 took 77 minutes following the 0.19.0 prune's heavy
+# repack on the 10th. Six hours leaves room for a repeat of that plus a bad night.
+TimeoutStartSec=6h
+
 ExecStart=/zpool/catallenya/restic/backup/restic.backup.sh
-StandardOutput=journal
-StandardError=journal
+
+[X-Catallenya]
+Class=scheduled
+Family=restic
+# 72h, deliberately looser than restic.staleness.sh's 48h. Staleness is the
+# primary and asks the REPOSITORY (proving credentials, network, bucket and repo
+# readability in one call); this is the backstop that only speaks if staleness
+# itself stopped working. Staggering them means one problem produces one alert.
+MaxAge=72h
+# A completion stamp rather than the snapshot query, deliberately: the heartbeat is
+# a monitor with a 10-minute bound, and giving it a network call to B2 would let a
+# connectivity problem take out the unit that watches everything else. The deep
+# artifact check stays where it belongs, in restic.staleness.
+Freshness=stamp:/zpool/catallenya/systemd/state/restic.backup

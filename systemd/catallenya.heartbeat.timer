@@ -1,0 +1,15 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Daily watchdog roll call
+
+[Timer]
+# 08:15 SGT, deliberately last in the morning batch: capture sweeps at 07:30,
+# documents at 07:45, changedetection health at 08:00. By 08:15 every job that
+# should have run this morning has, so the roll call reflects the finished state
+# rather than racing it — and any finding it does raise arrives alongside the
+# other morning pushes instead of as a separate interruption.
+#
+# Timezone pinned rather than inherited: this host runs PDT.
+OnCalendar=*-*-* 08:15:00 Asia/Singapore
+RandomizedDelaySec=10min

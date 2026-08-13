@@ -377,8 +377,16 @@ is  "triage glob is extension-scoped, never bare *" \
 is  "triage wakes for readable AND unreadable types" "$(grep -c "^PathExistsGlob=" <<<"$tp")" "28"
 has "apply glob matches only finished markers" \
     "$(cat "${UNIT_DIR}/documents.apply.path")" 'approvals/*.json'
-has "triage carries a start limit"   "$(cat "${UNIT_DIR}/documents.triage.service")" "StartLimitBurst"
-has "apply carries a start limit"    "$(cat "${UNIT_DIR}/documents.apply.service")"  "StartLimitBurst"
+# The start limit moved out of these units and into the adhoc class when the job
+# factory landed, so asserting on the unit file would now pass only by accident and
+# fail for the right reason. Assert the CHAIN instead: each unit claims the class,
+# and the class provides the limit. Both halves matter — a unit that silently lost
+# its Class= would still find StartLimitBurst in the policy file and look fine.
+ADHOC_POLICY="$(cat "${UNIT_DIR}/../../systemd/policy/20-adhoc.conf" 2>/dev/null)"
+has "triage claims the adhoc class"  "$(cat "${UNIT_DIR}/documents.triage.service")" "Class=adhoc"
+has "apply claims the adhoc class"   "$(cat "${UNIT_DIR}/documents.apply.service")"  "Class=adhoc"
+has "the adhoc class carries a start limit" "$ADHOC_POLICY" "StartLimitBurst"
+has "…wide enough that a slow spin cannot evade it" "$ADHOC_POLICY" "StartLimitIntervalSec=1800"
 # apply moves files but talks to no model; keeping the key out of it is deliberate.
 is  "apply has no API key"           "$(grep -c '^EnvironmentFile=' "${UNIT_DIR}/documents.apply.service")" "0"
 has "triage has the API key"         "$(cat "${UNIT_DIR}/documents.triage.service")" "EnvironmentFile=/etc/ai.env"

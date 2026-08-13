@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Check changedetection watch health daily
 
@@ -12,7 +14,3 @@ OnCalendar=*-*-* 08:00:00 Asia/Singapore
 RandomizedDelaySec=10min
 # A box that was powered off must still get its check, otherwise the one condition most
 # likely to have broken a watch (an outage) is also the one that skips the check for it.
-Persistent=true
-
-[Install]
-WantedBy=timers.target

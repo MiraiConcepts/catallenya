@@ -1,22 +1,28 @@
+# Class: adhoc      (see systemd/policy/20-adhoc.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening, the intake sandbox and its three InaccessiblePaths,
+# Environment=PATH, and the 1800/12 start limit.
+#
+# A marker that cannot be drained would spin this unit. The script deletes markers
+# BEFORE acting on them — deleting first rather than per-branch is the only version
+# of that invariant which cannot be forgotten in a later edit — so a spin should be
+# unreachable. The class start limit is what holds when the invariant itself is
+# what broke. Cheaper to breach than the triage's (no API calls here), but a unit
+# restarting forever is still a unit whose logs nobody can read.
+
 [Unit]
 Description=Documents apply (perform the move a button tap asked for)
-After=zfs-mount.service
 Requires=zfs-mount.service
-OnFailure=system-ntfy@documents.apply.service
-
-# A marker that cannot be drained would spin this unit. The script deletes markers
-# before acting so that should be unreachable, but a start limit is what holds when
-# the thing that broke is the invariant itself.
-StartLimitIntervalSec=300
-StartLimitBurst=10
+After=zfs-mount.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
 WorkingDirectory=/zpool/catallenya/documents/intake-state
 Environment=HOME=/home/carrein
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # NO EnvironmentFile. This step talks to no model and needs no API key — it reads a
 # marker, re-verifies a record the triage wrote, and moves a file. Keeping the key
@@ -27,36 +33,20 @@ TimeoutStartSec=5min
 
 ExecStart=/zpool/catallenya/documents/scripts/documents.apply.sh
 
-StandardOutput=journal
-StandardError=journal
-
-# --- Hardening ---
-# Writes to master/documents happen only here and in documents.sweep.service (the
-# nightly staged -> bin ageing), both deliberately the least reachable things in
-# the pipeline: oneshots that run for a second, triggered by a local file or a
-# timer, with no network listener of their own. The approve container —
-# long-lived, tailnet-reachable, gated by an unauthenticated ntfy topic — cannot
-# perform a move at all; it can only ask for one that was already proposed. That
-# asymmetry is the whole security argument for the redesign. Do not collapse it
-# by giving the container a documents mount.
-#
-# Verify the sandbox ENGAGED rather than that the job succeeded:
-#   sudo systemd-run --wait --pipe --uid=carrein \
-#     --property=ProtectSystem=strict --property=ProtectHome=read-only \
-#     --property=InaccessiblePaths=/zpool/catallenya/restic \
-#     /bin/sh -c 'test -r /zpool/catallenya/restic/restic.pwd && echo FAIL || echo OK'
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-PrivateNetwork=false
-
+# Writes to master/documents happen only here and in documents.sweep.service, both
+# deliberately the least reachable things in the pipeline: oneshots that run for a
+# second, triggered by a local file or a timer, with no network listener of their
+# own. The approve container — long-lived, tailnet-reachable, gated by an
+# unauthenticated ntfy topic — cannot perform a move at all; it can only ask for
+# one that was already proposed. That asymmetry is the whole security argument for
+# the redesign. Do not collapse it by giving the container a documents mount.
 ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
 ReadWritePaths=/zpool/catallenya/documents/intake-state
 
-InaccessiblePaths=/zpool/catallenya/restic
-InaccessiblePaths=/zpool/catallenya/cloudflared
-InaccessiblePaths=/zpool/catallenya/rclone
+[X-Catallenya]
+Class=adhoc
+Family=intake
+# No MaxAge: it fires on a button tap and ran on 4 of the last 60 days. A quiet
+# week means you had nothing to file, not that anything is broken.
+Freshness=unit:documents.apply.path
+Producer=container:documents-approve

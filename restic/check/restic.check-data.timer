@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Restic Check Data Timer
 
@@ -11,7 +13,3 @@ Unit=restic.check@data.service
 # Tuesday clears all three; staleness is --no-lock and immune either way.
 OnCalendar=Tue *-05-08..14 05:00:00
 RandomizedDelaySec=3600
-Persistent=true
-
-[Install]
-WantedBy=timers.target

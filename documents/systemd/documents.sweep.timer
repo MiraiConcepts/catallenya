@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Nightly documents sweep (07:45 SGT)
 
@@ -9,7 +11,3 @@ Description=Nightly documents sweep (07:45 SGT)
 # bake. Timezone pinned rather than inherited: this host runs PDT.
 OnCalendar=*-*-* 07:45:00 Asia/Singapore
 RandomizedDelaySec=5min
-Persistent=true
-
-[Install]
-WantedBy=timers.target

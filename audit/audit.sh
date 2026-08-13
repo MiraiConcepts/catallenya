@@ -167,36 +167,54 @@ echo
 
 # ── Pipeline Convention Drift (see docs/intake-playbook.md) ─────
 
-echo "--- 13. OnFailure topics match the system-ntfy allowlist ---"
-# system-ntfy@<topic>.<job> derives its ntfy topic from the unit name and refuses
-# anything not in its case allowlist — so a unit wiring OnFailure= to a topic
-# missing there has alerts that die silently ("Unknown service type", and systemd
-# reports a failed OnFailure= handler nowhere). That was live for four units until
-# 2026-08-01; this check keeps the allowlist and the units in step, BOTH ways: an
-# allowlisted topic no unit wires anymore is a stale entry to remove.
-ALLOWED=$(sed -n 's/^ *\([a-z][a-z|]*\)) ;;$/\1/p' "${COMPOSE_DIR}/ntfy/system-ntfy.sh" | tr '|' '\n')
-WIRED=$(git -C "$COMPOSE_DIR" ls-files '*.service' '*.timer' '*.path' \
-  | while read -r u; do
-      grep -oP '^OnFailure=system-ntfy@\K[a-z-]+' "${COMPOSE_DIR}/${u}" 2>/dev/null || true
-    done | sort -u)
-if [[ -z "$ALLOWED" ]]; then
-  echo "  ✗ could not parse the allowlist out of ntfy/system-ntfy.sh"
+echo "--- 13. Every job's alerts reach a subscribed ntfy topic ---"
+# Rewritten when the job factory landed. This used to parse a `case` allowlist out
+# of system-ntfy.sh and cross-check it against OnFailure= lines in unit files.
+# Neither side of that exists now: OnFailure= is inherited from
+# systemd/policy/10-base.conf so no unit declares it, and the allowlist is derived
+# from whether a unit's FragmentPath is under the repo.
+#
+# What still cannot be derived is whether a PHONE is subscribed, because ntfy
+# accepts a publish to any topic with a 200 OK and drops it if nobody listens. So
+# system-ntfy.sh keeps a SUBSCRIBED list and ROUTES an unknown topic to
+# HOST_TOPIC rather than refusing it — refusing guarantees the alert is lost,
+# routing guarantees it is delivered.
+#
+# That makes the old failure mode impossible and leaves two real ones, which is
+# what this now checks.
+SNTFY="${COMPOSE_DIR}/ntfy/system-ntfy.sh"
+SUBSCRIBED=$(sed -n 's/^SUBSCRIBED="\(.*\)"$/\1/p' "$SNTFY" | sed 's/\${HOST_TOPIC}//' )
+HOST_TOPIC=$(sed -n 's/^HOST_TOPIC="\(.*\)"$/\1/p' "$SNTFY")
+
+if [[ -z "$SUBSCRIBED" || -z "$HOST_TOPIC" ]]; then
+  echo "  ✗ could not parse SUBSCRIBED / HOST_TOPIC out of ntfy/system-ntfy.sh"
   FAIL=1
-fi
-for t in $WIRED; do
-  if grep -qx "$t" <<<"$ALLOWED"; then
-    echo "  ✓ topic '$t' is wired and allowlisted"
+else
+  # 1. The fallback must itself be subscribed, or routing is a black hole and every
+  #    alert it catches is lost — the exact failure this design removes elsewhere.
+  if grep -qw "$HOST_TOPIC" <<<"$SUBSCRIBED $HOST_TOPIC"; then
+    echo "  ✓ fallback topic '${HOST_TOPIC}' is itself subscribed"
   else
-    echo "  ✗ topic '$t' has OnFailure= units but is NOT in the system-ntfy.sh allowlist — those alerts die silently"
+    echo "  ✗ fallback topic '${HOST_TOPIC}' is NOT in SUBSCRIBED — routed alerts go nowhere"
     FAIL=1
   fi
-done
-for t in $ALLOWED; do
-  if ! grep -qx "$t" <<<"$WIRED"; then
-    echo "  ✗ topic '$t' is allowlisted but no tracked unit wires OnFailure= to it — stale entry"
-    FAIL=1
-  fi
-done
+
+  # 2. Report which jobs route rather than publish direct. Not a failure — it is
+  #    correct behaviour — but a growing list means the SUBSCRIBED set has drifted
+  #    behind the fleet, and every routed alert lands on a channel shared with
+  #    others rather than its own.
+  ROUTED=0
+  while read -r u; do
+    grep -q '^Class=' "${COMPOSE_DIR}/${u}" 2>/dev/null || continue
+    n=$(basename "$u"); n="${n%.service}"
+    t="${n%%.*}"
+    if ! grep -qw "$t" <<<"$SUBSCRIBED $HOST_TOPIC"; then
+      echo "  · '${n}' derives topic '${t}' (unsubscribed) → routed to '${HOST_TOPIC}'"
+      ROUTED=$((ROUTED + 1))
+    fi
+  done < <(git -C "$COMPOSE_DIR" ls-files '*.service')
+  (( ROUTED == 0 )) && echo "  ✓ every job's derived topic is directly subscribed"
+fi
 echo
 
 echo "--- 14. Every pipeline has an offline test suite ---"

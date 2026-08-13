@@ -1,10 +1,8 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Daily Immich rotation bake
 
 [Timer]
 OnCalendar=*-*-* 04:00:00 Asia/Singapore
 RandomizedDelaySec=10min
-Persistent=true
-
-[Install]
-WantedBy=timers.target

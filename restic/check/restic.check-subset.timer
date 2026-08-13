@@ -1,3 +1,5 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=Restic Check Subset Timer
 
@@ -7,7 +9,3 @@ Unit=restic.check@subset.service
 # check takes an exclusive lock, so overlapping the backup would just fail.
 OnCalendar=*-*-01 03:00:00
 RandomizedDelaySec=3600
-Persistent=true
-
-[Install]
-WantedBy=timers.target

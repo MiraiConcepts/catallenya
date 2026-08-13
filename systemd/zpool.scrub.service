@@ -1,9 +1,45 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure (this unit had none), Type,
+# journal logging, and the base hardening — which this unit also had none of.
+
 [Unit]
 Description=ZFS Pool Scrub
 
 [Service]
-Type=oneshot
+# Root is genuinely required, verified rather than assumed: as carrein,
+# `zpool scrub -p zpool` returns "permission denied". /dev/zfs is 0666, but the
+# kernel enforces CAP_SYS_ADMIN on the write ioctls, and there is no `zpool allow`
+# — ZFS delegation covers datasets, not pool-level operations.
 User=root
-ExecStart=zpool scrub zpool
-StandardOutput=journal
-StandardError=journal
+
+# Root is allowed here; UNBOUNDED root is not. A scrub needs exactly one
+# capability, so the other ~40 are dropped. This is the base policy's rule for any
+# job that must run as root.
+CapabilityBoundingSet=CAP_SYS_ADMIN
+
+# `zpool scrub` only REQUESTS a scrub and returns in about a second — the scrub
+# itself then runs for ~2.5h inside ZFS, entirely outside this unit's lifetime.
+# Five minutes is therefore enormous headroom for what is effectively one ioctl.
+#
+# The corollary matters more than the timeout: this unit exiting 0 says only that
+# the request was accepted. It says nothing about whether the scrub finished or
+# found anything. ZED reports the outcome on the zpool topic, and the watchdog
+# checks completion via the artifact below.
+TimeoutStartSec=5min
+
+# Absolute path. A bare `zpool` resolves through the unit's PATH, which is one more
+# thing that can differ between an interactive shell and PID 1's environment.
+ExecStart=/usr/sbin/zpool scrub zpool
+
+[X-Catallenya]
+Class=scheduled
+# Monthly, 1st with an hour of jitter. 40d allows one missed month.
+MaxAge=40d
+# NOT a completion stamp. A stamp here would record "the scrub was requested",
+# because the unit exits about a second after it starts — the exact
+# trigger-versus-completion confusion this whole design exists to avoid. The scan
+# completion date in `zpool status` is the only thing that proves a scrub actually
+# finished.
+Freshness=zfs-scrub:zpool

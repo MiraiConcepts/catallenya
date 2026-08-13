@@ -1,10 +1,8 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
 [Unit]
 Description=ZFS Pool Scrub Timer
 
 [Timer]
 OnCalendar=monthly
 RandomizedDelaySec=3600
-Persistent=true
-
-[Install]
-WantedBy=timers.target

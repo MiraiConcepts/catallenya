@@ -1,17 +1,21 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the
+# base hardening, the intake sandbox and its three InaccessiblePaths, and
+# Environment=PATH.
+
 [Unit]
 Description=Documents sweep (re-notify stale proposals, bin week-old ones)
-After=zfs-mount.service network-online.target
-Requires=zfs-mount.service
+After=network-online.target
 Wants=network-online.target
-OnFailure=system-ntfy@documents.sweep.service
 
 [Service]
-Type=oneshot
 User=carrein
 Group=carrein
 WorkingDirectory=/zpool/catallenya/documents/intake-state
 Environment=HOME=/home/carrein
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
 TimeoutStartSec=5min
 
 # No ANTHROPIC_API_KEY here, deliberately: the sweep makes no API calls. It reads
@@ -19,25 +23,24 @@ TimeoutStartSec=5min
 # — it has no reason to hold the key. Same split as capture.sweep.service.
 ExecStart=/zpool/catallenya/documents/scripts/documents.sweep.sh
 
-StandardOutput=journal
-StandardError=journal
-
-# --- Hardening ---
-# Second writer to master/documents after documents.apply.service, held to the
-# same standard: a oneshot with no network listener, unreachable from anything,
-# whose only writes are staged -> bin/ moves on records the triage produced. The
-# approve container still cannot perform a move at all.
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-
+# Second writer to master/documents after documents.apply.service, held to the same
+# standard: a oneshot with no network listener, unreachable from anything, whose
+# only writes are staged -> bin/ moves on records the triage produced.
+#
+# The stamp dir needs an explicit entry because the intake family sets
+# ProtectSystem=strict — without it the completion stamp cannot be written and the
+# watchdog would report this job as dead while it runs perfectly.
 ReadWritePaths=/zpool/catallenya/syncthing/data/master/documents
 ReadWritePaths=/zpool/catallenya/documents/intake-state
 
-InaccessiblePaths=/zpool/catallenya/restic
-InaccessiblePaths=/zpool/catallenya/cloudflared
-InaccessiblePaths=/zpool/catallenya/rclone
+[X-Catallenya]
+Class=scheduled
+Family=intake
+# Daily at 07:45 SGT with 5 minutes of jitter. 36h allows one missed run.
+MaxAge=36h
+# No natural artifact — a sweep with nothing to nudge or bin writes nothing.
+#
+# NOT .sweep.lock, which looks like a completion record and is not: `exec 9>` on it
+# truncates the file when the run STARTS, and its mtime updates even if the run
+# then fails. That is trigger-semantics, the exact thing this stamp exists to avoid.
+Freshness=stamp:/zpool/catallenya/systemd/state/documents.sweep
