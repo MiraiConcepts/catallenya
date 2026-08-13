@@ -18,4 +18,15 @@ catallenya is a personal data sovereignty project. We replace third-party servic
 - [Flame](https://github.com/pawelmalak/flame)
 - [Changedetection.io](https://changedetection.io/)
 
+# Job system
+
+Sixteen background jobs — backups, disk checks, ZFS scrubs, document filing —
+run under a shared systemd contract rather than each inventing its own. Policy is
+inherited in layers, an installer refuses jobs that break the contract, and a
+daily watchdog asks every job whether it actually ran.
+
+Built on one idea: a job reporting success is not the same as a job having done
+its work. Design, the traps encountered, and what testing missed are in
+[systemd/README.md](systemd/README.md).
+
 A complete walkthrough of the server setup is available on [carrein-blog](https://catallenya.com/).
