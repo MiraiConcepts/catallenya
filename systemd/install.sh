@@ -635,6 +635,24 @@ done
 # exit code, nothing. Only the absence of new snapshots reveals it.
 cat > "${SYSTEMD_DIR}/sanoid.service.d/sticker.conf" <<EOF
 # Managed by ${REPO_DIR}/systemd/install.sh
+#
+# A vendor unit inherits no base policy, so the two contract halves the snapshot
+# artifact cannot supply arrive here instead: the crash wire and a finite hang
+# bound (2026-08-13 audit). The artifact covers "stopped running" — a Condition
+# skip reports no failure, which was the original incident — while OnFailure=
+# covers a run that genuinely dies, which the artifact only notices up to 26h
+# later. The courier recognises adopted units by this sticker's merged Class=,
+# not by fragment path, so no list over there needs editing.
+[Unit]
+OnFailure=system-ntfy@%N.service
+
+[Service]
+# Snapshot runs on this single-dataset pool finish in seconds (5,764 clean runs
+# in the 30 days before 2026-08-13); the vendor unit ran at infinity, where a
+# hung run is invisible forever. An hour is enormous headroom yet finite —
+# sized like the rest of the fleet, worst observed times a wide margin.
+TimeoutStartSec=1h
+
 [X-Catallenya]
 Class=scheduled
 # sanoid.conf is daily=14 with hourly=0 and frequently=0, and sanoid.timer runs
@@ -658,8 +676,18 @@ echo "  OK  sanoid.service.d/sticker.conf"
 # ExecStartPost. Same `-` prefix and same success-only semantics as the base.
 cat > "${SYSTEMD_DIR}/sanoid-prune.service.d/sticker.conf" <<EOF
 # Managed by ${REPO_DIR}/systemd/install.sh
+#
+# Crash wire and hang bound: same reasoning as sanoid.service.d/sticker.conf —
+# a vendor unit inherits no base policy, so the contract halves the stamp
+# cannot supply ride the sticker.
+[Unit]
+OnFailure=system-ntfy@%N.service
+
 [Service]
 ExecStartPost=-/usr/bin/touch ${STATE_DIR}/sanoid-prune
+# Prune runs alongside snapshotting every 15 minutes and finishes in seconds;
+# the vendor unit ran at infinity. Sizing reasoning in sanoid's sticker.
+TimeoutStartSec=1h
 
 [X-Catallenya]
 Class=scheduled
