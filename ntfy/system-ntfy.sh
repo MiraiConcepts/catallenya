@@ -50,10 +50,20 @@ fi
 # the repo and is still refused — which was the point of the list.
 fragment=$(systemctl show "${service_name}.service" -p FragmentPath --value 2>/dev/null)
 if [[ -z "$fragment" ]] || [[ "$(readlink -f "$fragment" 2>/dev/null)" != /zpool/catallenya/* ]]; then
-    # catallenya.service is written to /etc rather than symlinked from the repo —
-    # it must load before ZFS mounts — so it is named explicitly rather than
-    # discovered.
-    if [[ "$service_name" != "catallenya" ]]; then
+    # Adopted units fail the fragment test yet are ours: catallenya.service is
+    # written to /etc (it must load before ZFS mounts), and the sanoid pair are
+    # vendor fragments under /usr whose only catallenya-ness is the sticker
+    # drop-in install.sh gives them. What marks a unit as ours everywhere else
+    # is that merged Class= — so ask the same question the watchdog asks,
+    # rather than keeping a name list here: the last hand-maintained list in
+    # this script silently ate four units' alerts. A foreign or typo'd unit has
+    # no sticker and is still refused. Same awk as the watchdog's sticker():
+    # section-aware, last match wins.
+    class=$(systemctl cat "${service_name}.service" 2>/dev/null | awk '
+        /^\[/  { inside = ($0 == "[X-Catallenya]"); next }
+        inside && index($0, "Class=") == 1 { v = substr($0, 7) }
+        END { if (v != "") print v }')
+    if [[ -z "$class" ]]; then
         echo "Not a catallenya unit, refusing to publish: ${service_name} (fragment: ${fragment:-none})"
         exit 1
     fi
@@ -115,7 +125,20 @@ fi
 # Get systemctl status output
 message=$(systemctl status "${service_name}.service" || true)
 
-curl -H "Tags: $tag" \
+# Same guard the intake libs and the heartbeat carry, placed immediately before
+# the curl so everything up to the wire — ownership, topic routing, title and
+# status derivation — is exercised by the offline suite without pinging the phone.
+if [[ "${NTFY_DISABLE:-}" == "1" ]]; then
+    echo "system-ntfy: NTFY_DISABLE=1, not publishing (${title} -> ${topic})"
+    exit 0
+fi
+
+# -f: an HTTP-level error (5xx, a future auth failure) must exit non-zero, not
+# swallow the alert with a 200-shaped success. systemd still reports a failed
+# OnFailure= handler nowhere, but a failed courier at least shows in
+# `systemctl --failed` instead of nowhere at all.
+curl -f \
+     -H "Tags: $tag" \
      -H "Title: $title" \
      -H "Priority: $priority" \
      -d "$message" \

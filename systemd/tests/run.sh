@@ -351,6 +351,34 @@ has  "an adopted unit with no sticker is reported" "$ADOPT" "NO STICKER    sanoi
 has  "…including sanoid-prune"                     "$ADOPT" "NO STICKER    sanoid-prune.service"
 has  "…and the boot orchestrator"                  "$ADOPT" "catallenya.service"
 
+# ============================================================== the courier
+#
+# Ownership is fragment-under-repo OR a Class in the merged view — the second
+# clause is what lets adopted vendor units (the sanoid pair, fragments under
+# /usr) reach the phone; before it, their OnFailure= called a courier that
+# refused them, silently. NTFY_DISABLE stops just short of the wire, so
+# ownership, routing and title derivation are all exercised for real. These
+# cases read the SYSTEM manager (read-only) and need the real units installed,
+# which on this box they always are.
+SN="${REPO}/ntfy/system-ntfy.sh"
+
+OUT="$(NTFY_DISABLE=1 bash "$SN" sanoid 2>&1)"
+has  "courier accepts an adopted vendor unit"  "$OUT" "not publishing"
+
+OUT="$(NTFY_DISABLE=1 bash "$SN" disk 2>&1)"
+has  "courier still accepts a repo unit"       "$OUT" "not publishing"
+
+if OUT="$(NTFY_DISABLE=1 bash "$SN" cron 2>&1)"; then
+    bad "courier refuses a foreign unit" "non-zero exit" "exit 0: $OUT"
+else
+    has "courier refuses a foreign unit"       "$OUT" "refusing to publish"
+fi
+
+# The stickers install.sh writes must carry the two contract halves a vendor
+# unit cannot inherit: the crash wire and a finite hang bound.
+has "adopted stickers carry the crash wire"  "$(grep -c 'OnFailure=system-ntfy@%N.service' "$INSTALL")" "2"
+has "adopted stickers carry a finite bound"  "$(grep -c 'TimeoutStartSec=1h' "$INSTALL")" "2"
+
 echo
 printf 'systemd factory: %d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
