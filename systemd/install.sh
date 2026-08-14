@@ -88,6 +88,9 @@ declare -A SYMLINKS=(
     # tap, not overnight.
     ["documents.triage.path"]="${REPO_DIR}/documents/systemd/documents.triage.path"
     ["documents.apply.path"]="${REPO_DIR}/documents/systemd/documents.apply.path"
+    # liquidroom is one path unit and no timer: a music request is an event, and a
+    # week without one is a week the pipeline correctly never runs.
+    ["liquidroom.triage.path"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.path"
 
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
@@ -104,6 +107,7 @@ declare -A SYMLINKS=(
     ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
     ["capture.triage.service"]="${REPO_DIR}/capture/systemd/capture.triage.service"
     ["capture.sweep.service"]="${REPO_DIR}/capture/systemd/capture.sweep.service"
+    ["liquidroom.triage.service"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.service"
     ["catallenya.heartbeat.service"]="${REPO_DIR}/systemd/catallenya.heartbeat.service"
 )
 

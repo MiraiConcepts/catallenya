@@ -616,6 +616,83 @@ services:
       start_period: 10s
     # No watchtower label: locally built, so there is no upstream image to poll.
 
+  # The liquidroom JOB image — request marker -> Soulseek download -> stems
+  # (see liquidroom/README.md). NOT a service in the resident sense: `profiles:`
+  # keeps it out of boot's `up -d`, and it only exists for the minutes a
+  # `docker compose run --rm` from liquidroom.triage.service lasts. ONE image,
+  # TWO entries, differing only in network policy — download needs the internet,
+  # the AI stages need none at all.
+  liquidroom:
+    # Built locally, same reasoning as capture: the source lives in this repo.
+    build:
+      context: ./liquidroom
+    image: catallenya-liquidroom
+    profiles: ["liquidroom"]
+    restart: "no" # a job, not a daemon — the triage script owns its lifecycle
+    user: "1000:1000" # writes the spool, which is host-owned 1000:1000
+    read_only: true
+    tmpfs:
+      - /tmp # HOME for the run; the sockseek conf (credentials) renders here and dies with it
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          # Provisional until the benchmark (deploy step): torch inference peaks
+          # a few GB; 10G caps a runaway well below the box's 30G. First job-image
+          # memory bound in this file — resident services run far smaller.
+          memory: 10G
+          pids: 256
+    # Its OWN network, never the shared default bridge: this container talks to
+    # arbitrary Soulseek peers on the internet, and nothing it could be made to
+    # do should reach postgres/radicale/ntfy on the flat network the other 26
+    # containers share.
+    networks:
+      - liquidroom
+    # Soulseek peer-listen port. NOT published by a plain `compose run` — only
+    # the download stage passes --service-ports, so the separation stage (and
+    # anything else) exposes nothing. ACCEPTED transient exposure: during a
+    # download this binds 50300 on 0.0.0.0 (reachable from LAN/tailnet), a
+    # deliberate exception to the "only SSH:22 is non-loopback" posture — an
+    # inbound port is what lets passive Soulseek peers connect. The listener is
+    # sockseek only, on the isolated bridge, cap_drop ALL + read_only, and gone
+    # the moment the download ends.
+    ports:
+      - "50300:50300"
+    volumes:
+      - ${ZPOOL_VOLUME}/liquidroom/state/work:/work
+      - ${ZPOOL_VOLUME}/liquidroom/state/models:/models
+    # No watchtower label: locally built, so there is no upstream image to poll.
+    # Rebuilds are manual: docker compose build liquidroom
+
+  # The same image with NO network whatsoever: separation, the lead/rhythm split
+  # and the mixes read /work and /models and talk to nobody. The split model is a
+  # community checkpoint (sha256-pinned in liquidroom/scripts/models.sh); running
+  # it disconnected means even a malicious pickle has nowhere to phone home.
+  liquidroom-offline:
+    image: catallenya-liquidroom
+    profiles: ["liquidroom"]
+    restart: "no"
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+          pids: 256
+    network_mode: none
+    volumes:
+      - ${ZPOOL_VOLUME}/liquidroom/state/work:/work
+      - ${ZPOOL_VOLUME}/liquidroom/state/models:/models
+
   mitsume:
     container_name: mitsume
     image: ghcr.io/carrein/mitsume:latest
@@ -1020,3 +1097,11 @@ volumes:
   ntfy-cache:
   caddy-data:
   caddy-config:
+
+networks:
+  # The liquidroom downloader's private bridge — internet access without a path
+  # to the 26 containers on the shared default network. First (and so far only)
+  # named network in this file; everything else deliberately stays on the flat
+  # bridge per the standing decision in CLAUDE.md.
+  liquidroom:
+    driver: bridge

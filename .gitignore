@@ -223,3 +223,23 @@ ntfy/.env
 !ai/tests/
 !ai/tests/run.sh
 !ai/tests/sink.py
+
+# Explicit includes inside the liquidroom pipeline — CODE ONLY, same per-file
+# discipline. liquidroom/state/ (work spool + ~1 GB model cache) stays under the
+# default `*` deny, as does anything else that lands here uninvited.
+!liquidroom/
+!liquidroom/.dockerignore
+!liquidroom/Dockerfile
+!liquidroom/README.md
+!liquidroom/entrypoint.sh
+!liquidroom/process.py
+!liquidroom/uninstall.sh
+!liquidroom/scripts/
+!liquidroom/scripts/liquidroom.lib.sh
+!liquidroom/scripts/liquidroom.triage.sh
+!liquidroom/scripts/models.sh
+!liquidroom/systemd/
+!liquidroom/systemd/liquidroom.triage.path
+!liquidroom/systemd/liquidroom.triage.service
+!liquidroom/tests/
+!liquidroom/tests/run.sh
