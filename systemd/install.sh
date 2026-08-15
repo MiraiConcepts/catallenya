@@ -203,7 +203,10 @@ TIMER_SETS="Persistent"
 
 check_not_reset() {
     local file="$1" unit="$2" layer="$3"; shift 3
-    for key in $@; do
+    # "$@" — callers pass the key list already split (check_not_reset … $BASE_SETS),
+    # so re-splitting here buys nothing and shellcheck rightly calls SC2068 an
+    # error rather than a warning. Behaviour is identical; CI is not.
+    for key in "$@"; do
         has_key "$file" "$key" && \
             err "${unit}: sets ${key}=, which the ${layer} policy already sets — the unit's value is silently discarded. Remove the line."
     done
