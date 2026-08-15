@@ -44,7 +44,7 @@ CHECK_TREE="$(mktemp -d)"
 trap 'rm -rf "$CHECK_TREE"' EXIT
 # Everything the gate reads, layout preserved: units, timers, paths, the policy
 # fragments and the instance stickers.
-(cd "$REPO" && find systemd restic capture/systemd documents/systemd ntfy \
+(cd "$REPO" && find systemd restic afterimage/systemd pigeonhole/systemd ntfy \
     \( -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name '*.conf' \) \
     -exec cp --parents -t "$CHECK_TREE" {} +)
 
@@ -82,7 +82,7 @@ gate_says "monitor setting its own TimeoutStartSec is refused" \
     "must not set TimeoutStartSec"
 
 gate_says "adhoc declaring MaxAge is refused" \
-    "${REPO}/capture/systemd/capture.triage.service" 's/^Class=adhoc$/Class=adhoc\nMaxAge=1h/' \
+    "${REPO}/afterimage/systemd/afterimage.triage.service" 's/^Class=adhoc$/Class=adhoc\nMaxAge=1h/' \
     "must not declare MaxAge="
 
 gate_says "a root job without CapabilityBoundingSet is refused" \
@@ -111,7 +111,7 @@ gate_says "re-setting a factory scalar is refused" \
 # A *.lib.sh is the natural fixture — sourced, never executed, so 0644 by design.
 gate_says "a non-executable ExecStart is refused" \
     "${REPO}/systemd/disk.service" \
-    's|^ExecStart=.*|ExecStart=/zpool/catallenya/documents/scripts/documents.lib.sh|' \
+    's|^ExecStart=.*|ExecStart=/zpool/catallenya/pigeonhole/scripts/pigeonhole.lib.sh|' \
     "is not executable"
 
 gate_says "a missing ExecStart target is refused" \
@@ -170,7 +170,7 @@ gate_says "unbounded root without acknowledgement is still refused" \
     "bound it, or declare"
 
 gate_says "an adhoc watcher without Producer= is refused" \
-    "${REPO}/capture/systemd/capture.triage.service" '/^Producer=/d' \
+    "${REPO}/afterimage/systemd/afterimage.triage.service" '/^Producer=/d' \
     "must declare Producer= naming what feeds it"
 
 gate_says "MaxAge=infinity is refused (disables its own check)" \

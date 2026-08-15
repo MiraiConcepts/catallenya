@@ -5,8 +5,8 @@
 
 | Consumer | Job | Uses |
 |---|---|---|
-| `capture/scripts/capture.triage.sh` | screenshot → proposed calendar event | the API |
-| `documents/scripts/documents.triage.sh` | document page → filing decision | the API |
+| `afterimage/scripts/afterimage.triage.sh` | screenshot → proposed calendar event | the API |
+| `pigeonhole/scripts/pigeonhole.triage.sh` | document page → filing decision | the API |
 | `liquidroom/scripts/liquidroom.lib.sh` | track request → stems | `md_escape` / `hdr_safe` only |
 
 **liquidroom makes no API call and needs no key.** It sources this library for the
@@ -92,5 +92,5 @@ on demand, and paying for one would defeat the point. Point `API_URL` at it from
 consumer to exercise that consumer's failure handling end to end.
 
 These cases were capture's until documents-intake became the second consumer; they live
-here now because the code does. `capture/tests/run.sh` keeps everything capture-specific
+here now because the code does. `afterimage/tests/run.sh` keeps everything capture-specific
 — run both.

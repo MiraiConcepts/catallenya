@@ -102,8 +102,8 @@ jobs:
           # Repo name and directory name are deliberately decoupled: the mirror gets
           # a name of its own, the tree keeps the name every unit and topic uses.
           - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
-          - { prefix: capture,    repo: MiraiConcepts/afterimage, key: AFTERIMAGE_DEPLOY_KEY }
-          - { prefix: documents,  repo: MiraiConcepts/pigeonhole, key: PIGEONHOLE_DEPLOY_KEY }
+          - { prefix: afterimage, repo: MiraiConcepts/afterimage, key: AFTERIMAGE_DEPLOY_KEY }
+          - { prefix: pigeonhole, repo: MiraiConcepts/pigeonhole, key: PIGEONHOLE_DEPLOY_KEY }
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

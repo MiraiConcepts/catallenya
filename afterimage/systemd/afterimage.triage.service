@@ -1,0 +1,53 @@
+# Class: adhoc      (see systemd/policy/20-adhoc.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging,
+# NoNewPrivileges/PrivateTmp and the rest of the base hardening; the 1800/12 start
+# limit that keeps a .path-driven job from spinning at one opus call per run; the
+# intake sandbox and its three InaccessiblePaths. `systemctl cat` shows the merged
+# result. Drop-ins OUTRANK this file, so a line here cannot override one of theirs.
+
+[Unit]
+Description=Capture triage (screenshot -> opus-5 -> proposed calendar event)
+After=network-online.target docker.service
+Wants=network-online.target
+# Also required by the base policy, but stated here too because this job is
+# .path-triggered: afterimage.triage.path already requires zfs-mount, and the service
+# it fires must not be weaker than the watcher.
+Requires=zfs-mount.service
+
+[Service]
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/afterimage
+
+# ANTHROPIC_API_KEY lives here — root-owned 0600, read by systemd (PID 1) and
+# injected into this User=carrein process. The key is therefore never in a
+# carrein-readable file, never in the repo, and never on a command line.
+#
+# /etc/ai.env rather than /etc/capture.env: pigeonhole.triage.service reads the same
+# key via the shared ai/scripts/ai.lib.sh. No `-` prefix, so a missing file fails
+# this unit loudly rather than running a triage that cannot possibly work.
+EnvironmentFile=/etc/ai.env
+
+# Generous: one opus-5 vision call at medium effort runs ~10-20s, and a burst of
+# captures is drained serially in a single invocation.
+TimeoutStartSec=15min
+
+ExecStart=/zpool/catallenya/afterimage/scripts/afterimage.triage.sh
+
+# Only the spool is writable. The scripts and .env are read-only by virtue of the
+# family's ProtectSystem=strict — the repo is outside the writable set. Note this
+# does NOT make .env unreadable; the script extracts the four keys it needs rather
+# than sourcing forty secrets into the process.
+ReadWritePaths=/zpool/catallenya/afterimage/data
+
+[X-Catallenya]
+Class=adhoc
+Family=intake
+# No MaxAge: this job is event-driven and has no cadence to be stale against — it
+# ran on 12 of the last 60 days, all of them legitimate. The right question is
+# whether the watcher is still armed, which is what Freshness names.
+Freshness=unit:afterimage.triage.path
+Producer=container:capture

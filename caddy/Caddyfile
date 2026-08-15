@@ -109,21 +109,21 @@ http://img.catallenya.com {
 # Screenshot capture: the desktop hotkey POSTs here, and the ntfy Add/Discard
 # buttons POST back here. Tailnet-only like everything else; the unguessable
 # <id> in the callback paths is what gates the buttons.
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$CAPTURE_REVERSE_PROXY_PORT} {
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$AFTERIMAGE_REVERSE_PROXY_PORT} {
 	import security_headers
 	# Screenshots are ~1-3MB; Caddy's default request body cap would reject them.
 	request_body {
 		max_size 16MB
 	}
-	reverse_proxy capture:8080
+	reverse_proxy afterimage:8080
 }
 
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$DOCUMENTS_REVERSE_PROXY_PORT} {
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$PIGEONHOLE_REVERSE_PROXY_PORT} {
 	import security_headers
 	# Every request here is an empty POST from an ntfy button. No upload path, so
 	# the default body cap is already far more than needed — deliberately NOT
 	# raised, unlike the capture block above.
-	reverse_proxy documents-approve:8080
+	reverse_proxy pigeonhole-approve:8080
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$ARCHIVEBOX_REVERSE_PROXY_PORT} {

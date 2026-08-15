@@ -31,7 +31,7 @@ trap cleanup EXIT
 
 # --------------------------------------------------------------- image sniffing
 # Android (ColorOS) screenshots are JPEG, not PNG, and capture's spool filename is
-# always .png — it is the glob token capture.triage.path keys on — so format must
+# always .png — it is the glob token afterimage.triage.path keys on — so format must
 # come from the bytes. A wrong media_type is an API-level error.
 echo "image_mime / image_ext"
 
@@ -200,6 +200,26 @@ r="$(run_post 401)"
 is    "401 gives rc=1 (fatal)"   "${r%%|*}" "1"
 hasnt "401 is never retried"     "$r" "attempt 1/3"
 
+# --------------------------------------------------------------- out of credits
+# The state this layer was missing. An account that cannot pay is neither of the two
+# things the loop already knew about: it is not `retry`, because no amount of waiting
+# fixes it, and it is not `fatal`, because the request was never wrong — it becomes
+# runnable again the moment the balance is topped up. Calling it fatal is what makes
+# capture archive a perfectly good screenshot and prune the image a week later.
+r="$(run_post 403:billing_error)"
+is    "403 billing_error gives rc=3 (paused)" "${r%%|*}" "3"
+hasnt "out of credits is never retried"       "$r" "attempt 1/3"
+has   "the log names the reason"              "$r" "billing_error"
+
+r="$(run_post 402)"
+is "402 gives rc=3 (paused)" "${r%%|*}" "3"
+
+# THE DISCRIMINATOR IS THE BODY, NOT THE STATUS. A revoked key and an empty balance
+# both arrive as 403; collapsing them is what sends you off to check an API key that
+# is perfectly fine while the real fix is a billing page.
+r="$(run_post 403:permission_error)"
+is "403 permission_error stays rc=1 (fatal)" "${r%%|*}" "1"
+
 # api_class is the REAL function from ai.lib.sh, not a copy — if the mapping in the
 # retry loop changes, these fail.
 is "200 is success"           "$(api_class 200)" "ok"
@@ -210,6 +230,32 @@ is "no-answer (000) retries"  "$(api_class 000)" "retry"
 is "400 is fatal"             "$(api_class 400)" "fatal"
 is "401 is fatal"             "$(api_class 401)" "fatal"
 is "404 is fatal"             "$(api_class 404)" "fatal"
+
+# The body is an OPTIONAL second argument, so every call above keeps working. These
+# pin the cases where it changes the answer.
+is "402 is paused"                   "$(api_class 402)" "paused"
+is "403 + billing_error is paused"   \
+   "$(api_class 403 '{"error":{"type":"billing_error"}}')"    "paused"
+is "403 + permission_error is fatal" \
+   "$(api_class 403 '{"error":{"type":"permission_error"}}')" "fatal"
+is "403 with no body stays fatal"    "$(api_class 403)" "fatal"
+
+# Anthropic has also reported an exhausted balance as a 400 invalid_request_error
+# whose MESSAGE carries the reason. Matching prose is not something to be happy
+# about, but the phrase is specific and the cost of missing it is a destroyed item,
+# so it is worth a narrow substring. The pair below is what stops it over-matching.
+is "400 about the credit balance is paused" \
+   "$(api_class 400 '{"error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}')" \
+   "paused"
+is "400 for a genuinely bad request stays fatal" \
+   "$(api_class 400 '{"error":{"type":"invalid_request_error","message":"messages: roles must alternate"}}')" \
+   "fatal"
+
+# A body must never perturb a code the loop already classifies on its own.
+is "body does not disturb a retryable code" \
+   "$(api_class 429 '{"error":{"type":"rate_limit_error"}}')" "retry"
+is "body does not disturb a success"        \
+   "$(api_class 200 '{"stop_reason":"end_turn"}')" "ok"
 
 # ---------------------------------------------------------------- retry config
 echo "retry configuration"

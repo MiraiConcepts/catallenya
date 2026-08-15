@@ -20,16 +20,16 @@ drop zone ── .path unit ── triage (ONE vision call via ai/scripts/ai.lib
 
 | Aspect | Capture | Documents |
 |---|---|---|
-| Home | `capture/` | `documents/` |
-| Drop zone | `capture/data/incoming/` | `syncthing/data/master/documents` root |
+| Home | `capture/` | `pigeonhole/` |
+| Drop zone | `afterimage/data/incoming/` | `syncthing/data/master/documents` root |
 | Trigger | `.path` on `*.png` (bytes sniffed, JPEG welcome) | `.path` on 28 typed globs |
 | AI | one opus-5 vision call, shared config | same |
 | Buttons | Add / Discard | Accept / Discard (binned: Accept / Delete) |
 | State | `incoming → pending → archive` | `root → staging → (folder \| bin)` |
-| Backstop | folded into the sweep | `documents.backstop.timer` 03:00 SGT |
+| Backstop | folded into the sweep | `pigeonhole.backstop.timer` 03:00 SGT |
 | Sweep | 07:30 SGT | 07:45 SGT |
-| Writer | the container (CalDAV PUT) | `documents.apply.service` (host oneshot) |
-| Tests | `capture/tests` + `ai/tests` | `documents/tests` + `ai/tests` |
+| Writer | the container (CalDAV PUT) | `pigeonhole.apply.service` (host oneshot) |
+| Tests | `afterimage/tests` + `ai/tests` | `pigeonhole/tests` + `ai/tests` |
 
 ## The rules, and why they are rules
 
@@ -85,7 +85,7 @@ happened" before "to what". Tags are semantic (`warning` blocked, `question`
 review, `wastebasket` binned) and `high` priority is reserved for the two states
 that need a human: blocked and review. Capture reached the same rule from the
 other side, with two glyphs for the whole topic (📆 calendar-shaped, ❗ trouble;
-see `capture/README.md`) because every message it sends is calendar-shaped. The
+see `afterimage/README.md`) because every message it sends is calendar-shaped. The
 shared part is the discipline, not the vocabulary: a phone-glanceable first
 word, and priority spent only where a tap is actually owed.
 
@@ -94,7 +94,7 @@ word, and priority spent only where a tap is actually owed.
 Capture's Bun container holds a full-scope Radicale credential and performs the
 CalDAV write itself. Documents' container holds **nothing** and can only write a
 zero-byte marker into `approvals/`; the moves are done by hardened host oneshots
-(`documents.apply.service`, `documents.sweep.service`) that no network packet can
+(`pigeonhole.apply.service`, `pigeonhole.sweep.service`) that no network packet can
 reach. They look like one container's worth of code, but merging them would give
 the calendar credential to the surface that today holds no secret at all. The
 asymmetry is the security design, not an accident of history.

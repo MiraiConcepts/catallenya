@@ -61,9 +61,9 @@ which is why they are separate axes rather than a hierarchy:
 
 |  | family `intake` | family `restic` | — |
 |---|---|---|---|
-| **`scheduled`** | `capture.sweep`, `documents.sweep` | `restic.backup`, `forget`, `check@` | `immich.fix-rotations`, `zpool.scrub` |
+| **`scheduled`** | `capture.sweep`, `pigeonhole.sweep` | `restic.backup`, `forget`, `check@` | `immich.fix-rotations`, `zpool.scrub` |
 | **`monitor`** | — | `restic.staleness` | `disk`, `changedetection.health`, `heartbeat` |
-| **`adhoc`** | `capture.triage`, `documents.triage`, `documents.apply` | — | `catallenya` (boot is an event) |
+| **`adhoc`** | `capture.triage`, `pigeonhole.triage`, `pigeonhole.apply` | — | `catallenya` (boot is an event) |
 
 Measured effect: **286 directives across the units became 40 written once.**
 

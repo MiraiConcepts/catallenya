@@ -6,6 +6,11 @@ first request gets 429, the second 429, the third 200. That is the only way to
 prove the retry loop actually retries and actually stops — a real API failure
 cannot be summoned on demand, and paying for one to test would defeat the point.
 
+A code may carry the error type the body should report: "403:billing_error". The
+status alone is not enough to classify a failure — out-of-credits and a revoked key
+both arrive as 403, and only error.type tells them apart. Without a type the body
+reports "sink", which is what every pre-existing case expects.
+
 Serves every consumer of ai.lib.sh, not just capture: point API_URL at it and the
 same loop that drives a screenshot triage drives a document classification.
 
@@ -16,7 +21,13 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-CODES = [int(c) for c in sys.argv[1].split(",")]
+def parse_code(spec):
+    """"403" -> (403, "sink");  "403:billing_error" -> (403, "billing_error")."""
+    code, _, etype = spec.partition(":")
+    return int(code), (etype or "sink")
+
+
+CODES = [parse_code(c) for c in sys.argv[1].split(",")]
 STATE = {"n": 0}
 LOCK = threading.Lock()
 
@@ -51,9 +62,9 @@ class H(BaseHTTPRequestHandler):
         with LOCK:
             i = STATE["n"]
             STATE["n"] += 1
-        code = CODES[i] if i < len(CODES) else CODES[-1]
+        code, etype = CODES[i] if i < len(CODES) else CODES[-1]
         body = ok_body(i) if code == 200 else json.dumps(
-            {"type": "error", "error": {"type": "sink", "message": f"forced {code}"}}
+            {"type": "error", "error": {"type": etype, "message": f"forced {code}"}}
         ).encode()
         self.send_response(code)
         self.send_header("content-type", "application/json")

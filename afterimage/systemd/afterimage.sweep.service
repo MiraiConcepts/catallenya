@@ -1,0 +1,38 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging,
+# the base hardening, the intake sandbox and its three InaccessiblePaths, and
+# Environment=PATH. `systemctl cat` shows the merged result.
+
+[Unit]
+Description=Capture sweep (re-notify stale proposals, archive ignored ones)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/afterimage
+TimeoutStartSec=5min
+
+# No ANTHROPIC_API_KEY here, deliberately: the sweep makes no API calls. It only
+# stats files and posts to ntfy, so it has no reason to hold the key.
+ExecStart=/zpool/catallenya/afterimage/scripts/afterimage.sweep.sh
+
+# The spool, plus the completion stamp. The stamp needs an explicit entry because
+# the intake family sets ProtectSystem=strict, which makes the whole tree
+# read-only — without it the stamp write fails and the watchdog reports this job
+# as dead while it is running perfectly.
+ReadWritePaths=/zpool/catallenya/afterimage/data
+
+[X-Catallenya]
+Class=scheduled
+Family=intake
+# Daily at 07:30 SGT with 5 minutes of jitter. 36h leaves room for one missed run
+# before the watchdog speaks, so a single hiccup is not an alarm.
+MaxAge=36h
+# No natural artifact: a sweep that finds nothing to do writes nothing, which is
+# also why it is invisible when healthy. Hence a completion stamp.
+Freshness=stamp:/zpool/catallenya/systemd/state/capture.sweep

@@ -5,8 +5,8 @@
 # This is the one place in the repo that talks to api.anthropic.com. Three scripts
 # source it, all bash, all on this host — but only two of them call the API:
 #
-#   capture/scripts/capture.triage.sh   screenshot -> proposed calendar event
-#   documents/scripts/documents.triage.sh   document page -> filing decision
+#   afterimage/scripts/afterimage.triage.sh   screenshot -> proposed calendar event
+#   pigeonhole/scripts/pigeonhole.triage.sh   document page -> filing decision
 #   liquidroom/scripts/liquidroom.lib.sh   md_escape/hdr_safe ONLY — no API call
 #
 # liquidroom needs no key and touches none of the transport surface; it sources
@@ -59,7 +59,7 @@ AI_EFFORT="high"
 API_MAX_ATTEMPTS=3        # attempts within one run
 API_RETRY_BASE_S=5        # linear backoff: 5s, 10s
 # Overridable so the retry path is testable against a local sink without spending an
-# API call — same seam as MIN_AGE_SECONDS in documents.lib.sh. Never set in
+# API call — same seam as MIN_AGE_SECONDS in pigeonhole.lib.sh. Never set in
 # production; the default is the only value systemd ever runs with.
 API_URL="${API_URL:-https://api.anthropic.com/v1/messages}"
 
@@ -67,7 +67,7 @@ API_URL="${API_URL:-https://api.anthropic.com/v1/messages}"
 
 # image_mime <file> -> image/png | image/jpeg   (by content, never by filename)
 # Callers cannot be trusted about extensions: capture's spool name is always .png
-# because that is the glob token capture.triage.path keys on, whatever the bytes
+# because that is the glob token afterimage.triage.path keys on, whatever the bytes
 # actually are. A wrong media_type is an API-level error, so this is sniffed.
 # Anything unrecognised falls back to image/png.
 image_mime() {

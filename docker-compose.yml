@@ -195,8 +195,8 @@ services:
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
       IPP_REVERSE_PROXY_PORT: ${IPP_REVERSE_PROXY_PORT}
       MITSUME_REVERSE_PROXY_PORT: ${MITSUME_REVERSE_PROXY_PORT}
-      CAPTURE_REVERSE_PROXY_PORT: ${CAPTURE_REVERSE_PROXY_PORT}
-      DOCUMENTS_REVERSE_PROXY_PORT: ${DOCUMENTS_REVERSE_PROXY_PORT}
+      AFTERIMAGE_REVERSE_PROXY_PORT: ${AFTERIMAGE_REVERSE_PROXY_PORT}
+      PIGEONHOLE_REVERSE_PROXY_PORT: ${PIGEONHOLE_REVERSE_PROXY_PORT}
       MITSUME_DAV_B64: ${MITSUME_DAV_B64}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
@@ -213,8 +213,8 @@ services:
       - 127.0.0.1:${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
       - 127.0.0.1:${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
       - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
-      - 127.0.0.1:${CAPTURE_REVERSE_PROXY_PORT}:${CAPTURE_REVERSE_PROXY_PORT}
-      - 127.0.0.1:${DOCUMENTS_REVERSE_PROXY_PORT}:${DOCUMENTS_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${AFTERIMAGE_REVERSE_PROXY_PORT}:${AFTERIMAGE_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${PIGEONHOLE_REVERSE_PROXY_PORT}:${PIGEONHOLE_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/caddy/flags:/flags:ro
@@ -502,12 +502,12 @@ services:
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
-  capture:
-    container_name: capture
-    # Built locally: the source lives in this repo (capture/src), unlike the
+  afterimage:
+    container_name: afterimage
+    # Built locally: the source lives in this repo (afterimage/src), unlike the
     # carrein apps which ship prebuilt from GHCR. Same reason archivebox builds.
     build:
-      context: ./capture
+      context: ./afterimage
     restart: unless-stopped
     user: "1000:1000" # writes the spool, which is host-owned 1000:1000
     # The image now sets USER bun itself, so this is belt-and-braces rather than
@@ -556,11 +556,11 @@ services:
     # read/write/delete across the whole /carrein/ tree. Same pattern as immich's
     # DB_PASSWORD_FILE. The value is identical to the MITSUME_DAV_B64 Caddy injects.
     secrets:
-      - capture-dav-secret
+      - afterimage-dav-secret
     volumes:
-      # Shared with the host triage (capture.triage.service) — this bind IS the
+      # Shared with the host triage (afterimage.triage.service) — this bind IS the
       # interface between the container and the AI half of the pipeline.
-      - ${ZPOOL_VOLUME}/capture/data:/data
+      - ${ZPOOL_VOLUME}/afterimage/data:/data
     # No ports: reached only through Caddy, like every other app container.
     healthcheck:
       test: ["CMD-SHELL", "bun -e 'process.exit((await fetch(\"http://127.0.0.1:8080/healthz\")).ok ? 0 : 1)' || exit 1"]
@@ -570,11 +570,11 @@ services:
       start_period: 10s
     # No watchtower label: locally built, so there is no upstream image to poll.
 
-  documents-approve:
-    container_name: documents-approve
+  pigeonhole-approve:
+    container_name: pigeonhole-approve
     # Built locally, same reasoning as capture: the source lives in this repo.
     build:
-      context: ./documents/approve
+      context: ./pigeonhole/approve
     restart: unless-stopped
     user: "1000:1000" # writes markers into a host-owned 1000:1000 directory
     read_only: true
@@ -599,14 +599,14 @@ services:
     volumes:
       # THE ONLY MOUNT, AND THE WHOLE SECURITY ARGUMENT. This container can write
       # zero-byte markers into one directory and nothing else — master/documents is
-      # not visible to it at any path. The move is done by documents.apply.service,
+      # not visible to it at any path. The move is done by pigeonhole.apply.service,
       # a hardened oneshot that is never reachable from the network.
       #
       # Do NOT add a mount here. If a future change seems to need one, it belongs in
       # the apply script instead; the reason this service is safe to expose on the
       # tailnet behind an unauthenticated ntfy topic is that there is nothing here
       # to reach.
-      - ${ZPOOL_VOLUME}/documents/intake-state/approvals:/approvals
+      - ${ZPOOL_VOLUME}/pigeonhole/intake-state/approvals:/approvals
     # No ports: reached only through Caddy, like every other app container.
     healthcheck:
       test: ["CMD-SHELL", "bun -e 'process.exit((await fetch(\"http://127.0.0.1:8080/healthz\")).ok ? 0 : 1)' || exit 1"]
@@ -1088,8 +1088,8 @@ secrets:
     file: archivebox/password.txt
   postgres-secret:
     file: postgres/password.txt
-  capture-dav-secret: # base64(carrein:<radicale app pw>) — same value as MITSUME_DAV_B64
-    file: capture/dav-secret
+  afterimage-dav-secret: # base64(carrein:<radicale app pw>) — same value as MITSUME_DAV_B64
+    file: afterimage/dav-secret
 
 volumes:
   model-cache:

@@ -321,8 +321,8 @@ done < <(candidates | sort -u)
 #
 # A stale stamp catches a dead timer for most jobs. The exception is a timer that
 # fires an ADHOC job, whose freshness is "is the watcher armed" — nothing about
-# that changes when the timer dies. documents.backstop.timer is exactly this: it
-# fires documents.triage.service and is the sole cover for a file type no
+# that changes when the timer dies. pigeonhole.backstop.timer is exactly this: it
+# fires pigeonhole.triage.service and is the sole cover for a file type no
 # PathExistsGlob matches. Losing it would be invisible.
 for t in "${SYSTEMD_DIR}"/*.timer; do
     [[ -e "$t" ]] || continue
