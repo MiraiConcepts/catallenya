@@ -26,7 +26,7 @@ docker compose logs -f <service-name>
 # Run the security audit
 bash audit/audit.sh
 
-# systemd job factory — validate the contract without installing (no root needed).
+# control plane — validate the job contract without installing (no root needed).
 # Run this before committing any unit change; it is the same check install.sh runs.
 bash systemd/install.sh --check
 bash systemd/tests/run.sh          # offline suite: gate refusals + every watchdog finding
@@ -148,7 +148,9 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 
 ZFS snapshots are managed by Sanoid separately.
 
-### The systemd Job Factory
+### The Control Plane
+
+**Called the control plane for what it does — declare policy, admit or refuse, verify — and living in `systemd/` for what it is made of.** Both names are accurate on different axes; neither replaces the other, and the directory is deliberately not renamed (see § CI/CD). It publishes as the `controlplane` mirror. One caveat on the borrowed term: this plane **reports** drift and does not reconcile it — a watchdog finding is a notification, never a restart.
 
 **Every job inherits its policy from layered drop-ins; no job declares it itself.** `systemd/policy/` holds seven files, linked by `install.sh` into each unit's `.d/` directory:
 

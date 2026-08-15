@@ -1,4 +1,18 @@
-# The job system
+# controlplane
+
+**The control plane for [catallenya](https://github.com/carrein/catallenya):
+policy is declared once, an installer admits or refuses each job against it, and
+a daily watchdog verifies every job actually ran.**
+
+Sixteen background jobs keep this server honest — backups, disk checks, ZFS
+scrubs, document filing, screenshot triage. They run under a shared contract
+rather than each inventing its own.
+
+It is called a control plane for what it does, and it lives in a directory called
+`systemd/` for what it is made of — units and drop-ins. Both names are accurate
+on different axes, so neither replaces the other. One caveat on the borrowed
+term: this plane **reports** drift, it does not reconcile it. A watchdog finding
+is a notification, never a restart.
 
 > Mirror of [`carrein/catallenya`](https://github.com/carrein/catallenya) →
 > `systemd/`. Force-synced by CI — open issues and pull requests on the parent
@@ -9,10 +23,6 @@
 > from units that live beside the services they serve. Both work in the parent
 > repo and neither is meaningful standalone. The contract itself — `policy/`, and
 > the reasoning below — is complete and copyable.
-
-Sixteen background jobs keep this server honest — backups, disk checks, ZFS
-scrubs, document filing, screenshot triage. They run under a shared contract
-rather than each inventing its own.
 
 *As of 2026-08-15.*
 
@@ -193,7 +203,7 @@ without running anything.
 
 ```
 systemd/
-├── policy/          the factory — base, three classes, two families
+├── policy/          the contract — base, three classes, two families
 ├── tests/run.sh     offline suite: gate refusals and watchdog findings
 ├── state/           completion stamps (gitignored — runtime state)
 ├── install.sh       installs, and refuses to install what breaks the contract
