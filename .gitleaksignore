@@ -3,11 +3,18 @@
 # The value is the literal string THISISAFANTASTICALLYFAKETESTKEYFOR... — not a secret.
 5fd0bfcf571dc74b4832c15d0cb65af696ba3cff:archivebox.Dockerfile:private-key:5
 
-# False positive, 2026-07-27. A prose COMMENT in afterimage.lib.sh explaining why the
-# triage stopped sourcing the whole .env happened to name two config variables next
-# to the word "password"; gitleaks 8.24.3's generic-api-key rule scores that as a
-# finding. No value is present — only variable names. The comment was reworded in
-# the following commit, but the phrasing is permanent in this one, so a full-history
-# scan needs this line. (Note 8.30.1 does NOT flag it — scan with the version CI
-# pins, not latest, or you will not reproduce it.)
-ae6f3cd8036ee0947d276557a327e5e77bd5be9a:afterimage/scripts/afterimage.lib.sh:generic-api-key:230
+# False positive, 2026-07-27. A prose COMMENT in what is now afterimage.lib.sh,
+# explaining why the triage stopped sourcing the whole .env, happened to name two
+# config variables next to the word "password"; gitleaks 8.24.3's generic-api-key
+# rule scores that as a finding. No value is present — only variable names. The
+# comment was reworded in the following commit, but the phrasing is permanent in
+# this one, so a full-history scan needs this line. (Note 8.30.1 does NOT flag it —
+# scan with the version CI pins, not latest, or you will not reproduce it.)
+#
+# THE PATH BELOW IS HISTORICAL AND MUST NOT BE UPDATED TO MATCH THE CURRENT TREE.
+# A fingerprint is <commit>:<path-as-it-was-in-that-commit>:<rule>:<line>. The file
+# was capture/scripts/capture.lib.sh when ae6f3cd8 was written and always will be;
+# the 2026-08-15 rename to afterimage/ cannot reach into history. A repo-wide
+# find-and-replace rewrote this line that day, the fingerprint stopped matching, and
+# gitleaks failed CI on a finding that had been suppressed for three weeks.
+ae6f3cd8036ee0947d276557a327e5e77bd5be9a:capture/scripts/capture.lib.sh:generic-api-key:230
