@@ -104,6 +104,21 @@ gate_says "re-setting a factory scalar is refused" \
     "${REPO}/systemd/disk.service" 's/^ExecStart=/PrivateTmp=true\nExecStart=/' \
     "the unit's value is silently discarded"
 
+# systemd answers a missing +x bit with 203/EXEC and names no cause. On a
+# .path-driven job that is a spin: watcher re-fires, service fails, OnFailure=
+# alerts, repeat until the class start limit stops it. liquidroom.triage shipped
+# exactly this and cost five notifications before anyone could read the mode.
+# A *.lib.sh is the natural fixture — sourced, never executed, so 0644 by design.
+gate_says "a non-executable ExecStart is refused" \
+    "${REPO}/systemd/disk.service" \
+    's|^ExecStart=.*|ExecStart=/zpool/catallenya/documents/scripts/documents.lib.sh|' \
+    "is not executable"
+
+gate_says "a missing ExecStart target is refused" \
+    "${REPO}/systemd/disk.service" \
+    's|^ExecStart=.*|ExecStart=/zpool/catallenya/nope/missing.sh|' \
+    "does not exist"
+
 gate_says "an unrecognised Freshness form is refused" \
     "${REPO}/restic/forget/restic.forget.service" 's|^Freshness=.*|Freshness=/tmp/whatever|' \
     "is not a recognised form"
