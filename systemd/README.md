@@ -1,10 +1,20 @@
 # The job system
 
+> Mirror of [`carrein/catallenya`](https://github.com/carrein/catallenya) →
+> `systemd/`. Force-synced by CI — open issues and pull requests on the parent
+> repo, not here.
+>
+> **Read, don't run.** `install.sh` and `tests/run.sh` are repo-wide: the
+> installer's unit map spans ten directories and the suite builds its check tree
+> from units that live beside the services they serve. Both work in the parent
+> repo and neither is meaningful standalone. The contract itself — `policy/`, and
+> the reasoning below — is complete and copyable.
+
 Sixteen background jobs keep this server honest — backups, disk checks, ZFS
 scrubs, document filing, screenshot triage. They run under a shared contract
 rather than each inventing its own.
 
-*As of 2026-08-13.*
+*As of 2026-08-15.*
 
 ## The problem this solves
 
@@ -173,7 +183,8 @@ without running anything.
 - **The watchdog is the one thing nothing watches.** A crash is covered; never
   running is silent. This is irreducible on-box — any watcher needs a watcher —
   and escaping it requires an off-box dead-man's switch where silence is the
-  alarm. Accepted deliberately; the reasoning is in [CLAUDE.md](../CLAUDE.md).
+  alarm. Accepted deliberately; the reasoning is in
+  [CLAUDE.md](https://github.com/carrein/catallenya/blob/main/CLAUDE.md).
 - A `.path` watcher can be armed while its producer runs but delivers nothing.
   Container-alive is a floor, not a proof.
 - Nothing watches the 26 containers between boots.
@@ -192,11 +203,13 @@ systemd/
 
 This directory holds the contract and the one job whose subject *is* the
 contract. Everything else it governs lives with what it serves: a job's unit and
-its body sit together, in the directory of the thing the job is about —
-`../host/` for the machine, `../restic/`, `../immich/`, `../afterimage/` and so
-on. That is also why per-instance metadata for template units lives beside its
-units, in [`../restic/check/`](../restic/check/), rather than here.
+its body sit together, in the directory of the thing the job is about — `host/`
+for the machine, `restic/`, `immich/`, `afterimage/` and so on. That is also why
+per-instance metadata for template units lives beside its units, in
+[`restic/check/`](https://github.com/carrein/catallenya/tree/main/restic/check),
+rather than here.
 
 The courier every `OnFailure=` points at is the one deliberate exception, in
-[`../ntfy/`](../ntfy/). It is not a job and inherits nothing from this contract —
-a failed alert must not call the courier to complain about the courier.
+[`ntfy/`](https://github.com/carrein/catallenya/tree/main/ntfy). It is not a job
+and inherits nothing from this contract — a failed alert must not call the
+courier to complain about the courier.
