@@ -1,16 +1,23 @@
 # Shared AI layer
 
 `ai/scripts/ai.lib.sh` is the only place in this repo that talks to
-`api.anthropic.com`. Two consumers source it:
+`api.anthropic.com`. Three scripts source it, but only two of them call the API:
 
-| Consumer | Job |
-|---|---|
-| `capture/scripts/capture.triage.sh` | screenshot → proposed calendar event |
-| `documents/scripts/documents.triage.sh` | document page → filing decision |
+| Consumer | Job | Uses |
+|---|---|---|
+| `capture/scripts/capture.triage.sh` | screenshot → proposed calendar event | the API |
+| `documents/scripts/documents.triage.sh` | document page → filing decision | the API |
+| `liquidroom/scripts/liquidroom.lib.sh` | track request → stems | `md_escape` / `hdr_safe` only |
+
+**liquidroom makes no API call and needs no key.** It sources this library for the
+two ntfy sanitisers and nothing else — a notification title there carries a
+filename synced in from another device, and those two functions must not exist as
+a second drifting copy. Count it when changing `md_escape` or `hdr_safe`; ignore it
+when changing anything else.
 
 ## Why a library and not a service
 
-Both consumers are bash on this host, so the cheapest correct boundary is `source`,
+Both API consumers are bash on this host, so the cheapest correct boundary is `source`,
 not a port. An HTTP service was considered and deliberately not built:
 
 - it would hold `ANTHROPIC_API_KEY` in a container environment 24/7 — readable via

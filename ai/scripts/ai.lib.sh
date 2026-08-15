@@ -2,11 +2,16 @@
 # shellcheck disable=SC2034  # config vars are consumed by the scripts that source this
 # Shared Anthropic Messages API layer. Sourced, never executed.
 #
-# This is the one place in the repo that talks to api.anthropic.com. Two consumers
-# today, both bash, both on this host:
+# This is the one place in the repo that talks to api.anthropic.com. Three scripts
+# source it, all bash, all on this host — but only two of them call the API:
 #
 #   capture/scripts/capture.triage.sh   screenshot -> proposed calendar event
 #   documents/scripts/documents.triage.sh   document page -> filing decision
+#   liquidroom/scripts/liquidroom.lib.sh   md_escape/hdr_safe ONLY — no API call
+#
+# liquidroom needs no key and touches none of the transport surface; it sources
+# this file so the two ntfy sanitisers do not exist as a second drifting copy.
+# Editing md_escape or hdr_safe has three consumers, not two.
 #
 # WHY A LIBRARY AND NOT A SERVICE. The capture pipeline splits into a dumb container
 # (HTTP + CalDAV PUT) and a host-side triage that holds the intelligence, and the
