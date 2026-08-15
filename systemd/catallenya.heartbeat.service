@@ -26,7 +26,7 @@ Wants=network-online.target
 [Service]
 User=carrein
 Group=carrein
-ExecStart=/zpool/catallenya/ntfy/heartbeat-ntfy.sh
+ExecStart=/zpool/catallenya/systemd/heartbeat.sh
 
 [X-Catallenya]
 Class=monitor

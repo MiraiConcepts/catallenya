@@ -14,13 +14,14 @@
 # Except these folders (include everything inside)
 !audit/
 !caddy/
+!changedetection/
 !cloudflared/
+!host/
 !rclone/
 !ntfy/
 !restic/
 !sanoid/
 !systemd/
-!zpool/
 !.github/
 !immich/
 !tailscale/
@@ -83,27 +84,27 @@
 # Explicit includes notification scripts — per-file. The `ntfy/.env` re-deny below
 # used to be the only guard, which shows the exposure was known; it just named one
 # filename. ntfy/api-token.txt would still have been committed.
-!ntfy/changedetection-ntfy.sh
-!ntfy/disk-ntfy.sh
+!changedetection/changedetection.health.sh
+!host/disk.sh
 !ntfy/system-ntfy.sh
 !ntfy/system-ntfy@.service
-!ntfy/heartbeat-ntfy.sh
+!systemd/heartbeat.sh
 ntfy/.env
 
 # Explicit includes systemd services — per-file. A `**` here would track a
 # systemd/id_rsa on sight.
-!systemd/catallenya.sh
-!systemd/changedetection.health.service
-!systemd/changedetection.health.timer
-!systemd/disk.service
-!systemd/disk.timer
-!systemd/immich.fix-rotations.service
-!systemd/immich.fix-rotations.timer
+!host/catallenya.sh
+!changedetection/changedetection.health.service
+!changedetection/changedetection.health.timer
+!host/disk.service
+!host/disk.timer
+!immich/immich.fix-rotations.service
+!immich/immich.fix-rotations.timer
 !systemd/install.sh
 !systemd/README.md
 !systemd/systemd.md
-!systemd/zpool.scrub.service
-!systemd/zpool.scrub.timer
+!host/zpool.scrub.service
+!host/zpool.scrub.timer
 !systemd/catallenya.heartbeat.service
 !systemd/catallenya.heartbeat.timer
 # The job factory. Per-file, never !systemd/policy/** — a glob would auto-track

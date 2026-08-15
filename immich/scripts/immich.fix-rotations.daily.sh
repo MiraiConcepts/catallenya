@@ -11,7 +11,7 @@ set -uo pipefail
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Source root .env for the ntfy URL (same pattern as ntfy/disk-ntfy.sh)
+# Source root .env for the ntfy URL (same pattern as host/disk.sh)
 ROOT_ENV="/zpool/catallenya/.env"
 if [[ -f "$ROOT_ENV" ]]; then
     # shellcheck source=/dev/null  # runtime-only file, not in the repo
