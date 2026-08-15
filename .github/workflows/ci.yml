@@ -99,8 +99,10 @@ jobs:
       fail-fast: false # One broken mirror must not cancel the others.
       matrix:
         include:
-          # Repo name and directory name are deliberately decoupled: the mirror gets
-          # a name of its own, the tree keeps the name every unit and topic uses.
+          # `prefix` is the DIRECTORY, `repo` is its published name. Three of the four
+          # match; systemd -> controlplane is the one that does not, deliberately, and
+          # renaming that directory to match would reset the mirror's history the way
+          # capture->afterimage and documents->pigeonhole reset theirs.
           - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
           - { prefix: afterimage, repo: MiraiConcepts/afterimage, key: AFTERIMAGE_DEPLOY_KEY }
           - { prefix: pigeonhole, repo: MiraiConcepts/pigeonhole, key: PIGEONHOLE_DEPLOY_KEY }

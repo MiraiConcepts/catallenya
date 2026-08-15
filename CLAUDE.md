@@ -264,12 +264,24 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
 - **shellcheck**: all tracked `*.sh` at `-S warning` (preinstalled runner binary, no action)
 - **mirror**: publishes a feature directory to its own standalone repo via
   `git subtree split`, so a feature can be linked, described and pinned on its own —
-  GitHub pins are repo-level, you cannot pin a directory. Three matrix entries:
-  `liquidroom` → `MiraiConcepts/liquidroom`, `capture` → `MiraiConcepts/afterimage`,
-  `documents` → `MiraiConcepts/pigeonhole`. **Repo name and directory name are
-  deliberately decoupled** — the mirror gets its own name, the tree keeps the name
-  every unit, script and ntfy topic already uses; each README leads with the mirror
-  name and states the internal one immediately under it. Adding the next is one line,
+  GitHub pins are repo-level, you cannot pin a directory. **Four matrix entries, and
+  the prefix is the DIRECTORY while the repo is its published name:**
+
+  | prefix (directory) | mirror repo | |
+  |---|---|---|
+  | `liquidroom` | `MiraiConcepts/liquidroom` | same |
+  | `afterimage` | `MiraiConcepts/afterimage` | same |
+  | `pigeonhole` | `MiraiConcepts/pigeonhole` | same |
+  | **`systemd`** | **`MiraiConcepts/controlplane`** | **the one mismatch** |
+
+  Three of four match, so **do not assume a mirror's name is its directory** — read
+  the matrix. `systemd/` is deliberately not renamed: unlike `capture`/`documents`,
+  which were generic words standing in for one specific thing, `systemd/` accurately
+  names what it holds, and renaming it would also collapse that mirror's 67 commits
+  of history to one (subtree split matches on path and does not follow renames — it
+  is what took afterimage to 2 commits and pigeonhole to 1). The repo name places the
+  work for a reader; the directory stays accurate for whoever types the path.
+  Adding the next is one line,
   but a feature needs a newcomer-facing README first or its mirror's front page is a
   file listing, and **any new tracked file under a mirrored prefix needs its own
   `.gitignore` allowlist line** or it is untracked, invisible to `git status`, and
