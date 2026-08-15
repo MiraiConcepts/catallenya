@@ -230,6 +230,7 @@ ntfy/.env
 !liquidroom/
 !liquidroom/.dockerignore
 !liquidroom/Dockerfile
+!liquidroom/OPERATIONS.md
 !liquidroom/README.md
 !liquidroom/entrypoint.sh
 !liquidroom/process.py
