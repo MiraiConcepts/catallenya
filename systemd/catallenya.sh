@@ -30,7 +30,7 @@ fi
 # Path units need this exactly as much as timers do, for the same reason the whole
 # orchestrator exists: a symlink into /zpool does not resolve when PID1 builds the
 # initial boot transaction, so paths.target drops the unit and nothing re-queues it
-# after the daemon-reload above. capture.triage.path is what fires the screenshot
+# after the daemon-reload above. afterimage.triage.path is what fires the screenshot
 # triage — without this loop the capture pipeline is silently dead after every
 # reboot, container healthy and Caddy routing, while this script still reports
 # "All systems nominal."

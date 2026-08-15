@@ -1,0 +1,18 @@
+[Unit]
+Description=Watch the capture spool for new screenshots
+After=zfs-mount.service
+Requires=zfs-mount.service
+
+[Path]
+# Fires afterimage.triage.service the moment the Bun container drops a PNG here.
+# This is the first .path unit in the repo (everything else is a timer) — chosen
+# over polling because the whole point of the pipeline is a snappy proposal.
+PathExistsGlob=/zpool/catallenya/afterimage/data/incoming/*.png
+
+# systemd re-checks after the service exits and re-triggers while the glob still
+# matches. The triage script therefore MUST move or delete every file it handles;
+# a leftover PNG would spin this unit and bill an API call per iteration. That
+# invariant is enforced on every branch in afterimage.triage.sh — do not relax it.
+
+[Install]
+WantedBy=paths.target

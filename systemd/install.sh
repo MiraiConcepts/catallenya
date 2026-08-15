@@ -68,7 +68,7 @@ declare -A SYMLINKS=(
     ["changedetection.health.timer"]="${REPO_DIR}/systemd/changedetection.health.timer"
     # Not a schedule for the documents pipeline — that is event-driven. This is the
     # once-a-day look for a file type the path unit's globs cannot see.
-    ["documents.backstop.timer"]="${REPO_DIR}/documents/systemd/documents.backstop.timer"
+    ["pigeonhole.backstop.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.backstop.timer"
     ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
@@ -76,18 +76,18 @@ declare -A SYMLINKS=(
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
     ["restic.staleness.timer"]="${REPO_DIR}/restic/staleness/restic.staleness.timer"
     ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
-    ["capture.sweep.timer"]="${REPO_DIR}/capture/systemd/capture.sweep.timer"
-    ["documents.sweep.timer"]="${REPO_DIR}/documents/systemd/documents.sweep.timer"
+    ["afterimage.sweep.timer"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.timer"
+    ["pigeonhole.sweep.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.timer"
     ["catallenya.heartbeat.timer"]="${REPO_DIR}/systemd/catallenya.heartbeat.timer"
 
     # --- Paths (event-triggered, not scheduled) ---
-    ["capture.triage.path"]="${REPO_DIR}/capture/systemd/capture.triage.path"
+    ["afterimage.triage.path"]="${REPO_DIR}/afterimage/systemd/afterimage.triage.path"
     # documents is two path units and no timer of its own: one watches the folder
     # root for a dropped document, the other watches for an approval marker the
     # container wrote. A document is proposed when it arrives and filed when you
     # tap, not overnight.
-    ["documents.triage.path"]="${REPO_DIR}/documents/systemd/documents.triage.path"
-    ["documents.apply.path"]="${REPO_DIR}/documents/systemd/documents.apply.path"
+    ["pigeonhole.triage.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.path"
+    ["pigeonhole.apply.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.path"
     # liquidroom is one path unit and no timer: a music request is an event, and a
     # week without one is a week the pipeline correctly never runs.
     ["liquidroom.triage.path"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.path"
@@ -95,9 +95,9 @@ declare -A SYMLINKS=(
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/systemd/disk.service"
     ["changedetection.health.service"]="${REPO_DIR}/systemd/changedetection.health.service"
-    ["documents.triage.service"]="${REPO_DIR}/documents/systemd/documents.triage.service"
-    ["documents.apply.service"]="${REPO_DIR}/documents/systemd/documents.apply.service"
-    ["documents.sweep.service"]="${REPO_DIR}/documents/systemd/documents.sweep.service"
+    ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
+    ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"
+    ["pigeonhole.sweep.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.service"
     ["immich.fix-rotations.service"]="${REPO_DIR}/systemd/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
@@ -105,8 +105,8 @@ declare -A SYMLINKS=(
     ["restic.staleness.service"]="${REPO_DIR}/restic/staleness/restic.staleness.service"
     ["system-ntfy@.service"]="${REPO_DIR}/ntfy/system-ntfy@.service"
     ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
-    ["capture.triage.service"]="${REPO_DIR}/capture/systemd/capture.triage.service"
-    ["capture.sweep.service"]="${REPO_DIR}/capture/systemd/capture.sweep.service"
+    ["afterimage.triage.service"]="${REPO_DIR}/afterimage/systemd/afterimage.triage.service"
+    ["afterimage.sweep.service"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.service"
     ["liquidroom.triage.service"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.service"
     ["catallenya.heartbeat.service"]="${REPO_DIR}/systemd/catallenya.heartbeat.service"
 )
@@ -374,7 +374,7 @@ done
 
 # Which services are triggered by some timer. Not derivable from the name alone:
 # restic.check-subset.timer fires restic.check@subset.service, and
-# documents.backstop.timer fires documents.triage.service.
+# pigeonhole.backstop.timer fires pigeonhole.triage.service.
 declare -A TIMER_TARGETS=()
 for unit in "${!SYMLINKS[@]}"; do
     [[ "$unit" == *.timer ]] || continue
@@ -891,5 +891,5 @@ echo "  ${#SYMLINKS[@]} units installed, all satisfying the contract"
 echo ""
 echo "Verify with:"
 echo "  systemctl status catallenya"
-echo "  systemctl cat capture.triage.service        # see the merged policy"
-echo "  systemctl show capture.triage.service -p StartLimitIntervalUSec -p OnFailure"
+echo "  systemctl cat afterimage.triage.service        # see the merged policy"
+echo "  systemctl show afterimage.triage.service -p StartLimitIntervalUSec -p OnFailure"

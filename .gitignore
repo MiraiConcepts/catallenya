@@ -152,68 +152,68 @@ ntfy/.env
 # Explicit includes inside documents folder — CODE ONLY, per-file, no ** globs
 # (same reasoning as capture/ below: a `**` allowlist silently auto-tracks whatever
 # lands in the directory later, and this is a public repo).
-# documents/intake-state/ is runtime state — proposals, approval markers, rasterised
+# pigeonhole/intake-state/ is runtime state — proposals, approval markers, rasterised
 # scratch — and stays ignored by the default `*` deny. The document CORPUS is not
 # here at all: it lives in syncthing/data/master/documents, which the top-level `*`
 # keeps out of git entirely (personal IDs, medical, financial).
-!documents/
-!documents/README.md
-!documents/scripts/
-!documents/scripts/documents.lib.sh
-!documents/scripts/documents.vocab.json
-!documents/scripts/documents.triage.sh
-!documents/scripts/documents.apply.sh
-!documents/scripts/documents.sweep.sh
-!documents/tests/
-!documents/tests/run.sh
-!documents/systemd/
-!documents/systemd/documents.triage.path
-!documents/systemd/documents.triage.service
-!documents/systemd/documents.apply.path
-!documents/systemd/documents.apply.service
-!documents/systemd/documents.backstop.timer
-!documents/systemd/documents.sweep.service
-!documents/systemd/documents.sweep.timer
+!pigeonhole/
+!pigeonhole/README.md
+!pigeonhole/scripts/
+!pigeonhole/scripts/pigeonhole.lib.sh
+!pigeonhole/scripts/pigeonhole.vocab.json
+!pigeonhole/scripts/pigeonhole.triage.sh
+!pigeonhole/scripts/pigeonhole.apply.sh
+!pigeonhole/scripts/pigeonhole.sweep.sh
+!pigeonhole/tests/
+!pigeonhole/tests/run.sh
+!pigeonhole/systemd/
+!pigeonhole/systemd/pigeonhole.triage.path
+!pigeonhole/systemd/pigeonhole.triage.service
+!pigeonhole/systemd/pigeonhole.apply.path
+!pigeonhole/systemd/pigeonhole.apply.service
+!pigeonhole/systemd/pigeonhole.backstop.timer
+!pigeonhole/systemd/pigeonhole.sweep.service
+!pigeonhole/systemd/pigeonhole.sweep.timer
 
 # The documents approve/discard container — CODE ONLY, same per-file discipline.
-!documents/approve/
-!documents/approve/Dockerfile
-!documents/approve/.dockerignore
-!documents/approve/src/
-!documents/approve/src/server.ts
+!pigeonhole/approve/
+!pigeonhole/approve/Dockerfile
+!pigeonhole/approve/.dockerignore
+!pigeonhole/approve/src/
+!pigeonhole/approve/src/server.ts
 
 # Explicit includes inside capture folder — CODE/CONFIG ONLY, never data.
-# capture/data/ holds uploaded screenshots (whatever was on screen at capture) plus
+# afterimage/data/ holds uploaded screenshots (whatever was on screen at capture) plus
 # pending events; the default `*` deny is what keeps it out of git. Do NOT add a
 # blanket `!capture/**` — same reasoning as syncthing/immich above.
 #
-# Every file is listed individually, and directory globs (`!capture/src/**`) are
+# Every file is listed individually, and directory globs (`!afterimage/src/**`) are
 # deliberately NOT used: this is a public repo, and a `**` allowlist silently
 # auto-tracks whatever lands in that directory later. The earlier glob form would
-# have committed capture/scripts/.env or capture/client/id_rsa on sight. Adding a
+# have committed afterimage/scripts/.env or afterimage/client/id_rsa on sight. Adding a
 # file here is one line; the alternative is a leak with no review step.
-!capture/
-!capture/.gitignore
-!capture/.dockerignore
-!capture/Dockerfile
-!capture/OPERATIONS.md
-!capture/README.md
-!capture/src/
-!capture/src/server.ts
-!capture/scripts/
-!capture/scripts/capture.lib.sh
-!capture/scripts/capture.triage.sh
-!capture/scripts/capture.sweep.sh
-!capture/scripts/render_ics.py
-!capture/systemd/
-!capture/systemd/capture.triage.path
-!capture/systemd/capture.triage.service
-!capture/systemd/capture.sweep.service
-!capture/systemd/capture.sweep.timer
-!capture/client/
-!capture/client/capture.sh
-!capture/tests/
-!capture/tests/run.sh
+!afterimage/
+!afterimage/.gitignore
+!afterimage/.dockerignore
+!afterimage/Dockerfile
+!afterimage/OPERATIONS.md
+!afterimage/README.md
+!afterimage/src/
+!afterimage/src/server.ts
+!afterimage/scripts/
+!afterimage/scripts/afterimage.lib.sh
+!afterimage/scripts/afterimage.triage.sh
+!afterimage/scripts/afterimage.sweep.sh
+!afterimage/scripts/render_ics.py
+!afterimage/systemd/
+!afterimage/systemd/afterimage.triage.path
+!afterimage/systemd/afterimage.triage.service
+!afterimage/systemd/afterimage.sweep.service
+!afterimage/systemd/afterimage.sweep.timer
+!afterimage/client/
+!afterimage/client/afterimage.sh
+!afterimage/tests/
+!afterimage/tests/run.sh
 
 # Explicit includes inside the shared AI layer. Same per-file discipline as capture
 # above — no `**` globs, so a stray key or scratch file landing in ai/ stays untracked
