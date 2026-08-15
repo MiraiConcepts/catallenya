@@ -258,6 +258,23 @@ validate_service() {
         err "${unit}: ExecStart= is prefixed with '-', so a failing command counts as success and the completion stamp would be written anyway. The watchdog would report this job healthy forever."
     has_key "$file" "SuccessExitStatus" && \
         err "${unit}: sets SuccessExitStatus=, which makes a non-zero exit count as success — the completion stamp would be written for a failed run."
+
+    # The ExecStart binary must exist and be EXECUTABLE. systemd answers a missing
+    # +x bit with 203/EXEC and nothing else — no hint about the mode, and the job
+    # then fails on every trigger. For a .path-driven job that means the watcher
+    # re-fires, the service fails again, and OnFailure= sends an alert per spin
+    # until the class start limit stops it: liquidroom.triage did exactly this on
+    # its first live deploy and cost five notifications. Files written by tooling
+    # default to 0644, so this is easy to reintroduce and invisible in review.
+    local execbin
+    execbin="$(grep -m1 -oP '^\s*ExecStart\s*=\s*\K[^ ]+' "$file" 2>/dev/null)"
+    if [[ -n "$execbin" && "$execbin" == /* ]]; then
+        [[ -e "$execbin" ]] || \
+            err "${unit}: ExecStart= points at ${execbin}, which does not exist."
+        [[ ! -e "$execbin" || -x "$execbin" ]] || \
+            err "${unit}: ExecStart= target ${execbin} is not executable (mode $(stat -c %a "$execbin" 2>/dev/null)). systemd fails it with 203/EXEC, which names no cause. Run: chmod 755 ${execbin}"
+    fi
+
     check_not_reset "$file" "$unit" base $BASE_SETS
 
     # --- class contract ---
