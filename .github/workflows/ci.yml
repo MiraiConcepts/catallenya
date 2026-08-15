@@ -1,4 +1,6 @@
-name: CI
+# Checks AND publishing. The mirror job at the bottom pushes feature directories
+# to standalone repos, which is why this is no longer only "CI".
+name: Verify & Publish
 
 on:
   push:
@@ -74,9 +76,74 @@ jobs:
         # Gates on warning+error; info/style-level findings don't block.
         run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
 
-  notify-failure:
+  # Publishes a feature directory to its own standalone repo, so a single feature
+  # can be linked, described and pinned on its own — you cannot pin a directory.
+  # The monorepo stays the source of truth and the sync is STRICTLY ONE-WAY: the
+  # push is --force, so anything committed directly in a mirror is destroyed on
+  # the next run. Mirrors are an output, never an input.
+  #
+  # This lives in the CI workflow rather than its own file for two reasons that
+  # only get stronger as mirrors are added: `needs:` below is what guarantees a
+  # mirror can never contain code that failed a check, and a separate workflow
+  # would have to duplicate the notify-failure job to stay loud. Adding the next
+  # mirror is one line in the matrix.
+  mirror:
     runs-on: ubuntu-latest
     needs: [gitleaks, compose-validate, shellcheck]
+    # Pushes to main only. A pull_request run must never publish unmerged code to
+    # a public repo.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false # One broken mirror must not cancel the others.
+      matrix:
+        include:
+          - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # MANDATORY. `git subtree split` on the default shallow clone produces a
+          # SINGLE commit without erroring — a mirror with no history that looks
+          # perfectly fine until someone reads its git log.
+          fetch-depth: 0
+
+      - name: Skip when this prefix did not change
+        id: gate
+        # on.push.paths is workflow-level and so cannot discriminate between
+        # matrix entries; the filter has to live here to be per-mirror.
+        # workflow_dispatch has no HEAD^ to diff against, and the very first run
+        # arrives with the workflow edit itself — which touches .github, not any
+        # mirrored prefix — so a manual run must always proceed.
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] \
+             && git diff --quiet HEAD^ HEAD -- "${{ matrix.prefix }}"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Split and push
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          # A deploy key, not a PAT: fine-grained PATs only reach an organisation
+          # that has explicitly enabled them, and deploy keys never expire.
+          DEPLOY_KEY: ${{ secrets[matrix.key] }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # Deterministic: same history in, same commit SHAs out, so re-running
+          # regenerates the identical old commits plus the new ones.
+          git subtree split --prefix="${{ matrix.prefix }}" -b mirror
+          git push --force "git@github.com:${{ matrix.repo }}.git" mirror:main
+
+  notify-failure:
+    runs-on: ubuntu-latest
+    # `mirror` is here deliberately: a mirror that silently stops syncing looks
+    # identical to one that is current, which is the exact failure mode the rest
+    # of this repo exists to prevent.
+    needs: [gitleaks, compose-validate, shellcheck, mirror]
     if: failure()
     steps:
       - name: Post failure to ntfy
