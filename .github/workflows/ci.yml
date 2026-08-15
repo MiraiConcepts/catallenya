@@ -129,9 +129,27 @@ jobs:
           # that has explicitly enabled them, and deploy keys never expire.
           DEPLOY_KEY: ${{ secrets[matrix.key] }}
         run: |
+          # Say WHICH of the two setup halves is missing. Without this, an absent
+          # secret writes an empty key file and the only symptom is ssh's
+          # "error in libcrypto" followed by "Permission denied (publickey)" —
+          # which reads as a rejected key rather than an absent one, and sends you
+          # looking at the deploy key's write bit instead of at the secret.
+          if [ -z "${DEPLOY_KEY:-}" ]; then
+            echo "::error::Secret ${{ matrix.key }} is empty or unset in this repo."
+            echo "Add the PRIVATE half of the deploy key as an Actions secret named ${{ matrix.key }}."
+            exit 1
+          fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          # Prove the key parses before blaming the remote. A mangled paste (lost
+          # line breaks, missing trailing newline) fails here with a clear message
+          # instead of surfacing as an authentication failure at push time.
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+            echo "::error::Secret ${{ matrix.key }} is not a valid OpenSSH private key."
+            echo "Re-add it without pasting:  gh secret set ${{ matrix.key }} --repo ${{ github.repository }} < /path/to/keyfile"
+            exit 1
+          fi
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
           # Deterministic: same history in, same commit SHAs out, so re-running
           # regenerates the identical old commits plus the new ones.
