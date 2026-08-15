@@ -104,6 +104,10 @@ jobs:
           - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
           - { prefix: afterimage, repo: MiraiConcepts/afterimage, key: AFTERIMAGE_DEPLOY_KEY }
           - { prefix: pigeonhole, repo: MiraiConcepts/pigeonhole, key: PIGEONHOLE_DEPLOY_KEY }
+          # systemd/ is the only prefix that is not a feature — it publishes the job
+          # contract itself. Its install.sh and tests reach across the parent repo by
+          # design, which the mirror's README states rather than pretends otherwise.
+          - { prefix: systemd,    repo: MiraiConcepts/controlplane, key: CONTROLPLANE_DEPLOY_KEY }
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
