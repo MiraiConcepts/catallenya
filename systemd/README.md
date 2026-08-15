@@ -61,9 +61,9 @@ which is why they are separate axes rather than a hierarchy:
 
 |  | family `intake` | family `restic` | — |
 |---|---|---|---|
-| **`scheduled`** | `capture.sweep`, `pigeonhole.sweep` | `restic.backup`, `forget`, `check@` | `immich.fix-rotations`, `zpool.scrub` |
+| **`scheduled`** | `afterimage.sweep`, `pigeonhole.sweep` | `restic.backup`, `forget`, `check@` | `immich.fix-rotations`, `zpool.scrub` |
 | **`monitor`** | — | `restic.staleness` | `disk`, `changedetection.health`, `heartbeat` |
-| **`adhoc`** | `capture.triage`, `pigeonhole.triage`, `pigeonhole.apply` | — | `catallenya` (boot is an event) |
+| **`adhoc`** | `afterimage.triage`, `pigeonhole.triage`, `pigeonhole.apply` | — | `catallenya` (boot is an event) |
 
 Measured effect: **286 directives across the units became 40 written once.**
 
@@ -186,9 +186,17 @@ systemd/
 ├── tests/run.sh     offline suite: gate refusals and watchdog findings
 ├── state/           completion stamps (gitignored — runtime state)
 ├── install.sh       installs, and refuses to install what breaks the contract
-└── catallenya.heartbeat.{service,timer}
+├── heartbeat.sh     the watchdog — reads every job's sticker, asks if it ran
+└── catallenya.heartbeat.{service,timer}   its unit and schedule
 ```
 
-The watchdog script lives at [`../ntfy/heartbeat-ntfy.sh`](../ntfy/heartbeat-ntfy.sh),
-with the other notification scripts. Per-instance metadata for template units
-lives beside the units it configures, in [`../restic/check/`](../restic/check/).
+This directory holds the contract and the one job whose subject *is* the
+contract. Everything else it governs lives with what it serves: a job's unit and
+its body sit together, in the directory of the thing the job is about —
+`../host/` for the machine, `../restic/`, `../immich/`, `../afterimage/` and so
+on. That is also why per-instance metadata for template units lives beside its
+units, in [`../restic/check/`](../restic/check/), rather than here.
+
+The courier every `OnFailure=` points at is the one deliberate exception, in
+[`../ntfy/`](../ntfy/). It is not a job and inherits nothing from this contract —
+a failed alert must not call the courier to complain about the courier.

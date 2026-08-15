@@ -35,4 +35,4 @@ Family=intake
 MaxAge=36h
 # No natural artifact: a sweep that finds nothing to do writes nothing, which is
 # also why it is invisible when healthy. Hence a completion stamp.
-Freshness=stamp:/zpool/catallenya/systemd/state/capture.sweep
+Freshness=stamp:/zpool/catallenya/systemd/state/afterimage.sweep

@@ -17,7 +17,7 @@ NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_POR
 service_name="$1"
 
 # Split "<topic>.<job>" — the unit naming convention already carries the topic, so
-# restic.backup -> restic/Backup, capture.triage -> capture/Triage. This used to
+# restic.backup -> restic/Backup, afterimage.triage -> afterimage/Triage. This used to
 # match restic and nothing else, while FOUR units wired OnFailure= here through the
 # system-ntfy@.service template: capture.{triage,sweep} and documents.{triage,apply}.
 # All four hit the else branch and died with "Unknown service type", so their alerts

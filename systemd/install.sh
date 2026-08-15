@@ -62,20 +62,20 @@ fi
 
 declare -A SYMLINKS=(
     # --- Timers ---
-    ["disk.timer"]="${REPO_DIR}/systemd/disk.timer"
+    ["disk.timer"]="${REPO_DIR}/host/disk.timer"
     # changedetection cannot self-report a broken watch — every fetch error just
     # sets last_error and notifies nobody. This is the only thing that looks.
-    ["changedetection.health.timer"]="${REPO_DIR}/systemd/changedetection.health.timer"
+    ["changedetection.health.timer"]="${REPO_DIR}/changedetection/changedetection.health.timer"
     # Not a schedule for the documents pipeline — that is event-driven. This is the
     # once-a-day look for a file type the path unit's globs cannot see.
     ["pigeonhole.backstop.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.backstop.timer"
-    ["immich.fix-rotations.timer"]="${REPO_DIR}/systemd/immich.fix-rotations.timer"
+    ["immich.fix-rotations.timer"]="${REPO_DIR}/immich/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
     ["restic.check-subset.timer"]="${REPO_DIR}/restic/check/restic.check-subset.timer"
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
     ["restic.staleness.timer"]="${REPO_DIR}/restic/staleness/restic.staleness.timer"
-    ["zpool.scrub.timer"]="${REPO_DIR}/systemd/zpool.scrub.timer"
+    ["zpool.scrub.timer"]="${REPO_DIR}/host/zpool.scrub.timer"
     ["afterimage.sweep.timer"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.timer"
     ["pigeonhole.sweep.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.timer"
     ["catallenya.heartbeat.timer"]="${REPO_DIR}/systemd/catallenya.heartbeat.timer"
@@ -93,18 +93,18 @@ declare -A SYMLINKS=(
     ["liquidroom.triage.path"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.path"
 
     # --- Services ---
-    ["disk.service"]="${REPO_DIR}/systemd/disk.service"
-    ["changedetection.health.service"]="${REPO_DIR}/systemd/changedetection.health.service"
+    ["disk.service"]="${REPO_DIR}/host/disk.service"
+    ["changedetection.health.service"]="${REPO_DIR}/changedetection/changedetection.health.service"
     ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"
     ["pigeonhole.sweep.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.service"
-    ["immich.fix-rotations.service"]="${REPO_DIR}/systemd/immich.fix-rotations.service"
+    ["immich.fix-rotations.service"]="${REPO_DIR}/immich/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
     ["restic.forget.service"]="${REPO_DIR}/restic/forget/restic.forget.service"
     ["restic.staleness.service"]="${REPO_DIR}/restic/staleness/restic.staleness.service"
     ["system-ntfy@.service"]="${REPO_DIR}/ntfy/system-ntfy@.service"
-    ["zpool.scrub.service"]="${REPO_DIR}/systemd/zpool.scrub.service"
+    ["zpool.scrub.service"]="${REPO_DIR}/host/zpool.scrub.service"
     ["afterimage.triage.service"]="${REPO_DIR}/afterimage/systemd/afterimage.triage.service"
     ["afterimage.sweep.service"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.service"
     ["liquidroom.triage.service"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.service"
@@ -143,7 +143,7 @@ err() { ERRORS+=("$1"); }
 
 # Read a key from a file's [X-Catallenya] section. LAST match wins.
 #
-# This MUST stay byte-identical in behaviour to sticker() in ntfy/heartbeat-ntfy.sh.
+# This MUST stay byte-identical in behaviour to sticker() in systemd/heartbeat.sh.
 # It previously took the FIRST match while the watchdog took the last, so a unit
 # with two MaxAge= lines showed the gate one value and the watchdog another — two
 # jobs dead for a year while both layers reported them healthy.
@@ -489,7 +489,7 @@ User=root
 # The gate requires this to be acknowledged in the sticker rather than merely
 # absent, so it can never be confused with someone forgetting.
 RemainAfterExit=yes
-ExecStart=/zpool/catallenya/systemd/catallenya.sh
+ExecStart=/zpool/catallenya/host/catallenya.sh
 
 # Was 300s, which sat around `docker compose up -d`. A cold image pull on a slow
 # link exceeds five minutes, and the ntfy push is step 5 — AFTER compose — so a

@@ -5,7 +5,7 @@
 # base hardening, and from the monitor class the read-only sandbox, the 10-minute
 # bound (this unit ran at `infinity`) and the writable stamp directory.
 #
-# The inherited OnFailure is a BACKSTOP only. changedetection-ntfy.sh posts its own
+# The inherited OnFailure is a BACKSTOP only. changedetection.health.sh posts its own
 # findings to the changedetection topic — a broken watch, a stalled worker, a
 # container that is not running. What OnFailure covers is the case the script
 # cannot report itself: dying before it gets that far (missing .env, docker
@@ -25,7 +25,7 @@ After=docker.service network-online.target
 [Service]
 User=carrein
 Group=carrein
-ExecStart=/zpool/catallenya/ntfy/changedetection-ntfy.sh
+ExecStart=/zpool/catallenya/changedetection/changedetection.health.sh
 
 [X-Catallenya]
 Class=monitor

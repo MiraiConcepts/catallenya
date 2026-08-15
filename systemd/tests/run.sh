@@ -19,7 +19,7 @@ set -uo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${SELF_DIR}/../.." && pwd)"
 INSTALL="${REPO}/systemd/install.sh"
-HEARTBEAT="${REPO}/ntfy/heartbeat-ntfy.sh"
+HEARTBEAT="${REPO}/systemd/heartbeat.sh"
 
 # Nothing here may reach the real phone. The watchdog cases run the REAL script,
 # not a dry-run, so without this a failing round would publish to the live topic
@@ -44,7 +44,14 @@ CHECK_TREE="$(mktemp -d)"
 trap 'rm -rf "$CHECK_TREE"' EXIT
 # Everything the gate reads, layout preserved: units, timers, paths, the policy
 # fragments and the instance stickers.
-(cd "$REPO" && find systemd restic afterimage/systemd pigeonhole/systemd ntfy \
+# Every directory that can hold a unit. This list is load-bearing and easy to
+# forget: a unit whose directory is missing here is simply absent from the check
+# tree, so `gate_says` mutates a file that is not there, the gate finds nothing to
+# refuse, and the case fails with the gate reporting success. Units moved out of
+# systemd/ on 2026-08-15 (host/, changedetection/, immich/) broke 23 cases exactly
+# that way, and liquidroom/systemd had been missing since it shipped.
+(cd "$REPO" && find systemd restic host changedetection ntfy \
+    afterimage/systemd pigeonhole/systemd liquidroom/systemd immich \
     \( -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name '*.conf' \) \
     -exec cp --parents -t "$CHECK_TREE" {} +)
 
@@ -61,10 +68,10 @@ gate_says() {
 echo "gate — refuses what the contract forbids"
 
 gate_says "no Class= is refused" \
-    "${REPO}/systemd/disk.service" '/^Class=monitor$/d' "no [X-Catallenya] Class="
+    "${REPO}/host/disk.service" '/^Class=monitor$/d' "no [X-Catallenya] Class="
 
 gate_says "unknown Class= is refused" \
-    "${REPO}/systemd/disk.service" 's/^Class=monitor$/Class=wibble/' "unknown Class=wibble"
+    "${REPO}/host/disk.service" 's/^Class=monitor$/Class=wibble/' "unknown Class=wibble"
 
 gate_says "scheduled without TimeoutStartSec is refused" \
     "${REPO}/restic/forget/restic.forget.service" '/^TimeoutStartSec=/d' \
@@ -74,11 +81,11 @@ gate_says "scheduled without MaxAge is refused" \
     "${REPO}/restic/forget/restic.forget.service" '/^MaxAge=/d' "requires MaxAge="
 
 gate_says "monitor declaring Freshness is refused" \
-    "${REPO}/systemd/disk.service" 's/^MaxAge=3h$/MaxAge=3h\nFreshness=stamp:\/tmp\/x/' \
+    "${REPO}/host/disk.service" 's/^MaxAge=3h$/MaxAge=3h\nFreshness=stamp:\/tmp\/x/' \
     "must not declare Freshness="
 
 gate_says "monitor setting its own TimeoutStartSec is refused" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/TimeoutStartSec=5min\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/TimeoutStartSec=5min\nExecStart=/' \
     "must not set TimeoutStartSec"
 
 gate_says "adhoc declaring MaxAge is refused" \
@@ -86,22 +93,22 @@ gate_says "adhoc declaring MaxAge is refused" \
     "must not declare MaxAge="
 
 gate_says "a root job without CapabilityBoundingSet is refused" \
-    "${REPO}/systemd/zpool.scrub.service" '/^CapabilityBoundingSet=/d' \
+    "${REPO}/host/zpool.scrub.service" '/^CapabilityBoundingSet=/d' \
     "runs as root without a CapabilityBoundingSet"
 
 gate_says "a missing User= is refused" \
-    "${REPO}/systemd/disk.service" '/^User=/d' "no explicit User="
+    "${REPO}/host/disk.service" '/^User=/d' "no explicit User="
 
 gate_says "Condition*= is refused in favour of Requires=" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/ConditionPathExists=\/tmp\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/ConditionPathExists=\/tmp\nExecStart=/' \
     "A failed Condition is a SKIP"
 
 gate_says "RuntimeMaxSec= is refused as a no-op on oneshot" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/RuntimeMaxSec=5min\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/RuntimeMaxSec=5min\nExecStart=/' \
     "systemd IGNORES on Type=oneshot"
 
 gate_says "re-setting a factory scalar is refused" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/PrivateTmp=true\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/PrivateTmp=true\nExecStart=/' \
     "the unit's value is silently discarded"
 
 # systemd answers a missing +x bit with 203/EXEC and names no cause. On a
@@ -110,12 +117,12 @@ gate_says "re-setting a factory scalar is refused" \
 # exactly this and cost five notifications before anyone could read the mode.
 # A *.lib.sh is the natural fixture — sourced, never executed, so 0644 by design.
 gate_says "a non-executable ExecStart is refused" \
-    "${REPO}/systemd/disk.service" \
+    "${REPO}/host/disk.service" \
     's|^ExecStart=.*|ExecStart=/zpool/catallenya/pigeonhole/scripts/pigeonhole.lib.sh|' \
     "is not executable"
 
 gate_says "a missing ExecStart target is refused" \
-    "${REPO}/systemd/disk.service" \
+    "${REPO}/host/disk.service" \
     's|^ExecStart=.*|ExecStart=/zpool/catallenya/nope/missing.sh|' \
     "does not exist"
 
@@ -124,49 +131,49 @@ gate_says "an unrecognised Freshness form is refused" \
     "is not a recognised form"
 
 gate_says "a timer without RandomizedDelaySec is refused" \
-    "${REPO}/systemd/disk.timer" '/^RandomizedDelaySec=/d' "no RandomizedDelaySec="
+    "${REPO}/host/disk.timer" '/^RandomizedDelaySec=/d' "no RandomizedDelaySec="
 
 gate_says "a timer re-declaring [Install] is refused" \
-    "${REPO}/systemd/disk.timer" 's|^\[Timer\]|[Install]\nWantedBy=timers.target\n\n[Timer]|' \
+    "${REPO}/host/disk.timer" 's|^\[Timer\]|[Install]\nWantedBy=timers.target\n\n[Timer]|' \
     "declares its own [Install]"
 
 # --- cases the adversarial pass earned; each defeated the gate before the fix ---
 gate_says "User=0 counts as root" \
-    "${REPO}/systemd/zpool.scrub.service" 's/^User=root$/User=0/;/^CapabilityBoundingSet=/d' \
+    "${REPO}/host/zpool.scrub.service" 's/^User=root$/User=0/;/^CapabilityBoundingSet=/d' \
     "runs as root without a CapabilityBoundingSet"
 
 gate_says "a trailing space does not hide root" \
-    "${REPO}/systemd/zpool.scrub.service" 's/^User=root$/User=root /;/^CapabilityBoundingSet=/d' \
+    "${REPO}/host/zpool.scrub.service" 's/^User=root$/User=root /;/^CapabilityBoundingSet=/d' \
     "runs as root without a CapabilityBoundingSet"
 
 gate_says "the LAST User= wins, as systemd does" \
-    "${REPO}/systemd/disk.service" 's/^User=carrein$/User=carrein\nUser=root/' \
+    "${REPO}/host/disk.service" 's/^User=carrein$/User=carrein\nUser=root/' \
     "runs as root without a CapabilityBoundingSet"
 
 gate_says "a capability bound outside [Service] does not count" \
-    "${REPO}/systemd/zpool.scrub.service" 's|^CapabilityBoundingSet=.*|#moved|;s|^\[Unit\]|[Unit]\nCapabilityBoundingSet=CAP_SYS_ADMIN|' \
+    "${REPO}/host/zpool.scrub.service" 's|^CapabilityBoundingSet=.*|#moved|;s|^\[Unit\]|[Unit]\nCapabilityBoundingSet=CAP_SYS_ADMIN|' \
     "without a CapabilityBoundingSet= in [Service]"
 
 gate_says "an indented Condition is still refused" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/  ConditionPathExists=\/tmp\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/  ConditionPathExists=\/tmp\nExecStart=/' \
     "A failed Condition is a SKIP"
 
 gate_says "ExecStart=- is refused (false healthy stamp)" \
-    "${REPO}/systemd/disk.service" 's|^ExecStart=|ExecStart=-|' \
+    "${REPO}/host/disk.service" 's|^ExecStart=|ExecStart=-|' \
     "would be written anyway"
 
 gate_says "SuccessExitStatus= is refused (false healthy stamp)" \
-    "${REPO}/systemd/disk.service" 's/^ExecStart=/SuccessExitStatus=1\nExecStart=/' \
+    "${REPO}/host/disk.service" 's/^ExecStart=/SuccessExitStatus=1\nExecStart=/' \
     "count as success"
 
 gate_says "a monitor declaring OnSuccess= is refused" \
-    "${REPO}/systemd/disk.service" 's|^\[Unit\]|[Unit]\nOnSuccess=system-ntfy@disk.service|' \
+    "${REPO}/host/disk.service" 's|^\[Unit\]|[Unit]\nOnSuccess=system-ntfy@disk.service|' \
     "must not declare OnSuccess="
 
 # The exemption must be EXPLICIT: absent is still refused, acknowledged passes.
 # Otherwise "forgot to bound it" and "decided not to" look the same.
 gate_says "unbounded root without acknowledgement is still refused" \
-    "${REPO}/systemd/zpool.scrub.service" '/^CapabilityBoundingSet=/d' \
+    "${REPO}/host/zpool.scrub.service" '/^CapabilityBoundingSet=/d' \
     "bound it, or declare"
 
 gate_says "an adhoc watcher without Producer= is refused" \
@@ -174,11 +181,11 @@ gate_says "an adhoc watcher without Producer= is refused" \
     "must declare Producer= naming what feeds it"
 
 gate_says "MaxAge=infinity is refused (disables its own check)" \
-    "${REPO}/systemd/disk.service" 's/^MaxAge=3h$/MaxAge=infinity/' \
+    "${REPO}/host/disk.service" 's/^MaxAge=3h$/MaxAge=infinity/' \
     "does not parse to a usable finite timespan"
 
 gate_says "a timer re-setting Persistent= is refused" \
-    "${REPO}/systemd/disk.timer" 's/^OnCalendar=/Persistent=true\nOnCalendar=/' \
+    "${REPO}/host/disk.timer" 's/^OnCalendar=/Persistent=true\nOnCalendar=/' \
     "already sets"
 
 # The prune loop once deleted the instance sticker directories this same script

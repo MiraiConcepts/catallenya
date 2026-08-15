@@ -7,7 +7,7 @@
 # monitor class the read-only sandbox, the 10-minute bound and the writable stamp
 # directory.
 #
-# Worth knowing about the failure this now covers: disk-ntfy.sh runs `set -euo
+# Worth knowing about the failure this now covers: disk.sh runs `set -euo
 # pipefail` and reads the zpool capacity with `read ... < <(zpool list ...)`. If
 # the pool is unavailable, that read returns non-zero and the script dies —
 # silently, until now. The alarm died at precisely the moment the pool was in
@@ -19,7 +19,7 @@ Description=Disk Space Monitor
 [Service]
 User=carrein
 Group=carrein
-ExecStart=/zpool/catallenya/ntfy/disk-ntfy.sh
+ExecStart=/zpool/catallenya/host/disk.sh
 
 [X-Catallenya]
 Class=monitor
