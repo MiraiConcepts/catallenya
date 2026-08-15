@@ -1,6 +1,15 @@
-# capture
+# afterimage
+
+> The **`capture`** pipeline of [catallenya](https://github.com/carrein/catallenya),
+> mirrored from `capture/`. Force-synced by CI — open issues and pull requests on the
+> parent repo, not here. Everything inside is named `capture`: the directory, the
+> systemd units, the ntfy topic.
 
 Screenshot → AI triage → proposed calendar event, confirmed with one tap.
+
+An afterimage is what stays on your retina after you stop looking. A screenshot is
+the same thing for a moment you did not have time to deal with — and this turns it
+into a calendar entry, if you say so.
 
 Press a hotkey, drag a box around a message thread or an invite. ~15 seconds later
 an ntfy notification proposes the event; tap **Add** and it's in Radicale. Nothing
@@ -77,7 +86,7 @@ event, and only then the current year, taking the nearest candidate still ahead.
 | `tests/run.sh` | offline regression suite — every case is a bug that shipped. Transport cases live in `ai/tests/run.sh`; run both |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + nightly sweep `.timer` |
-| `client/capture.sh` | **laptop-side** hotkey script (see below) |
+| `client/capture.sh` | **laptop-side** hotkey script (install steps in [OPERATIONS.md](OPERATIONS.md)) |
 
 ## The notification
 
@@ -182,88 +191,6 @@ than un-escaping the bodies. Turning a renderer on changed what model output *me
 every model-derived string reaching a body, because `[tap here](https://evil.example)`
 lifted off a screenshot into a venue or a reason would otherwise render as a real
 link inside a notification you already trust.
-
-## Laptop setup
-
-The client is the one piece that lives outside the server.
-
-**1. Install a region-select screenshot tool**
-
-| Platform | Install |
-|---|---|
-| Wayland (sway, Hyprland, GNOME) | `sudo apt install grim slurp` |
-| X11 | `sudo apt install maim` (or `scrot`) |
-| macOS | built in (`screencapture`) |
-| KDE | `spectacle` |
-
-**2. Copy the client over**
-
-```bash
-scp catallenya:/zpool/catallenya/capture/client/capture.sh ~/.local/bin/capture
-chmod +x ~/.local/bin/capture
-```
-
-**3. Bind a hotkey**
-
-- **GNOME** — Settings → Keyboard → Custom Shortcuts → `~/.local/bin/capture`
-- **sway/Hyprland** — `bindsym $mod+Shift+c exec ~/.local/bin/capture`
-- **i3** — same as sway
-- **macOS** — Automator "Quick Action" running the script, then assign a shortcut
-  in System Settings → Keyboard Shortcuts → Services
-
-**4. Subscribe to the notifications**
-
-Open the ntfy app and subscribe to the **`capture`** topic on the tailnet server.
-Without this the pipeline works but you never see the proposals.
-
-The client needs no credentials — it only reaches a tailnet-only URL, and the
-Add/Discard callbacks are gated by an unguessable per-capture id.
-
-## Server setup
-
-Done on this box on 2026-07-25 — the container is running behind Caddy, the units are
-installed, and captures are flowing. Kept here for a rebuild.
-
-The API key is the one prerequisite. It is read by systemd as root and injected
-into the triage process, so it never sits in a file the `carrein` user can read.
-It lives in `/etc/ai.env` rather than a capture-specific file because it is shared
-infrastructure now — `documents.intake.service` reads the same file (see
-`ai/scripts/ai.lib.sh`):
-
-```bash
-sudoedit /etc/ai.env      # ANTHROPIC_API_KEY=sk-ant-...
-sudo chmod 600 /etc/ai.env
-```
-
-Then:
-
-The container also needs the Radicale credential as a docker secret — the same
-`base64(carrein:<app pw>)` Caddy injects for mitsume. It is a file, not an env var,
-because `docker inspect` and `/proc/1/environ` both expose environment, and that
-credential is good for read, write and delete across the whole `/carrein/` tree:
-
-```bash
-grep -m1 '^MITSUME_DAV_B64=' .env | cut -d= -f2- > capture/dav-secret
-chmod 600 capture/dav-secret
-```
-
-Then:
-
-```bash
-docker compose up -d --build capture
-docker compose up -d --force-recreate caddy   # new port needs a recreate, not restart
-sudo bash systemd/install.sh                  # symlinks + enables the .path and .timer
-```
-
-`NTFY_ORIGIN` is set in compose from the tailnet vars. It is the ONE browser origin
-allowed to satisfy the `X-Capture` preflight: the ntfy web UI taps buttons with
-browser `fetch()`, so CORS applies to it, and refusing every preflight — which
-shipped briefly on 2026-07-27 — breaks the web client with an opaque
-`TypeError: NetworkError`. The phone app does native HTTP and never sees this. Any
-other page is still refused, because browsers set `Origin` and a page cannot forge it.
-
-Last step is subscribing a device to the `capture` topic (below). Everything else can
-be green and you will still never see a proposal without it.
 
 ## Data and privacy
 
@@ -375,9 +302,26 @@ money, so an unexpected bill is the signal to look here first.
   so taps are unaffected — but a hand-rolled `curl` needs `-H 'X-Capture: 1'`. It is
   not authentication; the custom header forces a CORS preflight, and the server
   answers that preflight for exactly one origin (`NTFY_ORIGIN`, the ntfy web UI —
-  see Server setup). Every other page is refused, which stops a web page open on a
+  see [OPERATIONS.md](OPERATIONS.md)). Every other page is refused, which stops a web page open on a
   tailnet device from firing a callback it scraped off the (unauthenticated) ntfy
   topic. Refusing *every* preflight, which shipped briefly on 2026-07-27, breaks the
   web client instead.
 - **Uploads land via atomic rename** (`.part-<id>` → `<id>.png`) so the `.path`
   unit can never fire on a half-written screenshot.
+
+## Scope
+
+A component of [catallenya](https://github.com/carrein/catallenya), published for
+reading rather than installation. It is not standalone: it expects a specific host
+filesystem layout, a container definition that lives in the parent repository's
+compose file, a reverse proxy in front of it, and a systemd policy contract it
+inherits rather than declares.
+
+It is also **one of two pipelines built to the same design** — the other is
+[pigeonhole](https://github.com/MiraiConcepts/pigeonhole), which files documents
+instead of events. Drop zone, one AI call, buttons whose meaning is a target state,
+a hardened writer, a morning-side sweep: the shared shape and the reasoning behind
+each rule are in the parent repo's `docs/intake-playbook.md`.
+
+Installing the client and rebuilding the server side are in
+[OPERATIONS.md](OPERATIONS.md).

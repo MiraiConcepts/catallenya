@@ -157,6 +157,7 @@ ntfy/.env
 # here at all: it lives in syncthing/data/master/documents, which the top-level `*`
 # keeps out of git entirely (personal IDs, medical, financial).
 !documents/
+!documents/README.md
 !documents/scripts/
 !documents/scripts/documents.lib.sh
 !documents/scripts/documents.vocab.json
@@ -195,6 +196,7 @@ ntfy/.env
 !capture/.gitignore
 !capture/.dockerignore
 !capture/Dockerfile
+!capture/OPERATIONS.md
 !capture/README.md
 !capture/src/
 !capture/src/server.ts
