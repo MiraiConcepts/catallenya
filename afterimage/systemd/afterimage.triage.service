@@ -50,4 +50,4 @@ Family=intake
 # ran on 12 of the last 60 days, all of them legitimate. The right question is
 # whether the watcher is still armed, which is what Freshness names.
 Freshness=unit:afterimage.triage.path
-Producer=container:capture
+Producer=container:afterimage
