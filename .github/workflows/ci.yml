@@ -99,17 +99,21 @@ jobs:
       fail-fast: false # One broken mirror must not cancel the others.
       matrix:
         include:
-          # `prefix` is the DIRECTORY, `repo` is its published name. Three of the four
-          # match; systemd -> controlplane is the one that does not, deliberately, and
-          # renaming that directory to match would reset the mirror's history the way
+          # `prefix` is the DIRECTORY, `repo` is its published name. Three of the five
+          # match; systemd -> controlplane and ai -> inference do not, deliberately —
+          # renaming a directory to match would reset the mirror's history the way
           # capture->afterimage and documents->pigeonhole reset theirs.
           - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
           - { prefix: afterimage, repo: MiraiConcepts/afterimage, key: AFTERIMAGE_DEPLOY_KEY }
           - { prefix: pigeonhole, repo: MiraiConcepts/pigeonhole, key: PIGEONHOLE_DEPLOY_KEY }
-          # systemd/ is the only prefix that is not a feature — it publishes the job
-          # contract itself. Its install.sh and tests reach across the parent repo by
+          # These two prefixes are not features. systemd/ publishes the job contract
+          # itself, and its install.sh and tests reach across the parent repo by
           # design, which the mirror's README states rather than pretends otherwise.
           - { prefix: systemd,    repo: MiraiConcepts/controlplane, key: CONTROLPLANE_DEPLOY_KEY }
+          # ai/ publishes the shared AI layer — the one library allowed to talk to
+          # the Anthropic API. Its consumers live in the parent repo too; the
+          # mirror's README says so and links the two that are themselves mirrored.
+          - { prefix: ai,         repo: MiraiConcepts/inference,    key: INFERENCE_DEPLOY_KEY }
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

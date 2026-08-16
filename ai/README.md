@@ -1,6 +1,12 @@
-# Shared AI layer
+# inference
 
-`ai/scripts/ai.lib.sh` is the only place in this repo that talks to
+> The shared AI layer of [catallenya](https://github.com/carrein/catallenya), mirrored
+> from `ai/`. Force-synced by CI — open issues and pull requests on the parent repo,
+> not here. The consumers below live in the parent repo; two of them are themselves
+> mirrored, as [afterimage](https://github.com/MiraiConcepts/afterimage) and
+> [pigeonhole](https://github.com/MiraiConcepts/pigeonhole).
+
+`ai/scripts/ai.lib.sh` is the only place in all of catallenya that talks to
 `api.anthropic.com`. Three scripts source it, but only two of them call the API:
 
 | Consumer | Job | Uses |
