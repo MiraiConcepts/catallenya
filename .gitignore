@@ -87,6 +87,8 @@
 !changedetection/changedetection.health.sh
 !host/disk.sh
 !ntfy/ntfy.lib.sh
+!ntfy/tests/
+!ntfy/tests/run.sh
 !ntfy/system-ntfy.sh
 !ntfy/system-ntfy@.service
 !systemd/heartbeat.sh
