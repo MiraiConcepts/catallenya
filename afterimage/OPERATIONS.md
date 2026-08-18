@@ -74,7 +74,7 @@ sudo bash systemd/install.sh                  # symlinks + enables the .path and
 ```
 
 `NTFY_ORIGIN` is set in compose from the tailnet vars. It is the ONE browser origin
-allowed to satisfy the `X-Capture` preflight: the ntfy web UI taps buttons with
+allowed to satisfy the `X-Afterimage` preflight: the ntfy web UI taps buttons with
 browser `fetch()`, so CORS applies to it, and refusing every preflight — which
 shipped briefly on 2026-07-27 — breaks the web client with an opaque
 `TypeError: NetworkError`. The phone app does native HTTP and never sees this. Any

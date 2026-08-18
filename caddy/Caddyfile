@@ -122,7 +122,7 @@ http://img.catallenya.com {
 	import security_headers
 	# Every request here is an empty POST from an ntfy button. No upload path, so
 	# the default body cap is already far more than needed — deliberately NOT
-	# raised, unlike the capture block above.
+	# raised, unlike the afterimage block above.
 	reverse_proxy pigeonhole-approve:8080
 }
 
