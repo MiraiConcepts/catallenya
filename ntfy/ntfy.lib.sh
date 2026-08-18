@@ -174,3 +174,59 @@ retract() {
     curl -fsS --max-time 15 -X DELETE \
         "${url}/${NTFY_TOPIC}/$(ntfy_id_safe "$id")" >/dev/null || true
 }
+
+# --- shared message shapes --------------------------------------------------
+# A desk failure is ONE fact arriving on several topics, so it reads the same on all
+# of them. This is a deliberate exception to the intake playbook's "the shared part
+# is the discipline, not the vocabulary" — that rule is right for things a pipeline
+# owns (Staged, Binned, Already Passed), and wrong here, because "out of credits" is
+# not an afterimage fact or a pigeonhole fact. Before this, the same billing error
+# produced "Capture Failed — check the API key" on one topic and "Blocked: 1
+# Document — The model call failed" on the other, and only one of them was even
+# pointing at the right problem.
+#
+# Two things vary and must: the NOUN, because they are different things, and the
+# day-7 clause, because the outcomes genuinely differ — a document survives in bin/
+# and a screenshot's image does not. Flattening that would make the message
+# consistent by hiding the part you most need to know.
+
+# How many items to name before summarising. Five is what afterimage's "Already
+# Passed" note already uses, so it is a shape the owner has read before; the cap
+# matters because ntfy silently converts a body over 4096 bytes into an attachment.
+PAUSED_LIST_MAX="${PAUSED_LIST_MAX:-5}"
+
+# paused_title <count> <singular-noun> -> "Paused: 3 Documents"
+# Verb-first with a count, so the lock screen answers "what happened" before "to
+# what". The noun arrives singular and is pluralised here, so no caller has to
+# remember the "1 Document" case.
+paused_title() {
+    local n="${1:-0}" noun="${2:-Item}"
+    printf 'Paused: %s %s%s' "$n" "$noun" "$( (( n == 1 )) || printf s )"
+}
+
+# paused_body <reason> <outcome> <item>... -> numbered list + one italic line
+#
+# `reason` comes from ai_reason() and is therefore byte-identical across topics.
+# `outcome` is the caller's own day-7 clause. Neither is escaped: both are ours.
+# The ITEMS are not — a filename arrives over Syncthing from another device and an
+# id is ours only by convention — so every one goes through md_escape.
+#
+# "1\." rather than "1." on purpose: an unescaped "1." at the start of a line is
+# ordered-list syntax, and the renderer would renumber the list it built for us.
+paused_body() {
+    local reason="${1:-}" outcome="${2:-}"; shift 2 || true
+    local -a items=("$@")
+    # Split across statements deliberately: bash expands every right-hand side in a
+    # single `local` BEFORE it assigns any of them, so `local n=... shown="$n"` reads
+    # the OUTER n and silently yields an empty shown — which here printed the summary
+    # line and none of the items.
+    local out="" i
+    local n="${#items[@]}"
+    local shown="$n"
+    (( shown > PAUSED_LIST_MAX )) && shown="$PAUSED_LIST_MAX"
+    for (( i = 0; i < shown; i++ )); do
+        out+="$((i + 1))\\. $(md_escape "${items[$i]}")"$'\n'
+    done
+    (( n > shown )) && out+="… and $(( n - shown )) more"$'\n'
+    printf '%s\n_%s. Retrying daily — %s._' "$out" "$reason" "$outcome"
+}

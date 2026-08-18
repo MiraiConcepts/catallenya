@@ -259,6 +259,25 @@ CURLRC
     done
 }
 
+# ai_reason <rc> -> the one sentence a consumer puts in front of a human.
+#
+# Lives here rather than in the notification layer because it is knowledge about the
+# API, not about ntfy: only this file knows that rc 3 means an account that cannot
+# pay rather than a network that will not answer. Consumers render it; they never
+# author it, which is what makes the same outage read identically on every topic.
+#
+# Deliberately no full stop and no trailing clause — the caller supplies the sentence
+# it sits in, and a reason that carried its own punctuation could not be composed.
+ai_reason() {
+    case "${1:-}" in
+        3) echo "Out of credits" ;;
+        2) echo "The API is unreachable" ;;
+        1) echo "The API rejected the request" ;;
+        0) echo "" ;;
+        *) echo "The API is in an unknown state" ;;
+    esac
+}
+
 # --- response ---------------------------------------------------------------
 
 # ai_extract <api-response> -> the structured object on stdout, non-zero on failure
