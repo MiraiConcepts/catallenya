@@ -176,6 +176,8 @@ ntfy/.env
 !pigeonhole/systemd/pigeonhole.apply.path
 !pigeonhole/systemd/pigeonhole.apply.service
 !pigeonhole/systemd/pigeonhole.backstop.timer
+!pigeonhole/systemd/pigeonhole.retry.service
+!pigeonhole/systemd/pigeonhole.retry.timer
 !pigeonhole/systemd/pigeonhole.sweep.service
 !pigeonhole/systemd/pigeonhole.sweep.timer
 
