@@ -625,7 +625,7 @@ services:
   # `docker compose run --rm` from liquidroom.triage.service lasts. ONE image,
   # TWO entries, differing only in network policy — download needs the internet,
   # the AI stages need none at all.
-  liquidroom:
+  liquidroom-soulseek:
     # Built locally, same reasoning as capture: the source lives in this repo.
     build:
       context: ./liquidroom
@@ -668,13 +668,13 @@ services:
       - ${ZPOOL_VOLUME}/liquidroom/state/work:/work
       - ${ZPOOL_VOLUME}/liquidroom/state/models:/models
     # No watchtower label: locally built, so there is no upstream image to poll.
-    # Rebuilds are manual: docker compose build liquidroom
+    # Rebuilds are manual: docker compose build liquidroom-soulseek
 
   # The same image with NO network whatsoever: separation, the lead/rhythm split
   # and the mixes read /work and /models and talk to nobody. The split model is a
   # community checkpoint (sha256-pinned in liquidroom/scripts/models.sh); running
   # it disconnected means even a malicious pickle has nowhere to phone home.
-  liquidroom-offline:
+  liquidroom-roformer:
     image: catallenya-liquidroom
     profiles: ["liquidroom"]
     restart: "no"
