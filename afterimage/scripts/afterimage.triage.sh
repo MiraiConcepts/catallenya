@@ -326,21 +326,33 @@ for png in "${pngs[@]}"; do
 
     ask_rc=0
     proposal="$(ask "$png" "$now_h" "$rec")" || ask_rc=$?
-    if (( ask_rc == 2 )); then
-        # Transient. Leave the record in pending/ with no proposal.json: that is
-        # exactly the shape afterimage.sweep.sh adopts and re-queues. Deliberately
-        # NOT archived — archiving is a resolution, and a rate limit has not
-        # resolved anything.
+    if (( ask_rc == 2 || ask_rc == 3 )); then
+        # PARKED. rc 2 is the API being unreachable; rc 3 is an account that cannot
+        # pay. They are one branch on purpose — the disposal is identical, and the
+        # only thing that differs is the sentence ai_reason() supplies. Leaving the
+        # record in pending/ with no proposal.json is exactly the shape
+        # afterimage.sweep.sh adopts and retries. Deliberately NOT archived:
+        # archiving is a resolution, and neither of these has resolved anything.
+        #
+        # first_failed is stamped ONCE and never rewritten, so the seven-day clock
+        # runs from when the trouble started rather than from the last attempt. A
+        # retry that moved the marker would let a stuck item postpone its own
+        # deadline forever, which is the reason `skip` was deleted from pigeonhole.
+        [[ -f "${rec}/first_failed" ]] || date -u +%Y-%m-%dT%H:%M:%SZ > "${rec}/first_failed"
         FAILED=$((FAILED + 1))
-        log "  left in pending/ — the sweep will re-queue it"
+        log "  parked in pending/ — $(ai_reason "$ask_rc"); the sweep will retry it"
         continue
     elif (( ask_rc != 0 )); then
         FAILED=$((FAILED + 1))
         archive_record "$id" "$rec" failed "triage API call rejected"
-        # high like the other infrastructure alarms (was `default`, drift): a fatal
-        # rejection usually means a bad key, which breaks every capture after this one.
+        # Per-item and terminal: a refusal, a truncated reply, a malformed request or
+        # a bad key. Retrying THIS screenshot cannot help, but the next one is fine.
+        #
+        # The body used to say "check the API key" for every one of these, which is
+        # right for a 401 and actively misleading for the commonest case — the model
+        # declining to read a screenshot. ai_reason() names what actually happened.
         notify "Capture Failed" high "exclamation" \
-               "Could not read that screenshot (id ${id:0:8}). Not a temporary error — check the API key."
+               "Could not read that screenshot (id ${id:0:8}). $(ai_reason "$ask_rc") — not a temporary error."
         continue
     fi
 
@@ -504,6 +516,27 @@ for png in "${pngs[@]}"; do
     (( n_past )) && { past_note; log "  ${n_past} event(s) already passed, collapsed into one note"; }
     (( emitted )) || log "  no usable events from this capture"
 done
+
+# --- paused: one message per topic, whatever the count -----------------------
+# Built from every parked record, not just this run's. A record is parked when it has
+# a screenshot, no proposal, and a first_failed stamp — the stamp is what separates
+# "the API never answered" from a record still mid-flight in another run.
+paused_items=()
+for prec in "$PENDING_DIR"/*/; do
+    prec="${prec%/}"
+    [[ -f "${prec}/first_failed" ]] || continue
+    [[ -f "${prec}/proposal.json" ]] && continue
+    paused_items+=("$(basename "$prec" | cut -c1-8)")
+done
+if (( ${#paused_items[@]} )); then
+    retract "$PAUSED_NTFY_ID"
+    notify "$(paused_title "${#paused_items[@]}" Screenshot)" "" warning \
+        "$(paused_body "$(ai_reason "${ask_rc:-2}")" \
+                       "archived in 7 days, and the screenshots go with them" \
+                       "${paused_items[@]}")" \
+        "" "$PAUSED_NTFY_ID"
+    log "paused: ${#paused_items[@]} waiting on the API"
+fi
 
 log "done: ${OK} ok, ${FAILED} failed"
 
