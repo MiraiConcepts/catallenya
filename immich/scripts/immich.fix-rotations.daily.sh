@@ -46,7 +46,7 @@ BAKED_LINES="$(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1 — rotated 
 CONCERN_LINES="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2 — needs a look (\3)/p' <<<"${CONCERNS}")"
 
 if [[ ${RC} -ne 0 ]]; then
-    notify "Immich rotation bake failed" high rotating_light \
+    notify "Immich rotation bake failed" "" rotating_light \
         "$(tail -n 8 <<<"${OUT}")"$'\n\n'"Full log: journalctl -u immich.fix-rotations.service"
 elif [[ -n "${BAKED}" && "${BAKED}" -gt 0 ]] || [[ -n "${CONCERNS}" ]]; then
     notify "Immich: ${BAKED:-0} rotation(s) baked" default white_check_mark \

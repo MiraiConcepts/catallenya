@@ -235,13 +235,28 @@ is "sibling keeps the whole reply" "$(jq -r .events_seen "${FD}/e4/capture.json"
 # assert the source lines exist, which is weak, but catches silent removal.
 TRI="${SCRIPT_DIR}/afterimage.triage.sh"
 has "triage writes capture.json"    "$(cat "$TRI")" 'capture.json'
-# The two shouting exceptions. needs-a-human fires once with no buttons and no
-# sweep nudge, so a miss loses the capture; a fatal API rejection usually means a
-# bad key, which breaks every capture after it. Both sat at default until
-# 2026-08-01 — quietly, since neither had ever fired in production.
-has "needs-a-human shouts"          "$(cat "$TRI")" 'notify "${nh_title:-Needs A Human}" high'
-has "a fatal rejection shouts"      "$(cat "$TRI")" 'notify "Capture Failed" high'
+# Nothing shouts any more. `high` was reserved for blocked and review; as of
+# 2026-08-10 no notification in the repo uses it, and urgency is carried by what
+# the message says rather than by how loudly it arrives. An empty priority sends
+# no Priority header at all, which is ntfy's own default.
+hasnt "nothing in the triage shouts"  "$(cat "$TRI")" ' high "'
+hasnt "nor in the sweep"              "$(cat "${SCRIPT_DIR}/afterimage.sweep.sh")" ' high "'
+# And the alarms name the pipeline they belong to, which is no longer "capture".
+has "the fatal alarm is named for the pipeline" "$(cat "$TRI")" 'notify "Afterimage Failed"'
 has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
+# needs-a-human used to close its record on the spot, which made it the only message
+# that fired exactly once — no buttons, nothing waiting anywhere, no nudge — so a miss
+# lost the capture. It was `high` to compensate. It now parks like everything else and
+# the sweep nudges it, which removes the special case rather than making it louder.
+hasnt "needs-human does not archive on the spot" "$(cat "$TRI")" 'archive_record "$id" "$rec" needs_human'
+has   "and its message is tagged for a nudge"    "$(cat "$TRI")" '"${nh_title:-Needs A Human}" "" "exclamation"'
+SWP="${SCRIPT_DIR}/afterimage.sweep.sh"
+has   "the sweep nudges a needs-human record"    "$(cat "$SWP")" 're-notified needs-human'
+has   "and expires it on the same clock"         "$(cat "$SWP")" 'archive_record "$id" "$rec" needs_human'
+# The discriminator between "the model never answered" and "the model answered and
+# said it cannot place this" is capture.json — one is retried, the other is nudged.
+has   "told apart by the reply, not the proposal" "$(cat "$SWP")" 'capture.json'
+
 has "truncation is logged"          "$(cat "$TRI")" 'keeping the ${MAX_EVENTS_PER_CAPTURE} soonest'
 has "triage partitions past events" "$(cat "$TRI")" 'event_is_past'
 has "past events get one note"      "$(cat "$TRI")" 'past_note' 

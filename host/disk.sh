@@ -50,7 +50,7 @@ fi
 if [ -n "$ALERT_MESSAGE" ]; then
     curl -H "Tags: warning" \
          -H "Title: Disk Space Alert" \
-         -H "Priority: high" \
+         -H "Priority: default" \
          -d "$ALERT_MESSAGE" \
          "${NTFY_URL}/${TOPIC}"
 fi

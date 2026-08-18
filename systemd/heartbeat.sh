@@ -382,7 +382,7 @@ fi
 if ! curl -sf \
         -H "Tags: warning" \
         -H "Title: Watchdog" \
-        -H "Priority: high" \
+        -H "Priority: default" \
         -d "$BODY" \
         "${NTFY_URL}/${TOPIC}" >/dev/null; then
     echo "heartbeat: ntfy publish FAILED — ${#FINDINGS[@]} finding(s) undelivered" >&2

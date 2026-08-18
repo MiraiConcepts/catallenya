@@ -36,7 +36,7 @@ CONTAINER="changedetection"
 send_alert() {
     curl -H "Tags: warning" \
          -H "Title: Changedetection Health" \
-         -H "Priority: high" \
+         -H "Priority: default" \
          -d "$1" \
          "${NTFY_URL}/${TOPIC}"
 }

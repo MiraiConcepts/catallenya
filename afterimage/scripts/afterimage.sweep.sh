@@ -90,7 +90,7 @@ for rec in "${records[@]}"; do
             (( DRY )) && { log "would give up on ${id:0:8} (${age_d}d parked)"; continue; }
             archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
                 && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
-            notify "Capture Gave Up" high "exclamation" \
+            notify "Afterimage Gave Up" "" "exclamation" \
                    "Could not reach the API for that screenshot (id ${id:0:8}) in ${age_d} days. Take it again once things are healthy."
             continue
         fi
@@ -111,9 +111,31 @@ for rec in "${records[@]}"; do
 
     # --- the model answered but there was nothing to propose --------------------
     # capture.json present, proposal.json absent: a needs-a-human record. Nothing to
-    # retry — the model has read it and said it cannot place it — so it is left for
-    # the nudge and the day-7 resolution below, exactly like a proposal nobody tapped.
+    # retry — the model has read it and said it cannot place it — so it runs the same
+    # nudge-then-expire lifecycle as a proposal nobody tapped. Ages from capture.json,
+    # since there is no proposal to take an mtime from.
     if [[ ! -f "${rec}/proposal.json" ]]; then
+        nh_age_h=$(( (now - $(stat -c %Y "${rec}/capture.json" 2>/dev/null || echo "$now")) / 3600 ))
+        if (( nh_age_h >= IGNORE_AFTER_HOURS )); then
+            (( DRY )) && { log "would archive needs-human ${id:0:8} (${nh_age_h}h)"; continue; }
+            archive_record "$id" "$rec" needs_human "no action within ${nh_age_h}h" \
+                && { ignored=$((ignored + 1)); log "needs-human expired ${id:0:8} (${nh_age_h}h)"; }
+            continue
+        fi
+        if (( nh_age_h >= RENOTIFY_AFTER_HOURS )) && [[ ! -f "${rec}/renotified" ]]; then
+            (( DRY )) && { log "would re-notify needs-human ${id:0:8} (${nh_age_h}h)"; continue; }
+            nh_t="$(jq -r 'first(.events[]?.title // empty) // ""' "${rec}/capture.json" 2>/dev/null)"
+            nh_r="$(jq -r '.reason // ""' "${rec}/capture.json" 2>/dev/null)"
+            # Retract-then-publish under the same id the triage used, so the phone ends
+            # up with one message rather than two.
+            retract "$id"
+            notify "${nh_t:-Needs A Human}" "" "exclamation" \
+                   "$(md_escape "${nh_r:-Time or date unclear — not adding.}") — still waiting after ${nh_age_h}h." \
+                   "" "$id"
+            : > "${rec}/renotified"
+            renotified=$((renotified + 1))
+            log "re-notified needs-human ${id:0:8} (${nh_age_h}h)"
+        fi
         continue
     fi
 
@@ -228,7 +250,7 @@ if (( ${#strays[@]} )); then
         for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
         (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
         body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
-        notify "Stray Files In Capture Spool" high "exclamation" "$body"
+        notify "Stray Files In Afterimage Spool" "" "exclamation" "$body"
         log "reported ${#strays[@]} stray file(s) in incoming/"
     fi
 fi
