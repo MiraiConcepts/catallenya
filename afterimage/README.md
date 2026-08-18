@@ -296,9 +296,9 @@ money, so an unexpected bill is the signal to look here first.
 - **The triage must always drain `incoming/`.** `PathExistsGlob` re-fires while a
   file remains, so a leftover PNG would hot-loop systemd and bill an API call per
   spin. Every branch in `afterimage.triage.sh` moves or archives its file.
-- **The callbacks require `X-Capture: 1`.** `POST /capture/<id>/add` and `/drop`
-  return 403 without it. ntfy sets it natively (`headers.X-Capture=1` in the action),
-  so taps are unaffected — but a hand-rolled `curl` needs `-H 'X-Capture: 1'`. It is
+- **The callbacks require `X-Afterimage: 1`.** `POST /afterimage/<id>/add` and `/drop`
+  return 403 without it. ntfy sets it natively (`headers.X-Afterimage=1` in the action),
+  so taps are unaffected — but a hand-rolled `curl` needs `-H 'X-Afterimage: 1'`. It is
   not authentication; the custom header forces a CORS preflight, and the server
   answers that preflight for exactly one origin (`NTFY_ORIGIN`, the ntfy web UI —
   see [OPERATIONS.md](OPERATIONS.md)). Every other page is refused, which stops a web page open on a
