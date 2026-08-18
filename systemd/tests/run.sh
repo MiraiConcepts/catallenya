@@ -406,7 +406,7 @@ echo
 # Everything above tests the gate against a UNIT. These test it against the CODE an
 # intake job runs, which is where the three regressions most likely to come back
 # actually live. The check tree copies units and not scripts, so a violation is
-# staged in a fixture directory instead of by editing a live pipeline.
+# staged in a contract_fixture directory instead of by editing a live pipeline.
 echo "intake contract"
 
 # shellcheck source=../contract.sh
@@ -415,7 +415,10 @@ ERRORS=(); err() { ERRORS+=("$1"); }
 # shellcheck source=../contract.sh
 source "${REPO}/systemd/contract.sh"
 FIX="$(mktemp -d)"; mkdir -p "${FIX}/scripts"
-fixture() { printf '%s\n' "$1" > "${FIX}/scripts/thing.sh"; }
+# NOT fixture(): this suite already has one, for units. Two functions sharing a
+# name in one file is ambiguous to a reader and to shellcheck (SC2218), even
+# though bash happens to resolve it by position.
+contract_fixture() { printf '%s\n' "$1" > "${FIX}/scripts/thing.sh"; }
 contract_says() { # $1=name $2=expected substring
     ERRORS=(); intake_contract "$FIX" fixture
     local joined="${ERRORS[*]:-}"
@@ -426,30 +429,30 @@ contract_clean() { # $1=name
     (( ${#ERRORS[@]} == 0 )) && ok "$1" || bad "$1" "no error" "${ERRORS[*]}"
 }
 
-fixture 'notify() {
+contract_fixture 'notify() {
     curl -sS "$@"
 }'
 contract_says "a fifth copy of notify() is refused" "defines its own notify()"
 
-fixture 'retract() {
+contract_fixture 'retract() {
     curl -X DELETE "$1"
 }'
 contract_says "so is a private retract()" "defines its own retract()"
 
-fixture 'notify "Something Broke" high warning "body"'
+contract_fixture 'notify "Something Broke" high warning "body"'
 contract_says "high priority is refused" "high priority"
 
-fixture 'out="$(api_post "$msgf")" || rc=$?
+contract_fixture 'out="$(api_post "$msgf")" || rc=$?
 if (( rc == 2 )); then park; else resolve; fi'
 contract_says "reading the API as pass/fail is refused" "never branches on rc 3"
 
-fixture 'out="$(api_post "$msgf")" || rc=$?
+contract_fixture 'out="$(api_post "$msgf")" || rc=$?
 if (( rc == 2 || rc == 3 )); then park; else resolve; fi'
 contract_clean "and handling all four verdicts passes"
 
 # The rule must not fire on the comments left to explain the rule. Both live intake
 # libs discuss api_post and high priority in exactly that way.
-fixture '# api_post moved to ai.lib.sh; nothing here calls it any more.
+contract_fixture '# api_post moved to ai.lib.sh; nothing here calls it any more.
 # It used to notify at high priority, which nothing does now.
 echo hello'
 contract_clean "prose about the rule is not a violation"
