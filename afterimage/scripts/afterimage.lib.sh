@@ -209,9 +209,17 @@ event_is_past() {
 
 # api_class / api_post moved to ai.lib.sh (sourced at the top), unchanged.
 
-REQUEUE_AFTER_HOURS=1     # how long a proposal-less record waits before re-queueing.
-                          # Must exceed the triage's TimeoutStartSec (15min) so a
-                          # run still in flight is never adopted mid-call.
+# How long a parked record waits before the sweep gives up on it, measured from the
+# FIRST failure and never from the last attempt. Seven days, the same clock every
+# other unresolved thing in this pipeline runs on.
+#
+# This replaced REQUEUE_AFTER_HOURS=1 and a two-attempt marker. That pair was written
+# when the sweep ran hourly, so it meant "wait an hour, try once more, then give up" —
+# a sensible rule for a network blip. When the sweep moved morning-side on 2026-08-01
+# the schedule changed and the rule did not, so the same code silently became "give up
+# after two days", and an outage longer than a weekend destroyed captures that were
+# never wrong. The retry is now once per sweep, which is once per day, until this.
+PAUSED_GIVE_UP_DAYS=7
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() { log "FATAL: $*"; exit 1; }

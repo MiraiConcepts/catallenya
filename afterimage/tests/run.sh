@@ -679,13 +679,27 @@ has "--dry-run announces itself" "$out" "DRY RUN"
 # only runs nightly and only on records that are already stale.
 sweep_sees() { # $1 = screenshot filename -> sweep's dry-run verdict
     local d="${PENDING_DIR}/00000000-0000-4000-8000-0000000000ff"
-    mkdir -p "$d"; : > "${d}/$1"; touch -d '2 hours ago' "$d"
+    mkdir -p "$d"; : > "${d}/$1"
+    # A parked record is one the triage stamped and gave up on for now. Without the
+    # stamp the sweep treats it as mid-flight and leaves it alone, which is the
+    # guard that replaced racing the triage on an age threshold.
+    date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ > "${d}/first_failed"
     local o; o="$(bash "$sweep" --dry-run 2>&1)"
     rm -rf "$d"
-    [[ "$o" == *"would re-queue"* ]] && echo seen || echo invisible
+    [[ "$o" == *"would retry"* ]] && echo seen || echo invisible
 }
 is "sweep sees a PNG record"  "$(sweep_sees screenshot.png)" "seen"
 is "sweep sees a JPEG record" "$(sweep_sees screenshot.jpg)" "seen"
+# The other half of that guard: no stamp means the triage has not finished, so the
+# sweep must not adopt it and retry a record that is being worked on right now.
+unstamped() {
+    local d="${PENDING_DIR}/00000000-0000-4000-8000-0000000000fe"
+    mkdir -p "$d"; : > "${d}/screenshot.png"
+    local o; o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    [[ "$o" == *"would retry"* ]] && echo adopted || echo "left alone"
+}
+is "a mid-flight record is left alone" "$(unstamped)" "left alone"
 
 # Shipped bug: the prune section sat BELOW an early `exit 0` taken whenever
 # pending/ was empty — which it almost always is — so in 90 days of hourly sweeps
@@ -826,9 +840,19 @@ has "the suite sets the mute"   "$(cat "${BASH_SOURCE[0]}")" 'export NTFY_DISABL
 
 # ---------------------------------------------------------------- retry config
 echo "retry configuration"
-# Must exceed the triage's TimeoutStartSec (15min) or the sweep could adopt a
-# record while the triage is still working on it and re-queue it underneath.
-is "requeue waits out a live run" "$(( REQUEUE_AFTER_HOURS >= 1 ))" "1"
+# A parked record is retried once per sweep — once per day — and given up on at
+# PAUSED_GIVE_UP_DAYS, measured from the first failure. The pair this replaced
+# (REQUEUE_AFTER_HOURS=1 plus a two-attempt marker) was written for an hourly sweep
+# and inherited a nightly one, which turned "try once more in an hour" into "give up
+# after two days" without a line changing.
+is "gives up on a scale of days" "$(( PAUSED_GIVE_UP_DAYS >= 2 ))" "1"
+is "and within the ignore clock" "$(( PAUSED_GIVE_UP_DAYS * 24 <= IGNORE_AFTER_HOURS ))" "1"
+# The sweep must never adopt a record the triage is still working on. A record with
+# no first_failed stamp is mid-flight by definition, which is what it keys on now
+# instead of an age threshold racing TimeoutStartSec.
+sw="$(cat "${SCRIPT_DIR}/afterimage.sweep.sh")"
+has "mid-flight records are skipped" "$sw" 'first_failed" ]] || continue'
+has "retry keys on the reply, not the proposal" "$sw" '! -f "${rec}/capture.json"'
 # The output ceiling has to leave room for a full fan-out plus adaptive thinking;
 # a too-small value shows up as stop_reason=max_tokens on busy screenshots only.
 is "max_tokens leaves room" "$(( MAX_TOKENS >= 2048 ))" "1"
