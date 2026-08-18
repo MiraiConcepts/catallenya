@@ -86,6 +86,7 @@
 # filename. ntfy/api-token.txt would still have been committed.
 !changedetection/changedetection.health.sh
 !host/disk.sh
+!ntfy/ntfy.lib.sh
 !ntfy/system-ntfy.sh
 !ntfy/system-ntfy@.service
 !systemd/heartbeat.sh

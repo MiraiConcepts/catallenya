@@ -2,16 +2,17 @@
 # shellcheck disable=SC2034  # config vars are consumed by the scripts that source this
 # Shared Anthropic Messages API layer. Sourced, never executed.
 #
-# This is the one place in the repo that talks to api.anthropic.com. Three scripts
-# source it, all bash, all on this host — but only two of them call the API:
+# This is the one place in the repo that talks to api.anthropic.com. Two pipelines
+# source it, both bash, both on this host, and both call the API:
 #
 #   afterimage/scripts/afterimage.triage.sh   screenshot -> proposed calendar event
 #   pigeonhole/scripts/pigeonhole.triage.sh   document page -> filing decision
-#   liquidroom/scripts/liquidroom.lib.sh   md_escape/hdr_safe ONLY — no API call
 #
-# liquidroom needs no key and touches none of the transport surface; it sources
-# this file so the two ntfy sanitisers do not exist as a second drifting copy.
-# Editing md_escape or hdr_safe has three consumers, not two.
+# liquidroom used to be a third, sourcing this whole layer for md_escape and hdr_safe
+# while calling no API at all. Those two moved to ntfy/ntfy.lib.sh on 2026-08-10,
+# where the boundary they guard actually is, and liquidroom stopped depending on this
+# file. Every consumer is now an API caller, which is what the file is for — so a
+# change here has exactly the blast radius the header says it does.
 #
 # WHY A LIBRARY AND NOT A SERVICE. The capture pipeline splits into a dumb container
 # (HTTP + CalDAV PUT) and a host-side triage that holds the intelligence, and the
@@ -266,32 +267,11 @@ CURLRC
 # handing malformed JSON to a renderer or a filing decision. With
 # output_config.format the first text block IS the JSON object, so there is nothing
 # to scrape out of prose.
-# --- sanitising what came back ---------------------------------------------
-# These live here rather than in a consumer because they belong to the same
-# boundary ai_extract does: everything the model returns is derived from input an
-# attacker may control — a screenshot of anything, a document someone else wrote —
-# and both consumers push that text into a notification. A copy per consumer is
-# how one of them silently misses a fix.
-
-# hdr_safe <string> — make a model-derived string safe to put in an HTTP header.
-# Strips CR/LF and caps length. curl forwards raw CR/LF in -H verbatim, so a title
-# containing "\r\nActions: http, Add, https://evil/" would inject a SECOND Actions
-# header — and Go's Header.Get returns the FIRST, so the injected buttons would
-# REPLACE the real ones and the user's tap would POST to the attacker.
-hdr_safe() {
-    tr -d '\r\n' <<<"${1:-}" | cut -c1-200
-}
-
-# md_escape <string> — neutralise Markdown in model-derived text.
-# Notifications are sent with `Markdown: yes`, so the body is rendered. A
-# `[tap here](https://evil.example)` lifted out of a document or a screenshot would
-# otherwise become a REAL link inside a notification the user already trusts — the
-# same class as the header injection above, arriving through a renderer that was
-# switched on for cosmetic reasons. Emphasis leaking is cosmetic; the link is why
-# this exists. Backslash is escaped first, or every other escape doubles wrong.
-md_escape() {
-    sed -e 's/\\/\\\\/g' -e 's/\([][*_`~()#>|]\)/\\\1/g' <<<"${1:-}"
-}
+# hdr_safe and md_escape moved to ntfy/ntfy.lib.sh on 2026-08-10. They guarded the
+# boundary where untrusted text reaches a NOTIFICATION, which is a property of that
+# sink and not of the API that happened to fetch the text — and keeping them here
+# meant liquidroom sourced this entire layer, and calls no API at all, to reach two
+# functions about ntfy.
 
 ai_extract() {
     local resp="$1" stop
