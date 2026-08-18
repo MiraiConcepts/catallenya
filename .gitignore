@@ -91,6 +91,7 @@
 !ntfy/tests/run.sh
 !ntfy/system-ntfy.sh
 !ntfy/system-ntfy@.service
+!systemd/contract.sh
 !systemd/heartbeat.sh
 ntfy/.env
 
