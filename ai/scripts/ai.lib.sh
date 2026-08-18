@@ -150,20 +150,60 @@ ai_build_request() {
 
 # --- transport -------------------------------------------------------------
 
-# api_class <http-status> -> ok | retry | fatal
+# api_class <http-status> [response-body] -> ok | retry | paused | fatal
 # "000" means curl never completed the exchange (DNS, TLS, timeout, reset).
 # Lives here rather than inline in api_post so the tests assert the real mapping
 # instead of a copy of it that can drift.
+#
+# THE BODY IS AN OPTIONAL SECOND ARGUMENT, and it exists for exactly one reason:
+# the status code cannot separate an unusable ACCOUNT from an unusable REQUEST. An
+# empty credit balance and a revoked key both arrive as 403. Collapsing them is what
+# made a billing pause look terminal — afterimage archived a perfectly good
+# screenshot as failed and pruned the image a week later, and the notification told
+# the owner to go and check an API key that was fine.
+#
+# `paused` is the third thing a failure can be. It is not `retry`, because no amount
+# of waiting fixes an empty balance; it is not `fatal`, because the request was never
+# wrong and works again the moment the balance is topped up. Callers park the item
+# rather than resolving it.
+#
+# Every call without a body behaves exactly as it did before this argument existed.
 api_class() {
-    case "$1" in
-        200)          echo ok ;;
-        429|5??|000)  echo retry ;;   # rate limited, server-side, or no answer
-        *)            echo fatal ;;   # 400/401/403/404: retrying cannot help
+    local code="$1" body="${2:-}" etype msg
+
+    # Status alone settles success and everything retryable. Deciding these first is
+    # what keeps a body from ever perturbing a code that was already unambiguous.
+    case "$code" in
+        200)          echo ok;    return ;;
+        429|5??|000)  echo retry; return ;;   # rate limited, server-side, or no answer
     esac
+
+    # 402 is unambiguous on its own — payment required is never a malformed request.
+    [[ "$code" == 402 ]] && { echo paused; return; }
+
+    [[ -n "$body" ]] || { echo fatal; return; }
+
+    # The documented discriminator. A 403 carrying billing_error is an account that
+    # cannot pay; a 403 carrying permission_error is a key that cannot be used, and
+    # those want opposite handling.
+    etype="$(jq -r '.error.type // ""' <<<"$body" 2>/dev/null || true)"
+    [[ "$etype" == "billing_error" ]] && { echo paused; return; }
+
+    # An exhausted balance has also been reported as a 400 invalid_request_error whose
+    # MESSAGE carries the reason. Matching prose is not something to be pleased about,
+    # but the phrase is specific, and the cost of missing it is a destroyed item rather
+    # than a wrong log line. Narrow on purpose: a genuinely malformed request stays fatal.
+    if [[ "$code" == 400 ]]; then
+        msg="$(jq -r '.error.message // ""' <<<"$body" 2>/dev/null || true)"
+        [[ "${msg,,}" == *"credit balance"* ]] && { echo paused; return; }
+    fi
+
+    echo fatal   # 400/401/403/404: retrying cannot help
 }
 
 # api_post <request-body-file> -> response body on stdout
 #   0 = ok | 1 = fatal (do not retry) | 2 = transient, attempts exhausted
+#   3 = paused (the account cannot pay; the request was fine — park, do not resolve)
 #
 # ANTHROPIC_API_KEY must be set by the caller.
 #
@@ -192,7 +232,7 @@ CURLRC
         # to 000, which api_class treats as transient.
         [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
 
-        case "$(api_class "$code")" in
+        case "$(api_class "$code" "$body")" in
             ok)
                 printf '%s' "$body"
                 return 0 ;;
@@ -205,6 +245,12 @@ CURLRC
                 log "  api ${code}, attempt ${attempt}/${API_MAX_ATTEMPTS} — retrying in ${delay}s"
                 sleep "$delay"
                 ;;
+            paused)
+                # Deliberately NOT retried in-run: the balance will not change inside
+                # three attempts. The body is echoed because "which 403 was it" is the
+                # first question anyone reading this line will have.
+                log "  !! api unusable — account, not request (${code}): $(tail -c 300 <<<"$body")"
+                return 3 ;;
             *)
                 log "  !! api rejected the request (${code}): $(tail -c 300 <<<"$body")"
                 return 1 ;;
