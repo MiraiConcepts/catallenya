@@ -78,6 +78,7 @@ declare -A SYMLINKS=(
     ["zpool.scrub.timer"]="${REPO_DIR}/host/zpool.scrub.timer"
     ["afterimage.sweep.timer"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.timer"
     ["pigeonhole.sweep.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.timer"
+    ["pigeonhole.retry.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.retry.timer"
     ["catallenya.heartbeat.timer"]="${REPO_DIR}/systemd/catallenya.heartbeat.timer"
 
     # --- Paths (event-triggered, not scheduled) ---
@@ -98,6 +99,7 @@ declare -A SYMLINKS=(
     ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"
     ["pigeonhole.sweep.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.service"
+    ["pigeonhole.retry.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.retry.service"
     ["immich.fix-rotations.service"]="${REPO_DIR}/immich/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
