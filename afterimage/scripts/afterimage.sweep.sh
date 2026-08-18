@@ -54,46 +54,66 @@ records=("$PENDING_DIR"/*/)
 # hourly sweeps. An empty array just means the loop body doesn't execute.
 
 now=$(date +%s)
-renotified=0 ignored=0 requeued=0 abandoned=0
+renotified=0 ignored=0 requeued=0 abandoned=0 parked=0
 
 for rec in "${records[@]}"; do
     rec="${rec%/}"
     id="$(basename "$rec")"
 
-    # --- no proposal: either mid-flight, or the triage gave up on a transient
-    # API failure. These used to be skipped forever and accumulated silently.
-    if [[ ! -f "${rec}/proposal.json" ]]; then
-        # screenshot.* not screenshot.png: the triage names the claimed copy after
-        # its real format (Android uploads are JPEG), so matching .png literally
-        # would make every JPEG record invisible here — never re-queued, never
-        # aged out, and silently, since this only runs hourly on stale records.
+    # --- parked: the API never answered ---------------------------------------
+    # The test is capture.json, NOT proposal.json. capture.json is the model's whole
+    # reply and the triage writes it before any branch can resolve the record, so its
+    # absence is the direct answer to "did the AI ever answer?". proposal.json was
+    # only ever a proxy for that, and a wrong one: a needs-a-human record has no
+    # proposal either, because there was no date to render. Keying on the proxy would
+    # send a screenshot the model has already read back for a second vision call.
+    if [[ ! -f "${rec}/capture.json" ]]; then
+        # screenshot.* not screenshot.png: the triage names the claimed copy after its
+        # real format (Android uploads are JPEG), so matching .png literally would make
+        # every JPEG record invisible here.
         shots=("${rec}"/screenshot.*)
         (( ${#shots[@]} )) || continue                   # nothing to act on
         shot="${shots[0]}"
-        rec_age_h=$(( (now - $(stat -c %Y "${rec}" 2>/dev/null || echo "$now")) / 3600 ))
-        (( rec_age_h >= REQUEUE_AFTER_HOURS )) || continue  # still in flight
 
-        if [[ -f "${rec}/requeued" ]]; then
-            # Second time round and still no proposal — the outage is not passing.
-            (( DRY )) && { log "would abandon ${id:0:8} (re-queued once, still failing)"; continue; }
-            archive_record "$id" "$rec" failed "API unavailable across two attempts" \
-                && { abandoned=$((abandoned + 1)); log "abandoned ${id:0:8}"; }
+        # No stamp means the triage has not finished with it — a run still in flight,
+        # not something parked. Leave it alone.
+        [[ -f "${rec}/first_failed" ]] || continue
+        first="$(date -d "$(cat "${rec}/first_failed")" +%s 2>/dev/null || echo "$now")"
+        age_d=$(( (now - first) / 86400 ))
+
+        # RESOLVE at seven days, measured from the FIRST failure. The two-attempt rule
+        # this replaced was calibrated for an hourly sweep and inherited a nightly one,
+        # so "retry once then give up" quietly became "give up after two days" — and
+        # gave up on an outage that had not finished. Retries never move the marker, so
+        # a stuck item cannot postpone its own deadline.
+        if (( age_d >= PAUSED_GIVE_UP_DAYS )); then
+            (( DRY )) && { log "would give up on ${id:0:8} (${age_d}d parked)"; continue; }
+            archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
+                && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
             notify "Capture Gave Up" high "exclamation" \
-                   "Could not reach the API for that screenshot (id ${id:0:8}) across two attempts. Take it again once things are healthy."
-        else
-            (( DRY )) && { log "would re-queue ${id:0:8} (${rec_age_h}h, no proposal)"; continue; }
-            # Marker first: if the mv succeeds and we die before writing it, the
-            # next sweep would re-queue forever. Marker-then-move fails safe.
-            : > "${rec}/requeued"
-            # Destination keeps .png regardless of the source's real format — it is
-            # the queue token afterimage.triage.path globs on, and the triage sniffs
-            # the bytes rather than trusting it.
-            if mv -f "$shot" "${IN_DIR}/${id}.png"; then
-                requeued=$((requeued + 1)); log "re-queued ${id:0:8} (${rec_age_h}h)"
-            else
-                log "  !! could not re-queue ${id:0:8}"
-            fi
+                   "Could not reach the API for that screenshot (id ${id:0:8}) in ${age_d} days. Take it again once things are healthy."
+            continue
         fi
+
+        # Otherwise put it back in the queue. Once per sweep, so once per day: the
+        # triage re-claims it, and if the API is still down it parks again with the
+        # same stamp. Destination keeps .png whatever the source's real format — it is
+        # the token afterimage.triage.path globs on, and the triage sniffs the bytes.
+        (( DRY )) && { log "would retry ${id:0:8} (${age_d}d parked)"; parked=$((parked + 1)); continue; }
+        if mv -f "$shot" "${IN_DIR}/${id}.png"; then
+            requeued=$((requeued + 1)); parked=$((parked + 1))
+            log "retrying ${id:0:8} (${age_d}d parked)"
+        else
+            log "  !! could not retry ${id:0:8}"
+        fi
+        continue
+    fi
+
+    # --- the model answered but there was nothing to propose --------------------
+    # capture.json present, proposal.json absent: a needs-a-human record. Nothing to
+    # retry — the model has read it and said it cannot place it — so it is left for
+    # the nudge and the day-7 resolution below, exactly like a proposal nobody tapped.
+    if [[ ! -f "${rec}/proposal.json" ]]; then
         continue
     fi
 
@@ -214,5 +234,5 @@ if (( ${#strays[@]} )); then
 fi
 
 (( renotified || ignored || requeued || abandoned || pruned || retracted )) && \
-    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} re-queued, ${abandoned} abandoned, ${retracted} notifications withdrawn, ${pruned} images pruned"
+    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} retried, ${abandoned} gave up, ${retracted} notifications withdrawn, ${pruned} images pruned"
 exit 0
