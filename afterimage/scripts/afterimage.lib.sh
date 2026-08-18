@@ -36,6 +36,9 @@ ARCHIVE_DIR="${DATA_DIR}/archive"
 SCRIPT_DIR="${AFTERIMAGE_DIR}/scripts"
 
 NTFY_TOPIC="afterimage"
+# One paused message per topic, not one per screenshot: a stable literal, so each run
+# retracts the previous and republishes with the current count instead of stacking.
+PAUSED_NTFY_ID="afterimage-paused"
 # Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
 # documents pipeline — one edit there moves both.
 # Output ceiling for one triage call. Adaptive thinking counts against this, and a
