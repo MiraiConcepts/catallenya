@@ -128,7 +128,7 @@ Containers: ${CONTAINER_TOTAL} running"
 else
     TITLE="Boot Failure"
     TAG="mending_heart"
-    PRIORITY="high"
+    PRIORITY="default"
     BODY="Errors:
 $(printf '  - %s\n' "${ERRORS[@]}")
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active

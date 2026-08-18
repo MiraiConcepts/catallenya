@@ -115,7 +115,7 @@ fi
 if systemctl is-failed --quiet "${service_name}.service"; then
     tag="mending_heart"
     title="${job_type} Failure${routed_note}"
-    priority="high"
+    priority="default"
 else
     tag="green_heart"
     title="${job_type} Success${routed_note}"

@@ -245,7 +245,7 @@ notify_event() {
         # Tagged even though it has no buttons: the record IS left pending, so the
         # sweep will nudge it and eventually archive it, and both of those want to
         # withdraw this message rather than leave it beside their own.
-        notify "${disp_title} (no buttons)" high "exclamation" \
+        notify "${disp_title} (no buttons)" "" "exclamation" \
                "$body. Could not build callback URL; record ${eid:0:8} left pending." \
                "" "$eid"
         log "  !! could not build capture base url"
@@ -315,7 +315,7 @@ for png in "${pngs[@]}"; do
     ext="$(image_ext "$png")"
     if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
-        notify "Capture Stuck" high "exclamation" \
+        notify "Afterimage Stuck" "" "exclamation" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
         continue
     fi
@@ -351,7 +351,7 @@ for png in "${pngs[@]}"; do
         # The body used to say "check the API key" for every one of these, which is
         # right for a 401 and actively misleading for the commonest case — the model
         # declining to read a screenshot. ai_reason() names what actually happened.
-        notify "Capture Failed" high "exclamation" \
+        notify "Afterimage Failed" "" "exclamation" \
                "Could not read that screenshot (id ${id:0:8}). $(ai_reason "$ask_rc") — not a temporary error."
         continue
     fi
@@ -384,20 +384,26 @@ for png in "${pngs[@]}"; do
             continue ;;
         needs_human)
             OK=$((OK + 1))
-            archive_record "$id" "$rec" needs_human "${reason:-}"
+            # LEFT IN pending/, not archived. This used to close the record on the
+            # spot, which made it the only message in the pipeline that fired exactly
+            # once — no buttons, no record waiting anywhere, no sweep nudge — so
+            # missing it lost the capture outright. It was `high` to compensate.
+            #
+            # Since nothing is `high` any more, compensating that way is no longer
+            # available, and the fix is better anyway: parking it means the sweep
+            # treats it like any other unresolved thing, nudging at 24h and resolving
+            # at 7 days. It stops being a special case rather than becoming a louder
+            # one. The sweep tells it apart from a parked API failure by capture.json,
+            # which is present here and absent there.
             log "  needs human: ${reason:-(no reason given)}"
-            # Lead with the event's own name where there is one — "Kene" says more
-            # at a glance than "Needs A Human", and the body already explains what
-            # is wrong. The generic title is the fallback, not the default.
-            # The record id is gone: it was only ever useful to someone reading the
-            # journal, and they have the journal.
-            # HIGH priority, unlike every other calendar-facing message (2026-08-01):
-            # this is the one with no buttons, no pending record and no sweep nudge —
-            # it fires exactly once, and missing it loses the capture. A proposal you
-            # miss gets re-notified; this cannot be.
+            # Lead with the event's own name where there is one — "Kene" says more at
+            # a glance than "Needs A Human", and the body already explains what is
+            # wrong. The generic title is the fallback, not the default.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
-            notify "${nh_title:-Needs A Human}" high "exclamation" \
-                   "$(md_escape "${reason:-Time or date unclear — not adding.}")"
+            # Tagged with the record id, which is what lets the nudge replace this
+            # message rather than arrive beside it.
+            notify "${nh_title:-Needs A Human}" "" "exclamation" \
+                   "$(md_escape "${reason:-Time or date unclear — not adding.}")" "" "$id"
             continue ;;
     esac
 
