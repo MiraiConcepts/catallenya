@@ -11,17 +11,22 @@ set -uo pipefail
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Source root .env for the ntfy URL (same pattern as host/disk.sh)
-ROOT_ENV="/zpool/catallenya/.env"
-if [[ -f "$ROOT_ENV" ]]; then
-    # shellcheck source=/dev/null  # runtime-only file, not in the repo
-    source "$ROOT_ENV"
-else
-    echo "Root .env not found at $ROOT_ENV" >&2
-    exit 1
-fi
-NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-TOPIC="immich"
+# Notification transport is shared; this script no longer builds a URL or reads .env
+# itself. It used to `source` the root .env wholesale — forty-odd credentials, to use
+# three of them — which the intake pipelines each stopped doing separately. ntfy.lib.sh
+# extracts only the three keys it needs.
+#
+# NTFY_MARKDOWN=no is deliberate and must stay. The bodies below are lines like
+# "IMG_1234.jpg — rotated 90°" taken straight from the library and never escaped, and
+# camera filenames are mostly underscores: rendered as Markdown they would lose the
+# underscores and italicise the middle of every name. Unescaped text under a renderer
+# is also where a filename could hide a real link.
+# shellcheck disable=SC2034  # both are read by ntfy.lib.sh, sourced below
+NTFY_TOPIC="immich"
+# shellcheck disable=SC2034
+NTFY_MARKDOWN=no
+# shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
+source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
 OUT="$(bash "${SCRIPT_DIR}/immich.fix-rotations.sh" --yes 2>&1)"
 RC=$?
@@ -32,15 +37,10 @@ BAKED="$(sed -n 's|^Planned/updated: \([0-9]*\).*|\1|p' <<<"${OUT}")"
 # rotations (SKIP_NET_ZERO) are intentional edits — stay silent on those.
 CONCERNS="$(grep -E '^  (SKIP|FAIL) ' <<<"${OUT}" | grep -vE 'SKIP_NON_ROTATE|SKIP_NET_ZERO' || true)"
 
-notify() { # $1=title $2=priority $3=tags $4=body
-    # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
-    # and POSTs that file's contents. The body starts with an asset filename, so a
-    # file named "@/zpool/catallenya/.env" would exfiltrate it to the ntfy topic.
-    # --data-raw is byte-identical except it never interprets a leading @.
-    curl -sS -H "Title: $1" -H "Priority: $2" -H "Tags: $3" \
-         --data-raw "$(tail -c 3500 <<<"$4")" "${NTFY_URL}/${TOPIC}" >/dev/null || true
-}
-
+# notify() moved to ntfy/ntfy.lib.sh. This was the last of four copies and the one
+# that had drifted furthest: no --max-time, so a stalled ntfy blocked the run until
+# systemd killed it at TimeoutStartSec=1h and reported failure for a bake that had
+# already succeeded — and no hdr_safe on the title. Both come free with the move.
 # Human-readable summaries: "photo.jpg — rotated 90°" / "photo.jpg — needs a look (...)"
 BAKED_LINES="$(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1 — rotated \2°/p' <<<"${OUT}")"
 CONCERN_LINES="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2 — needs a look (\3)/p' <<<"${CONCERNS}")"

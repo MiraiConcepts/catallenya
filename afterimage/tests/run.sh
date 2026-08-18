@@ -782,7 +782,12 @@ is "nor can a newline"          "$(ntfy_id_safe "$(printf 'a\nb')")"  'ab'
 # topic root rather than a message. Emptied here; retract() declines an empty id.
 is "a bare traversal empties"   "$(ntfy_id_safe '../..')"             ''
 
-nt="$(sed -n '/^notify() {/,/^}/p' "${SCRIPT_DIR}/afterimage.lib.sh")"
+# notify/retract now live in the shared transport, so these read it there. The
+# assertions themselves are unchanged and still worth having: they are what stops
+# someone "simplifying" X-Sequence-ID to the X-ID that ntfy accepts and ignores, or
+# dropping the mute seam that keeps a test run off the live topic.
+NTFY_LIB="/zpool/catallenya/ntfy/ntfy.lib.sh"
+nt="$(sed -n '/^notify() {/,/^}/p' "$NTFY_LIB")"
 has "notify can carry an id"    "$nt" 'X-Sequence-ID:'
 # X-ID is accepted with a 200 and silently ignored — the message stores no
 # sequence_id and every retract then addresses nothing. Verified against 2.27.0.
@@ -814,7 +819,7 @@ has   "and a resolved drop 409s"        "$srv" '"already resolved"'
 # today, so it does not depend on it — which is exactly why it needs asserting: the
 # first case that runs something for real would otherwise publish to the live topic
 # and still report green.
-rt="$(sed -n '/^retract() {/,/^}/p' "${SCRIPT_DIR}/afterimage.lib.sh")"
+rt="$(sed -n '/^retract() {/,/^}/p' "$NTFY_LIB")"
 has "notify is muteable"        "$nt" 'ntfy_muted && return 0'
 has "retract is muteable"       "$rt" 'ntfy_muted && return 0'
 has "the suite sets the mute"   "$(cat "${BASH_SOURCE[0]}")" 'export NTFY_DISABLE=1'

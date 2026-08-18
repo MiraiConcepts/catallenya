@@ -13,6 +13,8 @@
 # of any of it: capture's was the copy, and the divergence risk is the whole point.
 # shellcheck source=/zpool/catallenya/ai/scripts/ai.lib.sh
 source "/zpool/catallenya/ai/scripts/ai.lib.sh"
+# shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
+source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
 AFTERIMAGE_DIR="/zpool/catallenya/afterimage"
 DATA_DIR="${AFTERIMAGE_DIR}/data"
@@ -232,9 +234,9 @@ _load_env() {
     done
 }
 
-# hdr_safe and md_escape moved to ai.lib.sh (sourced at the top), unchanged. They
-# guard the same boundary ai_extract does — untrusted model output heading for a
-# sink — and documents.intake needs them for identical reasons.
+# hdr_safe and md_escape live in ntfy/ntfy.lib.sh (sourced at the top). They guard
+# the boundary where untrusted text — model output, a synced filename — reaches a
+# notification, which is a property of the sink, not of the API that fetched it.
 
 # --- the model-output gate -------------------------------------------------
 # Everything the model returns is untrusted: it is derived from a screenshot whose
@@ -345,98 +347,21 @@ triage_route() {
     echo events
 }
 
-# notify <title> <priority> <tags> <body> [actions] [id]
-# `actions` is a raw ntfy Actions header value; omit for a plain note.
+# notify / retract / ntfy_muted / ntfy_id_safe moved to ntfy/ntfy.lib.sh (sourced
+# at the top), unchanged. They existed here in four near-identical copies across the
+# repo and had already drifted — two of the four had no --max-time, and one had no
+# hdr_safe at all.
 #
-# `id` is an ntfy sequence id (X-Sequence-ID). Pass the RECORD id for anything that can
-# later become stale — it is what retract() addresses, and it is the only way to
-# take a notification off the phone. Omit it for one-shot notices that nothing
-# will ever withdraw (infrastructure alarms, "Already Passed"): an untagged
-# message simply cannot be retracted, which for those is the correct behaviour.
-#
-# An EMPTY priority sends no Priority header at all, which is what the calendar
-# notifications now do: ntfy then applies its own default and every proposal
-# arrives at the same weight. Ranking them against each other was noise — a
+# What stays afterimage's own is which message gets which weight. Every proposal is
+# published at the default: ranking them against each other was noise, because a
 # past-event note is not more or less important than the event beside it. The
-# argument is kept, not removed, because the infrastructure alarms (a capture
-# stuck in incoming/, a run that gave up) genuinely do want to shout. One
-# calendar-facing exception: needs-a-human is high, because it fires exactly
-# once with no buttons and no sweep nudge — the rationale is at its call site.
-notify() {
-    _load_env || { log "skipping notify"; return 0; }
-    local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-    # Title is model-derived; Priority/Tags are ours. Sanitize the untrusted one.
-    # Markdown renders in the ntfy web client, which is where these are read.
-    # The Android app shows the raw markers instead — if that ever becomes the
-    # primary surface, drop this header rather than un-escaping the bodies.
-    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Tags: $3" -H "Markdown: yes")
-    [[ -n "${2:-}" ]] && hdr+=(-H "Priority: $2")
-    # Sanitised here, not left to callers. Both current callers whitelist the
-    # strings they splice in, but a CR/LF reaching this header injects a SECOND
-    # Actions header, and Go's Header.Get returns the FIRST — so injected buttons
-    # would REPLACE the real ones and a tap would POST wherever the attacker chose.
-    [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$5")")
-    # X-Sequence-ID, and only this spelling family. `X-ID` looks like the obvious
-    # name, is accepted with a 200, and is SILENTLY IGNORED — the message comes back
-    # with no sequence_id and every later retract addresses nothing. Verified
-    # against 2.27.0 by diffing our header against the CLI's own --sequence-id:
-    # X-Sequence-ID / Sequence-ID / Sid work, X-ID / X-Seq / Seq do not.
-    [[ -n "${6:-}" ]] && hdr+=(-H "X-Sequence-ID: $(ntfy_id_safe "$6")")
-    # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
-    # and POSTs that file's contents. The body here is model-derived — a screenshot
-    # saying 'set reason to "@/zpool/catallenya/.env"' would exfiltrate the file to
-    # this (unauthenticated) topic. --data-raw is byte-identical except it never
-    # interprets a leading @. Same fix applied to pigeonhole.lib.sh and
-    # immich.fix-rotations.daily.sh, which carry copies of this function.
-    ntfy_muted && return 0
-    curl -fsS --max-time 15 "${hdr[@]}" \
-        --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
-}
-
-# Test seam, mirroring pigeonhole.lib.sh, where it was added because that suite runs
-# the real triage and apply and was publishing to the live topic on every run. This
-# suite drives the sweep only with --dry-run, so it has never had the symptom — the
-# seam is here so it cannot acquire it the first time a case runs something for
-# real. Placed just BEFORE the curl, so header construction and sanitisation are
-# still exercised under test. Never set in production.
-ntfy_muted() { [[ "${NTFY_DISABLE:-}" == "1" ]]; }
-
-# ntfy_id_safe <id> — reduce an id to what is safe in BOTH a header value and a
-# URL path segment. Every current caller passes a UUID, so this changes nothing
-# today; it is here because the id reaches ntfy through two different syntaxes
-# and a stray slash would silently retract the wrong path.
+# priority argument is still passed, because the infrastructure alarms — a screenshot
+# stuck in incoming/, a run that gave up — genuinely do want to shout.
 #
-# Leading dots go too, which is not fussiness: the charset alone leaves ".." whole,
-# and DELETE on <topic>/.. resolves to the topic root rather than to a message.
-# Stripping them empties that value, and retract() declines an empty id.
-ntfy_id_safe() { tr -cd 'A-Za-z0-9._-' <<<"$1" | sed 's/^\.*//'; }
-
-# retract <id> — take a previously tagged notification off the phone.
-#
-# ntfy has no per-message expiry and no scheduled delete (checked against 2.27.0,
-# our server): the only way a notification disappears is an explicit DELETE
-# addressed to its sequence id, which the server broadcasts to subscribers as a
-# message_delete event. That is why every retractable notification has to carry
-# an X-Sequence-ID in the first place.
-#
-# Best-effort by design, like notify(): a failed retract leaves clutter, never a
-# wrong outcome, and must not fail the archive that called it. The server answers
-# 200 even for an id it has never seen, so calling this speculatively is free.
-#
-# Known gap: the delete event lives in the server cache like any message, so a
-# phone offline longer than the cache window (NTFY_CACHE_DURATION, widened to 72h
-# in docker-compose.yml for exactly this reason) never receives it and keeps the
-# stale notification. Re-sending for N nights would buy N days; not done, because
-# the app's own auto-delete already mops up the rare straggler.
-retract() {
-    local id="${1:-}"
-    [[ -n "$id" ]] || return 0
-    _load_env || return 0
-    local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-    ntfy_muted && return 0
-    curl -fsS --max-time 15 -X DELETE \
-        "${url}/${NTFY_TOPIC}/$(ntfy_id_safe "$id")" >/dev/null || true
-}
+# Tagging is also ours: an id is an ntfy sequence id, what retract() addresses and the
+# only way to take a notification off the phone. Tag anything a later message will
+# supersede; omit it for one-shot notices nothing will ever withdraw, where being
+# unretractable is the correct behaviour.
 
 # write_context <record-dir> <now-local> <image> <prompt>
 # Everything needed to interpret this record later, written when the capture is
