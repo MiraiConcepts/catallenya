@@ -142,6 +142,7 @@ declare -A INSTANCE_DROPINS=(
 
 ERRORS=()
 err() { ERRORS+=("$1"); }
+declare -A INTAKE_SEEN=()
 
 # Read a key from a file's [X-Catallenya] section. LAST match wins.
 #
@@ -214,6 +215,16 @@ check_not_reset() {
     done
     return 0
 }
+
+# The intake code contract lives in its own file so the suite can call it directly
+# against a fixture; install.sh runs an installer when sourced.
+# Sourced from THIS script's own directory, deliberately, not from $REPO_DIR:
+# --check points REPO_DIR at a throwaway tree of units to validate, and the
+# installer's own code does not live there. Sourcing it via REPO_DIR made every gate
+# test fail with "No such file or directory" the moment the suite ran.
+# shellcheck source=/zpool/catallenya/systemd/contract.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/contract.sh"
+
 
 validate_service() {
     local unit="$1" file="$2"
@@ -328,7 +339,19 @@ validate_service() {
     esac
 
     # --- family contract ---
-    [[ "$family" == "intake" ]] && check_not_reset "$file" "$unit" intake $INTAKE_SETS
+    if [[ "$family" == "intake" ]]; then
+        check_not_reset "$file" "$unit" intake $INTAKE_SETS
+        # The pipeline directory is two levels up from scripts/<job>.sh. Checked once
+        # per pipeline rather than once per unit, since every unit in a family points
+        # at the same tree.
+        local exec_path pipe_dir
+        exec_path="$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$file" | head -1)"
+        pipe_dir="$(dirname "$(dirname "$exec_path")")"
+        if [[ -d "$pipe_dir" && -z "${INTAKE_SEEN[$pipe_dir]:-}" ]]; then
+            INTAKE_SEEN[$pipe_dir]=1
+            intake_contract "$pipe_dir" "$(basename "$pipe_dir")"
+        fi
+    fi
 
     # MaxAge=infinity parses to 18446744073709551615us, which the watchdog renders
     # as 1.84467e+13 and bash then refuses to compare — the check silently passes.

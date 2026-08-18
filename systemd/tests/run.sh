@@ -402,5 +402,59 @@ has "adopted stickers carry the crash wire"  "$(grep -c 'OnFailure=system-ntfy@%
 has "adopted stickers carry a finite bound"  "$(grep -c 'TimeoutStartSec=1h' "$INSTALL")" "2"
 
 echo
+# ------------------------------------------------- the intake code contract
+# Everything above tests the gate against a UNIT. These test it against the CODE an
+# intake job runs, which is where the three regressions most likely to come back
+# actually live. The check tree copies units and not scripts, so a violation is
+# staged in a fixture directory instead of by editing a live pipeline.
+echo "intake contract"
+
+# shellcheck source=../contract.sh
+# The contract accumulates into ERRORS via err(), exactly as the gate does.
+ERRORS=(); err() { ERRORS+=("$1"); }
+# shellcheck source=../contract.sh
+source "${REPO}/systemd/contract.sh"
+FIX="$(mktemp -d)"; mkdir -p "${FIX}/scripts"
+fixture() { printf '%s\n' "$1" > "${FIX}/scripts/thing.sh"; }
+contract_says() { # $1=name $2=expected substring
+    ERRORS=(); intake_contract "$FIX" fixture
+    local joined="${ERRORS[*]:-}"
+    [[ "$joined" == *"$2"* ]] && ok "$1" || bad "$1" "contains $2" "${joined:-<no error>}"
+}
+contract_clean() { # $1=name
+    ERRORS=(); intake_contract "$FIX" fixture
+    (( ${#ERRORS[@]} == 0 )) && ok "$1" || bad "$1" "no error" "${ERRORS[*]}"
+}
+
+fixture 'notify() {
+    curl -sS "$@"
+}'
+contract_says "a fifth copy of notify() is refused" "defines its own notify()"
+
+fixture 'retract() {
+    curl -X DELETE "$1"
+}'
+contract_says "so is a private retract()" "defines its own retract()"
+
+fixture 'notify "Something Broke" high warning "body"'
+contract_says "high priority is refused" "high priority"
+
+fixture 'out="$(api_post "$msgf")" || rc=$?
+if (( rc == 2 )); then park; else resolve; fi'
+contract_says "reading the API as pass/fail is refused" "never branches on rc 3"
+
+fixture 'out="$(api_post "$msgf")" || rc=$?
+if (( rc == 2 || rc == 3 )); then park; else resolve; fi'
+contract_clean "and handling all four verdicts passes"
+
+# The rule must not fire on the comments left to explain the rule. Both live intake
+# libs discuss api_post and high priority in exactly that way.
+fixture '# api_post moved to ai.lib.sh; nothing here calls it any more.
+# It used to notify at high priority, which nothing does now.
+echo hello'
+contract_clean "prose about the rule is not a violation"
+
+rm -rf "$FIX"
+
 printf 'systemd factory: %d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
