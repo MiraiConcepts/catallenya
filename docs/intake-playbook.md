@@ -1,7 +1,7 @@
 # The intake playbook
 
-Two pipelines turn things I drop into things I approve: **capture** (screenshot →
-calendar event) and **documents** (file → filed document). They converged on one
+Two pipelines turn things I drop into things I approve: **afterimage** (screenshot →
+calendar event) and **pigeonhole** (file → filed document). They converged on one
 shape on 2026-08-01, and this page records that shape so the next pipeline — or the
 next refactor — starts from it instead of rediscovering it. The audit checks in
 `audit/audit.sh` make the conventions mechanical; this page is the why.
@@ -16,18 +16,21 @@ drop zone ── .path unit ── triage (ONE vision call via ai/scripts/ai.lib
                         apply (does the write)
                                 │
         nightly sweep: nudge at 24h · resolve at 7d · morning-side SGT
+
+   and when the desk cannot answer:
+        park where it lies ── retry daily ── resolve at 7d from the FIRST failure
 ```
 
-| Aspect | Capture | Documents |
+| Aspect | Afterimage | Pigeonhole |
 |---|---|---|
-| Home | `capture/` | `pigeonhole/` |
+| Home | `afterimage/` | `pigeonhole/` |
 | Drop zone | `afterimage/data/incoming/` | `syncthing/data/master/documents` root |
 | Trigger | `.path` on `*.png` (bytes sniffed, JPEG welcome) | `.path` on 28 typed globs |
 | AI | one opus-5 vision call, shared config | same |
 | Buttons | Add / Discard | Accept / Discard (binned: Accept / Delete) |
 | State | `incoming → pending → archive` | `root → staging → (folder \| bin)` |
 | Backstop | folded into the sweep | `pigeonhole.backstop.timer` 03:00 SGT |
-| Sweep | 07:30 SGT | 07:45 SGT |
+| Sweep | 07:30 SGT | 07:45 SGT (+ `pigeonhole.retry.timer` 07:50) |
 | Writer | the container (CalDAV PUT) | `pigeonhole.apply.service` (host oneshot) |
 | Tests | `afterimage/tests` + `ai/tests` | `pigeonhole/tests` + `ai/tests` |
 
@@ -42,7 +45,7 @@ records) records the verdict, not a second copy of history.
 state I name, from wherever it is".
 
 **A notification lives exactly as long as its decision is outstanding** (2026-08-09).
-Every tap withdraws its own notification — documents after the move SUCCEEDS, capture
+Every tap withdraws its own notification — pigeonhole after the move SUCCEEDS, afterimage
 the instant the container archives the record — so a message disappearing means the
 thing happened, and one still sitting there means it did not. No button sets
 `clear=true`: that dismisses on the tap, before anything has been done, and would
@@ -82,12 +85,57 @@ add the topic to the allowlist, and the audit check keeps the two in step.
 Documents titles are verb-first with a count — `Staged: 3 Documents`, `Blocked:
 1 Document`, `Review:`, `Refused:`, `Binned:` — so the lock screen answers "what
 happened" before "to what". Tags are semantic (`warning` blocked, `question`
-review, `wastebasket` binned) and `high` priority is reserved for the two states
-that need a human: blocked and review. Capture reached the same rule from the
+review, `wastebasket` binned) and **nothing uses `high` priority** (2026-08-10).
+Everything-loud is how a topic gets muted, and a muted topic loses the loud
+messages first — so urgency lives in what a message says, not in how hard it
+knocks. The one message that could not survive being quiet was needs-a-human,
+which fired exactly once with nothing waiting anywhere; it now parks and gets a
+nudge like everything else, which removed the exception rather than amplifying it. Capture reached the same rule from the
 other side, with two glyphs for the whole topic (📆 calendar-shaped, ❗ trouble;
 see `afterimage/README.md`) because every message it sends is calendar-shaped. The
 shared part is the discipline, not the vocabulary: a phone-glanceable first
 word, and priority spent only where a tap is actually owed.
+
+**When the desk cannot answer, the item is PARKED, not resolved** (2026-08-10).
+`ai/scripts/ai.lib.sh` returns one of four verdicts, and a consumer needs only three
+branches: proceed, resolve now, or park. `retry` (unreachable) and `paused` (out of
+credits) share a branch on purpose — the disposal is identical and only the sentence
+`ai_reason()` supplies differs.
+
+A parked item stays exactly where it is, carries no blocked code and no flags, and
+offers no buttons, because no tap is owed. It is retried once a day and resolved at
+seven days measured from the FIRST failure — never from the last attempt, which is
+the same reason `skip` was deleted: anything that resets a deadline lets a thing be
+postponed forever. pigeonhole needs a `first_failed_at` field for this because it ages
+records from their file mtime, which every retry touches.
+
+The retry never moves the item back to its drop zone. afterimage can get away with it
+(its spool is local, and the `.path` unit picks the screenshot up again) but the
+document root is a Syncthing folder, so the same trick would replicate a move out and
+back to every device, twice a day, for the length of the outage. `pigeonhole.triage.sh
+--retry` re-classifies in place instead, and it is a separate job — `pigeonhole.retry.timer`
+— rather than a branch of the sweep, because the sweep deliberately holds no API key
+and nothing it does should be able to spend money.
+
+**A desk failure is the ONE thing that is shared vocabulary, not shared discipline.**
+Everywhere else, the rule below holds: each pipeline words its own messages. But "out
+of credits" is not an afterimage fact or a pigeonhole fact — it is one fact arriving
+on several topics, and it used to read as "Capture Failed — check the API key" on one
+and "Blocked: 1 Document — The model call failed" on the other, only one of which
+pointed anywhere near the problem. `paused_title()` and `paused_body()` in
+`ntfy/ntfy.lib.sh` build it, `ai_reason()` supplies the reason, and only two things
+vary: the noun, and the day-7 clause — because a document survives in `bin/` and a
+screenshot's image does not, and hiding that would make the message consistent by
+dropping the part you most need to know.
+
+**One transport, one set of sanitisers.** `notify`, `retract`, `ntfy_id_safe`, the
+`NTFY_DISABLE` mute seam, `hdr_safe` and `md_escape` all live in `ntfy/ntfy.lib.sh`.
+They were four private copies until 2026-08-10 and had already drifted: two lacked
+`--max-time`, and one had no `hdr_safe` at all. The sanitisers moved out of
+`ai.lib.sh` at the same time — they guard the boundary where untrusted text reaches a
+NOTIFICATION, which is a property of the sink and not of the API that fetched the
+text, and keeping them there meant liquidroom sourced the entire AI layer while
+calling no API at all.
 
 ## The two containers stay separate — do not "clean this up"
 
@@ -105,5 +153,10 @@ Copy the shape: own top-level directory (code only; per-file `.gitignore`
 allowlist, never `**`), a drop zone, a `.path` unit that drains, one call through
 `ai.lib.sh`, buttons whose meaning is a target state, a hardened writer, a
 morning-side sweep, `<topic>.<job>` unit names with `OnFailure=system-ntfy@`, and
-an offline test suite under `<pipeline>/tests/run.sh`. `audit/audit.sh` will hold
+an offline test suite under `<pipeline>/tests/run.sh`.
+
+Handle all four verdicts — three branches: proceed, resolve now, park. Take the
+transport and the paused message from `ntfy/ntfy.lib.sh` rather than writing your
+own; the only things you supply are your noun, where you park things, and your
+day-7 clause. Nothing you send uses `high`. `audit/audit.sh` will hold
 you to the mechanical parts.
