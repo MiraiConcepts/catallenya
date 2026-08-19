@@ -101,6 +101,44 @@ is "same reason clause" \
 is "reason is not the caller's to write" "$r" "Out of credits"
 is "a timeout reads differently"         "$(ai_reason 2)" "The API is unreachable"
 
+# ------------------------------------------------- paused_sync choreography
+# paused_sync is proven by SHADOWING notify/retract inside a subshell: the shadows
+# print the argv they receive, so the assertions read the exact choreography — what
+# was retracted, what was published, in what order — with no wire involved. The
+# real functions stay muted underneath (NTFY_DISABLE=1) in case a shadow is missed.
+echo "paused_sync"
+sync_trace() {
+    (
+        retract() { printf 'RETRACT %s\n' "${1:-}"; }
+        notify()  { printf 'NOTIFY title=[%s] prio=[%s] tags=[%s] actions=[%s] id=[%s]\n%s\n' \
+                        "${1:-}" "${2:-}" "${3:-}" "${5:-}" "${6:-}" "${4:-}"; }
+        paused_sync "$@"
+    )
+}
+
+t="$(sync_trace pause-1 Document "Out of credits" "moved to bin/ in 7 days" a.pdf b.pdf)"
+is  "retract fires first, before any publish" "$(head -n1 <<<"$t")" "RETRACT pause-1"
+has "then the summary, count and noun threaded" "$t" "title=[Paused: 2 Documents]"
+has "default priority — nothing shouts"  "$t" "prio=[]"
+has "the one deliberate glyph"           "$t" "tags=[warning]"
+has "no buttons on a summary"            "$t" "actions=[]"
+has "replacement rides the SAME id"      "$t" "id=[pause-1]"
+has "items reach paused_body"            "$t" '1\. a.pdf'
+has "reason and outcome too, in its own arg order" "$t" \
+    "_Out of credits. Retrying daily — moved to bin/ in 7 days._"
+
+# The fix itself: the run that finds nothing paused still retracts — this is what
+# takes "Paused: N …" off the phone when the outage ends — and publishes nothing.
+# Both triages used to skip the retract with the branch, so the summary rotted.
+t0="$(sync_trace pause-1 Document "" "")"
+is    "resolved outage: retract still happens" "$t0" "RETRACT pause-1"
+hasnt "and no replacement is published"        "$t0" "NOTIFY"
+is    "a bare id is enough to withdraw"        "$(sync_trace pause-1)" "RETRACT pause-1"
+
+# An empty id would publish a summary nothing can ever withdraw; the call declines.
+te="$(sync_trace "" Document "Out of credits" "x" a.pdf 2>/dev/null)"
+is "no id: nothing retracted, nothing published" "$te" ""
+
 # ------------------------------------------------------------------ mute seam
 echo "mute seam"
 is "the suite is muted"  "$(ntfy_muted && echo yes)" "yes"
