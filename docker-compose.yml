@@ -674,8 +674,9 @@ services:
 
   # The same image with NO network whatsoever: separation, the lead/rhythm split
   # and the mixes read /work and /models and talk to nobody. The split model is a
-  # community checkpoint (sha256-pinned in liquidroom/scripts/models.sh); running
-  # it disconnected means even a malicious pickle has nowhere to phone home.
+  # community checkpoint (sha256-pinned as MODEL_PINS in liquidroom/scripts/
+  # liquidroom.lib.sh, verified before every run); running it disconnected means
+  # even a malicious pickle has nowhere to phone home.
   liquidroom-roformer:
     image: catallenya-liquidroom
     profiles: ["liquidroom"]
