@@ -13,6 +13,7 @@ Both pipelines share the `immich.lib.sh` substrate (`imapi`, `imapi_load_key`, `
 |---|---|
 | `immich.conf` | Base URL + API key file path (sourced by lib). |
 | `immich.lib.sh` | Shared helpers: `imapi <METHOD> <path>`, `imapi_load_key`, `imapi_require_cmd`. |
+| `immich.dates.lib.sh` | Date derivation shared by fix-dates scan + verify: `parse_filename_date`, the exif/container/mtime readers, `in_range`, `same_second`. One copy, so verify re-reads exactly what scan derived. |
 | `immich.validate.sh` | Read-only connectivity + auth + stats sanity check. Run first to verify API access. |
 | `immich.find-junk.sh` | Reads Postgres directly, writes a timestamped run dir under `runs/<ts>/` with `tier-{a,b}-{image,video}.tsv` + `summary.txt`. Read-only. `--type=image\|video\|all` (default `all`). `--enable-monochrome` adds `tier-c-image.tsv` (low-bytes-per-pixel prefilter for single-color candidates). |
 | `immich.verify-junk.sh` | Reads tier files, ffmpeg-remuxes / decodes each candidate, classifies into `verified-junk-*.tsv` (safe to delete) or `rescued-*.tsv` (do NOT delete, review). Read-only. **Mandatory before delete.** Also supports `--audit-run=<ts>` mode for retroactive checks on already-deleted assets. |
@@ -137,7 +138,7 @@ Each run dir's `deleted.tsv` is the delete-side audit trail:
 - `404` = asset already gone (manually deleted, or prior trash purge)
 - anything else = failure (inspect the response; script continues past per-asset errors but aborts on `401`).
 
-The presence of `deleted.tsv` in a run dir marks it processed; `delete.sh` skips it on auto-pick. Pass `--force-rerun` to re-process; the script subtracts IDs already in `deleted.tsv` so no double-deletes.
+The presence of `deleted.tsv` in a run dir marks it processed; `delete.sh` skips it on auto-pick. Pass `--force-rerun` to re-process; the script subtracts IDs whose logged outcome is terminal (`2xx`/`404`) so no double-deletes, while failure rows (`000`/`5xx`) are retried — a transient failure does not permanently exclude an asset.
 
 `restored.tsv` (written by restore.sh) follows the same shape.
 
@@ -175,7 +176,7 @@ First non-empty source that passes the sanity range (`--min-date` ≤ d ≤ `--m
 
 ### Apply safety
 
-`apply.sh` pauses Immich's `metadataExtraction` job before issuing PUTs and resumes it in an `EXIT` trap. Without this, a queued extraction can land after the PUT and overwrite the new date (immich-app/immich#16901).
+`apply.sh` pauses Immich's `metadataExtraction` job before issuing PUTs and resumes it in an `EXIT` trap. Without this, a queued extraction can land after the PUT and overwrite the new date (immich-app/immich#16901). A failed pause therefore aborts the run — pass `--no-pause-jobs` to accept the race explicitly.
 
 A successful `PUT /api/assets/{id}` with `dateTimeOriginal` triggers a `SIDECAR_WRITE` job that persists the new date to an XMP sidecar next to the asset. Subsequent metadata extractions read the sidecar (XMP > embedded EXIF), so writes are authoritative across rescans.
 
