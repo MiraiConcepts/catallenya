@@ -6,10 +6,12 @@
 # Job-queue safety: pauses the `metadataExtraction` job before applying and
 # resumes it in an EXIT trap (so resume runs even on Ctrl-C / abort). This
 # avoids the documented race where a queued extraction lands after the PUT
-# and overwrites the new date (immich-app/immich#16901).
+# and overwrites the new date (immich-app/immich#16901). A failed pause
+# ABORTS — pass --no-pause-jobs to accept the race explicitly.
 #
 # Resume: applied.tsv is appended one row per asset. If a run is interrupted,
-# re-running with --force-rerun skips IDs already in applied.tsv.
+# re-running with --force-rerun skips uuids already logged as succeeded (2xx)
+# and retries failure rows (000/5xx).
 #
 # Usage:
 #   bash immich/scripts/immich.fix-dates.apply.sh [OPTIONS]
@@ -184,11 +186,15 @@ OUT_FILE="$RUN_DIR/applied.tsv"
 if [[ $DRY_RUN -ne 1 && -f "$OUT_FILE" && -z "$FROM_FILE" ]]; then
   if [[ "$FORCE_RERUN" -ne 1 ]]; then
     echo "error: $OUT_FILE already exists." >&2
-    echo "  Pass --force-rerun to retry any uuids not yet logged in it." >&2
+    echo "  Pass --force-rerun to retry uuids without a logged success (2xx)." >&2
     exit 2
   fi
   done_ids="$(mktemp)"
-  awk -F'\t' '{print $1}' "$OUT_FILE" | sort -u > "$done_ids"
+  # Only success rows (http col = 2xx) count as done. Failure rows (000
+  # transport, 5xx) stay retryable: every logged row used to count, so one
+  # transient failure excluded an asset from every future rerun and the
+  # advertised --force-rerun remedy retried exactly nothing.
+  awk -F'\t' '$5 ~ /^2/ {print $1}' "$OUT_FILE" | sort -u > "$done_ids"
   awk -F'\t' -v dones="$done_ids" '
     BEGIN { while ((getline id < dones) > 0) d[id]=1 }
     !($1 in d)
@@ -260,7 +266,15 @@ pause_metadata_job() {
     JOB_PAUSED=1
     echo "  paused."
   else
-    echo "  WARNING: pause failed (admin key required?). Continuing anyway." >&2
+    # Continuing here would be exactly the race the pause exists to close: a
+    # queued extraction lands after our PUT and overwrites the new date
+    # (immich-app/immich#16901) — silently, per-asset. The explicit opt-out
+    # already exists, so a failed pause aborts rather than degrading quietly.
+    echo "FATAL: could not pause metadataExtraction (admin key required?). Aborting." >&2
+    echo "  Applying without the pause races any queued extraction, which can" >&2
+    echo "  overwrite the new dates. Either use an API key that can pause jobs," >&2
+    echo "  or pass --no-pause-jobs to accept the race explicitly." >&2
+    exit 2
   fi
 }
 
@@ -331,6 +345,12 @@ export DRY_RUN IMMICH_API_KEY IMMICH_API_URL IMMICH_HTTP_TIMEOUT OUT_FILE
 # Touch the output file so all workers append cleanly (skip in dry-run; no file used).
 [[ $DRY_RUN -ne 1 ]] && touch "$OUT_FILE"
 
+# Rows already in applied.tsv before this run (the --force-rerun case). The
+# summary must count only this run's appends: counting the whole file made a
+# 100% clean rerun re-report the previous run's failures and exit 1.
+PRE_ROWS=0
+[[ $DRY_RUN -ne 1 && -f "$OUT_FILE" ]] && PRE_ROWS="$(wc -l < "$OUT_FILE" | tr -d ' ')"
+
 # ── Run apply in parallel ────────────────────────────────────────────────
 echo "Applying $TOTAL date fix(es) with $PARALLEL workers..."
 < "$TMP_INPUT" xargs -P "$PARALLEL" -d '\n' -I {} \
@@ -343,8 +363,10 @@ if [[ $DRY_RUN -eq 1 ]]; then
   exit 0
 fi
 
-ok=$(awk -F'\t' '$5 ~ /^2/' "$OUT_FILE" | wc -l | tr -d ' ')
-failed=$(awk -F'\t' '$5 !~ /^2/' "$OUT_FILE" | wc -l | tr -d ' ')
+# Count only this run's rows — appends land at the end of the file, so the
+# previous runs' rows are exactly the first PRE_ROWS lines.
+ok=$(tail -n +"$((PRE_ROWS + 1))" "$OUT_FILE" | awk -F'\t' '$5 ~ /^2/' | wc -l | tr -d ' ')
+failed=$(tail -n +"$((PRE_ROWS + 1))" "$OUT_FILE" | awk -F'\t' '$5 !~ /^2/' | wc -l | tr -d ' ')
 
 echo
 echo "Done."
@@ -354,8 +376,9 @@ echo "  log:        $OUT_FILE"
 
 if (( failed > 0 )); then
   echo
-  echo "Failed rows (first 10):"
-  awk -F'\t' '$5 !~ /^2/' "$OUT_FILE" \
+  echo "Failed rows (first 10, this run):"
+  tail -n +"$((PRE_ROWS + 1))" "$OUT_FILE" \
+    | awk -F'\t' '$5 !~ /^2/' \
     | head -10 \
     | awk -F'\t' '{printf "  %s  http=%s  %s → %s  [%s]\n", $1, $5, substr($2,1,19), substr($3,1,19), $4}'
 fi

@@ -5,8 +5,9 @@
 # the base hardening.
 #
 # The inherited OnFailure is a BACKSTOP only, as it was before.
-# immich.fix-rotations.daily.sh already posts its own high-priority "Immich
-# rotation bake failed" to the immich topic — it runs `set -uo pipefail` WITHOUT
+# immich.fix-rotations.daily.sh already posts its own "Immich rotation bake
+# failed" to the immich topic (default priority — nothing in this repo shouts —
+# and silent when there is nothing to report). It runs `set -uo pipefail` WITHOUT
 # -e precisely so that notify survives a non-zero inner run, then propagates with
 # exit "${RC}". What OnFailure covers is the case notify cannot: the script dying
 # before it reaches that point (missing .env, OOM, syntax error, timeout kill),
