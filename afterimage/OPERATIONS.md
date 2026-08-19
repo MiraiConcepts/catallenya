@@ -1,4 +1,4 @@
-# capture — operations
+# afterimage — operations
 
 Installing the client, rebuilding the server side, and the credentials both need.
 What it is and why it is shaped this way lives in [README.md](README.md).
@@ -33,7 +33,7 @@ chmod +x ~/.local/bin/capture
 
 **4. Subscribe to the notifications**
 
-Open the ntfy app and subscribe to the **`capture`** topic on the tailnet server.
+Open the ntfy app and subscribe to the **`afterimage`** topic on the tailnet server.
 Without this the pipeline works but you never see the proposals.
 
 The client needs no credentials — it only reaches a tailnet-only URL, and the
@@ -68,7 +68,7 @@ chmod 600 afterimage/dav-secret
 Then:
 
 ```bash
-docker compose up -d --build capture
+docker compose up -d --build afterimage
 docker compose up -d --force-recreate caddy   # new port needs a recreate, not restart
 sudo bash systemd/install.sh                  # symlinks + enables the .path and .timer
 ```
@@ -80,7 +80,7 @@ shipped briefly on 2026-07-27 — breaks the web client with an opaque
 `TypeError: NetworkError`. The phone app does native HTTP and never sees this. Any
 other page is still refused, because browsers set `Origin` and a page cannot forge it.
 
-Last step is subscribing a device to the `capture` topic (above). Everything else can
+Last step is subscribing a device to the `afterimage` topic (above). Everything else can
 be green and you will still never see a proposal without it.
 
 ## Running and inspecting
@@ -89,7 +89,8 @@ be green and you will still never see a proposal without it.
 sudo systemctl start afterimage.triage.service      # drain incoming/ now
 bash afterimage/scripts/afterimage.sweep.sh --dry-run  # preview the nightly sweep
 bash afterimage/tests/run.sh                        # offline suite
-bash ai/tests/run.sh                             # the transport half — run both
+bash ai/tests/run.sh                                # the transport half — run both
+bash ntfy/tests/run.sh                              # and the notification transport
 ```
 
 Outcome counts, straight from the archive — there is no ledger, so each record's

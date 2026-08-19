@@ -7,7 +7,7 @@
 # Caddy URL rather than a container name or a hardcoded IP.
 #
 # Everything that talks to api.anthropic.com now lives in ai.lib.sh, shared with
-# documents.intake — api_post/api_class (transport + retry), image_mime/image_ext,
+# pigeonhole — api_post/api_class (transport + retry), image_mime/image_ext,
 # ai_build_request and ai_extract. Sourced FIRST, before the log()/die() below, so
 # this file's identical definitions stay authoritative. Do not re-add a local copy
 # of any of it: capture's was the copy, and the divergence risk is the whole point.
@@ -39,6 +39,11 @@ NTFY_TOPIC="afterimage"
 # One paused message per topic, not one per screenshot: a stable literal, so each run
 # retracts the previous and republishes with the current count instead of stacking.
 PAUSED_NTFY_ID="afterimage-paused"
+# Same reasoning, for the alarm raised when a screenshot cannot be moved out of
+# incoming/. That one re-fires on EVERY trigger — and PathExistsGlob re-fires as long
+# as the file is there, so a full pool bought twelve identical notifications before
+# systemd gave up. A stable id makes the twelfth replace the first.
+STUCK_NTFY_ID="afterimage-stuck"
 # Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
 # documents pipeline — one edit there moves both.
 # Output ceiling for one triage call. Adaptive thinking counts against this, and a
@@ -173,6 +178,65 @@ button_label() {
     esac
 }
 
+# safe_label <this-event-json> <other-event-json> <fallback>
+# button_label's answer, guaranteed to survive the Actions header. The label is
+# spliced into a comma-and-semicolon separated list, so a stray comma or CRLF would
+# silently splice a button of its own; anything outside the whitelist is replaced
+# with the caller's generic word instead.
+#
+# The length bound must track BUTTON_LABEL_MAX, and this is now the ONE place it
+# does. When the two drifted apart — the cap was raised and the regex was not — a
+# longer label silently became the generic "Add" instead of the venue it had just
+# been trimmed to.
+safe_label() {
+    local l
+    l="$(button_label "$1" "$2")"
+    [[ "$l" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || l="$3"
+    printf '%s' "$l"
+}
+
+# capture_actions <base-url> <record-id> <primary-label> [alt-label]
+# The ntfy Actions string: [primary] [alternative] [Discard]. An empty alt label
+# means there is no alternative and the middle button is simply absent.
+#
+# ONE definition, because the sweep's nudge had its own — hardcoded to "Add" and
+# "Discard" — which dropped the Alternative button on every nudge while
+# event.alt.ics was still on disk and the ?alt=1 route still live. The nudge
+# retracts the original message, so tapping the alternative stopped being possible
+# at all: the button was not merely absent, it was withdrawn.
+#
+# X-Afterimage is not authentication. It forces a CORS preflight, which the
+# container answers for exactly one origin, so a page open on a tailnet device
+# cannot fire a callback it scraped off the (unauthenticated) topic.
+capture_actions() {
+    local base="$1" id="$2" primary="$3" alt="${4:-}" a
+    a="http, ${primary}, ${base}/afterimage/${id}/add, method=POST, headers.X-Afterimage=1"
+    [[ -n "$alt" ]] && \
+        a+="; http, ${alt}, ${base}/afterimage/${id}/add?alt=1, method=POST, headers.X-Afterimage=1"
+    a+="; http, Discard, ${base}/afterimage/${id}/drop, method=POST, headers.X-Afterimage=1"
+    printf '%s' "$a"
+}
+
+# record_actions <base-url> <record-id> <record-dir> -> Actions string, non-zero if
+# the record carries no proposal.
+#
+# The same buttons, derived from what is ON DISK rather than from a reply in memory
+# — which is all the sweep has, hours or days later. event.alt.ics is the test for
+# the alternative because it is the file the ?alt=1 route reads: offering a button
+# whose .ics is missing would be a tap that answers 500.
+record_actions() {
+    local base="$1" id="$2" rec="$3" ev alt
+    ev="$(cat "${rec}/proposal.json" 2>/dev/null)" || return 1
+    [[ -n "$ev" ]] || return 1
+    if [[ -f "${rec}/event.alt.ics" && -f "${rec}/proposal.alt.json" ]]; then
+        alt="$(cat "${rec}/proposal.alt.json")"
+        capture_actions "$base" "$id" \
+            "$(safe_label "$ev" "$alt" Add)" "$(safe_label "$alt" "$ev" Alternative)"
+    else
+        capture_actions "$base" "$id" "$(safe_label "$ev" "$ev" Add)"
+    fi
+}
+
 # fork_record <src-record> <dst-record> <ext> <capture-group-id>
 # Copy one capture's record into a sibling for another event from the same
 # screenshot. The image is HARDLINKED, so N events off one screenshot cost one
@@ -191,6 +255,36 @@ fork_record() {
     jq -c --arg g "$group" '. + {capture_group:$g}' "${src}/context.json" \
         > "${dst}/context.json" 2>/dev/null || cp "${src}/context.json" "${dst}/context.json" 2>/dev/null
     return 0
+}
+
+# fan_out_records <capture-id> <capture-record> <ext> <count>
+# One record per event from a single screenshot, printed as "<eid>\t<record-dir>":
+# ALWAYS <count> lines, ALWAYS in event order. The capture's own record is the first,
+# so the screenshot the others are hardlinked from is not the one archive_record moves
+# first; every other event gets a sibling.
+#
+# A line with an EMPTY id is an event whose record could not be created. It is printed
+# rather than skipped because the caller pairs these lines with the event list
+# POSITIONALLY. A compacting list was the bug: with three events and a failure on the
+# second, the third event was written into the second's record and the fourth vanished
+# with nothing counted and nothing said — the log even named the wrong casualty.
+#
+# The half-built directory goes with it. A record with no screenshot and no
+# first_failed stamp matches no branch of the sweep, so it would sit in pending/
+# forever, invisible to everything including the watchdog.
+fan_out_records() {
+    local id="$1" rec="$2" ext="$3" n="$4" k eid erec
+    for (( k = 0; k < n; k++ )); do
+        if (( k == 0 )); then printf '%s\t%s\n' "$id" "$rec"; continue; fi
+        eid="$(cat /proc/sys/kernel/random/uuid)"
+        erec="${PENDING_DIR}/${eid}"
+        if fork_record "$rec" "$erec" "$ext" "$id"; then
+            printf '%s\t%s\n' "$eid" "$erec"
+        else
+            rm -rf "$erec"
+            printf '\t\n'
+        fi
+    done
 }
 
 # event_is_past <date> <start_time> <all_day> <now-epoch> -> true when it is over
@@ -220,6 +314,52 @@ event_is_past() {
 # after two days", and an outage longer than a weekend destroyed captures that were
 # never wrong. The retry is now once per sweep, which is once per day, until this.
 PAUSED_GIVE_UP_DAYS=7
+
+# parked_ids <pending-dir> -> the short id of every record waiting on the API
+#
+# ONE predicate, read by the triage's end-of-run summary and by the sweep, because
+# they disagreed: the triage tested proposal.json and the sweep tests capture.json.
+# proposal.json is only a PROXY for "did the model answer", and a wrong one — a
+# needs-a-human record has no proposal either, because there was no date to render.
+# So a capture the model had read and reported on was counted as an outage victim,
+# and the paused summary said "2 Screenshots" while one of them was simply waiting
+# for the owner.
+#
+# first_failed is the other half: no stamp means the triage has not finished with the
+# record, which is a run in flight rather than something parked.
+parked_ids() {
+    local dir="$1" p
+    for p in "$dir"/*/; do
+        # Independent of nullglob, which is set by the scripts and not by this file:
+        # an unmatched glob stays literal and simply fails to be a directory.
+        [[ -d "$p" ]] || continue
+        p="${p%/}"
+        [[ -f "${p}/first_failed" ]] || continue
+        [[ -f "${p}/capture.json" ]] && continue
+        basename "$p" | cut -c1-8
+    done
+}
+
+# parked_reason <pending-dir> -> the sentence in front of the paused summary
+#
+# Read from the ${rec}/paused_reason the triage writes at park time, most recent
+# park first — NEVER from a variable left over from the triage's own loop. The
+# summary is built from every parked record, including ones this run never touched,
+# so the leftover reason labelled a week-old billing pause with whatever the last
+# screenshot in the batch happened to hit — and on a run where everything SUCCEEDED
+# it was `ai_reason 0`, the empty string, which rendered as "Paused: 3 Screenshots …
+# . Retrying daily".
+#
+# The fallback covers records parked before this file existed; anything newer has one.
+parked_reason() {
+    local dir="$1" f newest="" reason=""
+    for f in "$dir"/*/paused_reason; do
+        [[ -f "$f" ]] || continue
+        [[ -z "$newest" || "$f" -nt "$newest" ]] && newest="$f"
+    done
+    [[ -n "$newest" ]] && reason="$(cat "$newest")"
+    printf '%s' "${reason:-$(ai_reason 2)}"
+}
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
