@@ -8,3 +8,21 @@ Type=oneshot
 User=carrein
 Group=carrein
 ExecStart=/zpool/catallenya/ntfy/system-ntfy.sh %i
+
+# Declared HERE, not inherited, because this unit is PLUMBING: install.sh links no
+# policy drop-in onto it at all. Giving the courier the base policy would wire its
+# own OnFailure= back to itself, so a failed alert would start a courier to complain
+# about the courier, which fails, which starts another. The price of that exemption
+# is that every bound the classes provide has to be written out here — and this is
+# the one that was missing.
+#
+# Without it the unit ran at the Type=oneshot default of `infinity`. An ntfy that
+# accepts the connection and never answers would leave a failure handler hanging
+# forever, holding a job in `activating` for the job it was reporting on — and
+# nothing watches the courier, by design. The script's own curl --max-time 15 is the
+# inner bound; this is the outer one, sized so it can only ever be reached by
+# something the curl timeout did not cover (DNS, a wedged TLS handshake).
+#
+# RuntimeMaxSec= would be the wrong directive: systemd IGNORES it on Type=oneshot
+# while still reporting it in `systemctl show`.
+TimeoutStartSec=2min
