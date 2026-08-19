@@ -595,15 +595,17 @@ services:
           # runaway is capped rather than eating the box.
           memory: 128M
     environment:
-      # The ONE browser origin allowed to satisfy the X-Documents preflight — the
+      # The ONE browser origin allowed to satisfy the X-Pigeonhole preflight — the
       # ntfy web UI, which taps buttons via browser fetch. The phone app does native
       # HTTP and never sees this. Any other page is refused.
       NTFY_ORIGIN: https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}
     volumes:
-      # THE ONLY MOUNT, AND THE WHOLE SECURITY ARGUMENT. This container can write
-      # zero-byte markers into one directory and nothing else — master/documents is
-      # not visible to it at any path. The move is done by pigeonhole.apply.service,
-      # a hardened oneshot that is never reachable from the network.
+      # THE ONLY MOUNT, AND THE WHOLE SECURITY ARGUMENT. This container can write one
+      # kind of marker into one directory and nothing else — master/documents is not
+      # visible to it at any path. A marker is {"action":…,"at":…}: an id and a verb,
+      # and NO PATH, which is the property that matters — where the document is and
+      # where it may go are read from the record the triage wrote. The move is done by
+      # pigeonhole.apply.service, a hardened oneshot never reachable from the network.
       #
       # Do NOT add a mount here. If a future change seems to need one, it belongs in
       # the apply script instead; the reason this service is safe to expose on the
