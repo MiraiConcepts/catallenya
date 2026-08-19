@@ -17,9 +17,9 @@ is ever written to your calendar without that tap.
 ## How it works
 
 ```
-laptop hotkey ──curl──▶ Caddy ──▶ capture container ──┐
-                                                       │  writes incoming/<id>.png
-                                    afterimage/data/  ◀───┘
+laptop hotkey ──curl──▶ Caddy ──▶ afterimage container ──┐
+                                                         │  writes incoming/<id>.png
+                                   afterimage/data/  ◀────┘
                                          │
               afterimage.triage.path fires ─┤
                                          ▼
@@ -30,7 +30,7 @@ laptop hotkey ──curl──▶ Caddy ──▶ capture container ──┐
                                          │
                         you tap ─────────┘
                                          ▼
-                        capture container ──PUT──▶ Radicale
+                     afterimage container ──PUT──▶ Radicale
 ```
 
 Two halves, sharing only the `afterimage/data/` spool:
@@ -55,8 +55,8 @@ downstream of that object is deterministic — `render_ics.py` never talks to th
 **One screenshot, several events.** The triage fans a multi-event reply into one
 RECORD PER EVENT — each with its own id, `.ics`, notification and buttons, all
 sharing a single hardlinked screenshot. Nothing downstream knows about this: each
-record is exactly the one-event shape the container, the sweep, the archive and the
-ledger already handle, which is why there is no indexed callback. `MAX_EVENTS_PER_CAPTURE`
+record is exactly the one-event shape the container, the sweep and the archive
+already handle, which is why there is no indexed callback. `MAX_EVENTS_PER_CAPTURE`
 bounds the ping storm; `events_seen` records the true page total, and a truncated
 list says so in the body.
 
@@ -79,10 +79,11 @@ event, and only then the current year, taking the nearest candidate still ahead.
 |---|---|
 | `src/server.ts` | Bun HTTP surface: upload + Add/Discard callbacks + CalDAV PUT |
 | `scripts/afterimage.triage.sh` | opus-5 vision call, `.ics` render, ntfy proposal |
-| `scripts/afterimage.sweep.sh` | nightly 07:30 SGT: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, prune old screenshots, report stray files in `incoming/` |
-| `scripts/afterimage.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `diff_axis`, `button_label`, `md_escape`, `fork_record` |
-| `../ai/scripts/ai.lib.sh` | **shared with documents-intake** — everything that talks to the API: `api_post` retry, `api_class`, `image_mime`, `ai_build_request`, `ai_extract`. See `ai/README.md` |
-| `tests/run.sh` | offline regression suite — every case is a bug that shipped. Transport cases live in `ai/tests/run.sh`; run both |
+| `scripts/afterimage.sweep.sh` | nightly 07:30 SGT: re-notify stale proposals, re-queue after a transient API failure, archive ignored ones, withdraw the notifications of resolved records, keep the paused summary in step, prune old screenshots, report stray files in `incoming/` |
+| `scripts/afterimage.lib.sh` | shared config + the deterministic guards: `validate_proposal`, `triage_route`, `event_is_past`, `diff_axis`, `button_label`, `capture_actions`, `fork_record`, `fan_out_records`, `parked_ids` |
+| `../ntfy/ntfy.lib.sh` | **shared with every pipeline** — `notify`, `retract`, `paused_sync` and the sanitisers `md_escape`/`hdr_safe`. See `ntfy/tests/run.sh` |
+| `../ai/scripts/ai.lib.sh` | **shared with pigeonhole** — everything that talks to the API: `api_post` retry, `api_class`, `image_mime`, `ai_build_request`, `ai_extract`. See `ai/README.md` |
+| `tests/run.sh` | offline regression suite — every case is a bug that shipped. Transport cases live in `ai/tests/run.sh` and `ntfy/tests/run.sh`; run all three |
 | `scripts/render_ics.py` | deterministic RFC 5545 writer (fold/escape, timed events converted to UTC — no VTIMEZONE by design) |
 | `systemd/` | `.path` trigger + `.service` + nightly sweep `.timer` |
 | `client/afterimage.sh` | **laptop-side** hotkey script (install steps in [OPERATIONS.md](OPERATIONS.md)) |
@@ -163,21 +164,27 @@ back to a WORD boundary: a hard cut produced `Esplanade Co`, which reads as a
 rendering fault rather than an abbreviation. ntfy itself imposes no limit — 43
 characters were accepted — so the cap is only about phone width.
 
-Two captures that need you rather than a decision use the same 📅 and no buttons:
+Two captures that need you rather than a decision carry ❗ and no buttons:
 **Missing Event** (the screenshot described nothing schedulable) and a needs-a-human
 capture, which leads with the event's own title where the reply carried one and falls
-back to **Needs A Human**. Notifications send no `Priority` header at all — ranking a
-proposal against the note beside it was noise — with one exception: needs-a-human
-sends `high`, because it fires exactly once with no buttons and no sweep nudge, so it
-is the one calendar-facing message where a miss loses the capture.
+back to **Needs A Human**. Nothing here sends a `Priority` header at all — ranking a
+proposal against the note beside it was noise, and everything-loud is how a topic
+ends up muted. needs-a-human used to be the exception, sent `high` because it fired
+exactly once with no buttons and nothing waiting anywhere, so missing it lost the
+capture outright. That was compensation for a design fault rather than urgency: the
+record is now PARKED like every other unresolved thing, nudged at 24h and archived at
+7 days, which removed the exception instead of amplifying it.
 
-Two glyphs cover the whole topic (owner call, 2026-08-01; the alarms used to wear
+Three glyphs cover the whole topic (owner call, 2026-08-01; the alarms used to wear
 ⚠️📷): 📆 (`Tags: calendar`) on everything genuinely calendar-shaped — proposals,
-Already Passed, the sweep's Still Waiting — and ❗ (`Tags: exclamation`) on
-everything that means an error or missing information: the no-buttons degraded
-proposal, Missing Event, needs-a-human (both titles), and the four infrastructure
-alarms (`Capture Stuck`, `Capture Failed`, `Capture Gave Up`, `Stray Files In
-Capture Spool`). Custom
+Already Passed, the sweep's Still Waiting; ❗ (`Tags: exclamation`) on everything
+that means an error or missing information — the no-buttons degraded proposal,
+Missing Event, needs-a-human (both titles), and the four infrastructure alarms
+(`Afterimage Stuck`, `Afterimage Failed`, `Afterimage Gave Up`, `Stray Files In
+Afterimage Spool`); and ⚠️ (`Tags: warning`) on the one message that is neither, the
+**paused summary** raised when the API cannot be reached or the account cannot pay.
+That message is shared word for word with the other intake pipeline, glyph included,
+so one outage reads identically wherever it lands. Custom
 icons are possible — an `Icon:` header pointing at a PNG/JPEG URL, fetched by the
 *phone* rather than the server and cached about a day — but are deliberately not used
 here: a tag emoji needs nothing hosted and nothing fetched.
@@ -261,10 +268,10 @@ switch. Both arms had to be re-run fresh — the archived replies spanned fourte
 prompt versions, so diffing a new model against them would have measured the prompt
 rewrites instead. Result in the Notes below.
 
-**Screenshots stay on this box.** `capture/` is deliberately absent from restic's
+**Screenshots stay on this box.** `afterimage/` is deliberately absent from restic's
 path allowlist, so nothing here is copied to cloud storage — a screenshot can
 contain anything that was on screen. ZFS + sanoid still cover disk failure and
-rollback. Do not add `capture/` to restic without revisiting that decision.
+rollback. Do not add `afterimage/` to restic without revisiting that decision.
 
 ## Cost
 

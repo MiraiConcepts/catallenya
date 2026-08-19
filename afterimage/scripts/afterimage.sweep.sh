@@ -88,10 +88,24 @@ for rec in "${records[@]}"; do
         # a stuck item cannot postpone its own deadline.
         if (( age_d >= PAUSED_GIVE_UP_DAYS )); then
             (( DRY )) && { log "would give up on ${id:0:8} (${age_d}d parked)"; continue; }
+            # Say WHY, in the words ai_reason() used at the last park — this record
+            # is being destroyed on the strength of it, and "could not reach the
+            # API" is actively wrong for the commonest cause, an empty balance the
+            # owner can fix. Records parked before paused_reason existed keep the
+            # old wording rather than inventing a cause for them.
+            #
+            # Read BEFORE archive_record, which MOVES the whole record out of
+            # pending/ — afterwards this path names nothing.
+            gave_up=""
+            [[ -f "${rec}/paused_reason" ]] && gave_up="$(cat "${rec}/paused_reason")"
+            if [[ -n "$gave_up" ]]; then
+                give_up_body="${gave_up} — that screenshot (id ${id:0:8}) went unanswered for ${age_d} days. Take it again once things are healthy."
+            else
+                give_up_body="Could not reach the API for that screenshot (id ${id:0:8}) in ${age_d} days. Take it again once things are healthy."
+            fi
             archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
                 && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
-            notify "Afterimage Gave Up" "" "exclamation" \
-                   "Could not reach the API for that screenshot (id ${id:0:8}) in ${age_d} days. Take it again once things are healthy."
+            notify "Afterimage Gave Up" "" "exclamation" "$give_up_body"
             continue
         fi
 
@@ -155,8 +169,13 @@ for rec in "${records[@]}"; do
         title="$(jq -r '.title // "Capture"' "${rec}/proposal.json")"
         when="$(jq -r 'if .all_day then .date + " (all day)" else .date + " " + (.start_time // "") end' \
                 "${rec}/proposal.json")"
-        if base="$(capture_base_url)"; then
-            actions="http, Add, ${base}/afterimage/${id}/add, method=POST, headers.X-Afterimage=1; http, Discard, ${base}/afterimage/${id}/drop, method=POST, headers.X-Afterimage=1"
+        if base="$(capture_base_url)" && actions="$(record_actions "$base" "$id" "$rec")"; then
+            # The nudge used to hardcode [Add] [Discard], which dropped the
+            # ALTERNATIVE button — while event.alt.ics sat on disk and the ?alt=1
+            # route stayed live. Since the nudge retracts the original message, the
+            # second reading was not merely unlabelled, it became unreachable: the
+            # only notification offering it had just been withdrawn. record_actions
+            # builds the same buttons the triage did, from the record itself.
             # Withdraw the original, then publish the nudge under the SAME id, so
             # the phone ends up with one notification rather than two. Deliberately
             # retract-then-publish and not an in-place update: an update may be
@@ -170,6 +189,20 @@ for rec in "${records[@]}"; do
         fi
     fi
 done
+
+# --- paused: the summary matches what is still parked ----------------------
+# The triage publishes this too, but it only runs when a screenshot arrives — so
+# the run that gave up on the LAST parked record above would otherwise leave
+# "Paused: 1 Screenshot" on the phone until the next capture, which may be never.
+# Unconditional, like the triage's: with nothing parked this is a retract and
+# nothing else, and that retract is the whole point.
+mapfile -t paused_items < <(parked_ids "$PENDING_DIR")
+if (( DRY )); then
+    log "would sync the paused summary (${#paused_items[@]} parked)"
+else
+    paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
+                "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
+fi
 
 # --- withdraw notifications for resolved records ---------------------------
 # A record in archive/ is resolved, however it got there — the ignore branch
@@ -208,11 +241,25 @@ done
 # can hold anything that was on screen. Only the IMAGE is dropped, whatever the
 # record's outcome; proposal, .ics, context and verdict stay, because they are
 # text-sized and carry the analysis value.
+#
+# THE MARKER IS NOT AN IMAGE. It is called screenshot.pruned, so it matches the
+# screenshot.* glob below — which meant a record whose image had already gone was
+# pruned again every night from the day the marker itself turned
+# PRUNE_IMAGE_AFTER_DAYS old: the marker was deleted and immediately rewritten, its
+# mtime reset, and the run counted a phantom prune. Nothing was lost (the image was
+# already gone) but the count was a lie and the only evidence of when a record was
+# pruned was destroyed nightly. Two guards, because the first is about intent and
+# the second about the glob: skip a record that is already marked, and never let the
+# marker into the list even if the first check is ever loosened.
 pruned=0
 if (( PRUNE_IMAGE_AFTER_DAYS > 0 )); then
     for rec in "$ARCHIVE_DIR"/*/; do
         rec="${rec%/}"
-        shots=("${rec}"/screenshot.*)
+        [[ -f "${rec}/screenshot.pruned" ]] && continue
+        shots=()
+        for shot in "${rec}"/screenshot.*; do
+            [[ -f "$shot" && "$shot" != *"/screenshot.pruned" ]] && shots+=("$shot")
+        done
         (( ${#shots[@]} )) || continue
         age_d=$(( (now - $(stat -c %Y "${shots[0]}" 2>/dev/null || echo "$now")) / 86400 ))
         (( age_d >= PRUNE_IMAGE_AFTER_DAYS )) || continue

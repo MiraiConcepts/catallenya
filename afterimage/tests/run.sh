@@ -14,8 +14,8 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_DIR="$(cd "${SELF_DIR}/../scripts" && pwd)"
 # Nothing here may reach the real phone. This suite drives the sweep only with
 # --dry-run, which returns before notify(), so it has never had the symptom that
-# the documents suite did — but a future case that runs something for real would
-# publish to the live `capture` topic, and would look like it passed.
+# the pigeonhole suite did — but a future case that runs something for real would
+# publish to the live `afterimage` topic, and would look like it passed.
 export NTFY_DISABLE=1
 # shellcheck source=../scripts/afterimage.lib.sh
 source "${SCRIPT_DIR}/afterimage.lib.sh"
@@ -48,20 +48,23 @@ render() { "${SCRIPT_DIR}/render_ics.py" --uid TESTUID --now 20260726T000000Z --
 echo "library surface"
 
 # image_mime, image_ext, api_class, api_post, ai_build_request and ai_extract come
-# from ai.lib.sh, which afterimage.lib.sh sources. Listing them here is deliberate: it
-# is the only thing that fails if that source line is ever dropped, and a dropped
+# from ai.lib.sh, which afterimage.lib.sh sources; notify, retract, paused_sync and
+# the sanitisers come from ntfy/ntfy.lib.sh. Listing them here is deliberate: it is
+# the only thing that fails if either source line is ever dropped, and a dropped
 # source would otherwise surface as a live "command not found" mid-triage.
-for fn in log die _load_env hdr_safe notify archive_record capture_base_url \
-          image_mime image_ext button_label diff_axis event_is_past \
+for fn in log die _load_env hdr_safe notify retract paused_sync archive_record capture_base_url \
+          image_mime image_ext button_label safe_label capture_actions record_actions \
+          diff_axis event_is_past parked_ids parked_reason ai_reason \
           api_class api_post ai_build_request ai_extract \
-          clean_proposal validate_proposal md_escape triage_route write_context add_usage fork_record; do
+          clean_proposal validate_proposal md_escape triage_route write_context add_usage \
+          fork_record fan_out_records; do
     declare -F "$fn" >/dev/null && ok "$fn defined" || bad "$fn defined" "a function" "missing"
 done
 
 # And that the scripts only call helpers that exist.
 for src in "${SCRIPT_DIR}/afterimage.triage.sh" "${SCRIPT_DIR}/afterimage.sweep.sh"; do
     missing=""
-    for fn in $(grep -ohE '\b(log|die|notify|archive_record|capture_base_url|image_mime|image_ext|button_label|diff_axis|event_is_past|api_post|ai_build_request|ai_extract|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record)\b' "$src" | sort -u); do
+    for fn in $(grep -ohE '\b(log|die|notify|retract|paused_sync|archive_record|capture_base_url|image_mime|image_ext|button_label|safe_label|capture_actions|record_actions|diff_axis|event_is_past|parked_ids|parked_reason|ai_reason|api_post|ai_build_request|ai_extract|clean_proposal|validate_proposal|md_escape|triage_route|write_context|add_usage|fork_record|fan_out_records)\b' "$src" | sort -u); do
         declare -F "$fn" >/dev/null || missing="${missing} ${fn}"
     done
     [[ -z "$missing" ]] && ok "$(basename "$src") calls only defined helpers" \
@@ -259,7 +262,22 @@ has   "told apart by the reply, not the proposal" "$(cat "$SWP")" 'capture.json'
 
 has "truncation is logged"          "$(cat "$TRI")" 'keeping the ${MAX_EVENTS_PER_CAPTURE} soonest'
 has "triage partitions past events" "$(cat "$TRI")" 'event_is_past'
-has "past events get one note"      "$(cat "$TRI")" 'past_note' 
+has "past events get one note"      "$(cat "$TRI")" 'past_note'
+
+# The other half of the fan-out fix: the emission loop must recognise the empty slot
+# rather than run off the end of the event list, and an event that lost its record is
+# a FAILURE — it is gone, and nothing downstream will ever mention it again.
+has "an event with no record is recognised" "$(cat "$TRI")" 'if [[ -z "$eid" ]]; then'
+has "and named as the casualty"             "$(cat "$TRI")" 'lost: could not create its record'
+hasnt "the fan-out no longer compacts"      "$(cat "$TRI")" 'cannot create record for event $((k+1))"'
+
+# A screenshot that cannot be claimed is the one failure with no record to archive:
+# the file stays in incoming/, PathExistsGlob re-fires, and before this the run still
+# exited 0 while the phone collected an identical alarm on every spin.
+stuck="$(grep -B6 -A6 'Afterimage Stuck' "$TRI")"
+has "a stuck screenshot counts as a failure" "$stuck" 'FAILED=$((FAILED + 1))'
+has "and its alarm rides a stable id"        "$stuck" 'STUCK_NTFY_ID'
+is  "which is one message, not one per spin" "$STUCK_NTFY_ID" "afterimage-stuck"
 
 # The bug: archive_record MOVES the source record. Siblings must already exist and
 # must survive it, or a failure on event 1 takes the whole capture with it.
@@ -268,6 +286,38 @@ mv "${FD}/src" "${FD}/archived"
 is "sibling survives the source being archived" "$([ -f "${FD}/e2/screenshot.png" ] && echo yes)" "yes"
 is "second sibling survives too"                "$([ -f "${FD}/e3/screenshot.png" ] && echo yes)" "yes"
 rm -rf "$FD"
+
+# The records and the upcoming-event list are paired BY INDEX, so the list must not
+# compact when one record cannot be built. It used to: with a failure on event 2 of
+# 4, event 3 was written into event 2's record and event 4 vanished — no record, no
+# notification, no count, and the log named event 2 as the casualty when event 2 was
+# the only one that had actually been dealt with. Verified against the real fork
+# failure (nothing to hardlink), not a stub.
+echo "fan_out_records"
+
+FO="$(mktemp -d)"; mkdir -p "${FO}/src" "${FO}/pending"
+printf '\211PNG\r\n\032\n' > "${FO}/src/screenshot.png"
+echo '{"model":"claude-opus-5"}' > "${FO}/src/context.json"
+PD_SAVE="$PENDING_DIR"; PENDING_DIR="${FO}/pending"
+
+rows="$(fan_out_records CAPID "${FO}/src" png 3)"
+is "one line per event"               "$(wc -l <<<"$rows")"              "3"
+is "the capture keeps the first slot" "$(head -n1 <<<"$rows" | cut -f1)" "CAPID"
+is "in its own record"                "$(head -n1 <<<"$rows" | cut -f2)" "${FO}/src"
+sib="$(sed -n 2p <<<"$rows" | cut -f2)"
+is "a sibling gets a record of its own" "$([ -f "${sib}/screenshot.png" ] && echo yes)" "yes"
+
+# Now the failure: nothing to hardlink, so every sibling fork fails for real.
+rm -f "${FO}/src/screenshot.png"; rm -rf "${FO}/pending"; mkdir -p "${FO}/pending"
+rows="$(fan_out_records CAPID "${FO}/src" png 3)"
+is "a failed fork still prints its line"    "$(wc -l <<<"$rows")"              "3"
+is "with an empty id, so the pairing holds" "$(sed -n 2p <<<"$rows" | cut -f1)" ""
+is "and the last event keeps its own slot"  "$(sed -n 3p <<<"$rows" | cut -f1)" ""
+# A half-built record has no screenshot and no first_failed stamp, so no sweep branch
+# can ever age it out — it would sit in pending/ forever, invisible to everything.
+is "no half-built record is left behind" "$(find "${FO}/pending" -mindepth 1 -maxdepth 1 | wc -l)" "0"
+PENDING_DIR="$PD_SAVE"
+rm -rf "$FO"
 
 # ------------------------------------------------------- notify_event under -u
 # afterimage.triage.sh runs `set -uo pipefail`, and in bash `local x` leaves x UNSET
@@ -390,8 +440,10 @@ is "non-numeric seen is ignored"   "$(dropped 5 null 8)" "0"
 # Markdown, and a screenshot supplying `[tap here](https://evil.example)` would
 # render a REAL link in a notification the user already trusts. Emphasis leaking
 # is cosmetic; the link is why md_escape exists.
-# md_escape / hdr_safe moved to ai/tests/run.sh along with the functions themselves
-# (ai.lib.sh). They guard untrusted model output, which is not capture's alone.
+# md_escape / hdr_safe live in ntfy/ntfy.lib.sh now, and so do their tests
+# (ntfy/tests/run.sh) — they guard the boundary where untrusted text reaches a
+# NOTIFICATION, which belongs to the sink rather than to the API that fetched it.
+# They passed through ai/tests/run.sh on the way; that is no longer where they are.
 
 # --------------------------------------------------------------- routing
 # Which branch a reply lands in. The bug this covers: the "no events" test ran
@@ -597,8 +649,14 @@ is "venue differs -> primary"     "$(button_label "$(BL 2026-07-30 19:15 'Esplan
 is "venue at exactly the cap"     "$(button_label "$(BL 2026-07-30 19:15 'Twenty Chars Exactly')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Twenty Chars Exactly"
 is "one word over the cap is cut" "$(button_label "$(BL 2026-07-30 19:15 'Supercalifragilisticexpialidocious')" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Supercalifragilistic"
 is "venue differs -> alt"         "$(button_label "$(BL 2026-07-30 19:15 'TOMATILLO')" "$(BL 2026-07-30 19:15 'Esplanade Concert Hall')")" "TOMATILLO"
-# Punctuation is stripped rather than failing the Actions whitelist outright.
-X
+# Punctuation is stripped rather than failing the Actions whitelist outright: an
+# apostrophe or a comma in a venue would splice the Actions list, so the label
+# shortens instead of being thrown away for the generic "Add".
+# This assertion was lost to an editor accident in 8ede8b7 — the commit that raised
+# BUTTON_LABEL_MAX from 12 to 20 replaced the line with a bare `X`, which every run
+# since has been executing as the setuid Xorg wrapper. Restored at the cap the same
+# commit introduced: 12 gave "Joes Bar Lev", 20 fits the whole thing.
+is "venue punctuation stripped"   "$(button_label "$(BL 2026-07-30 19:15 "Joe's Bar, Level 2")" "$(BL 2026-07-30 19:15 'TOMATILLO')")" "Joes Bar Level 2"
 
 # No alternative: the event is compared with itself and says its own time.
 is "no alternative -> time"       "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 19:15 '')")" "19:15"
@@ -616,6 +674,64 @@ for c in "$(button_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 20:15 '')"
 done
 
 hasnt "schema no longer asks for a label" "$CAPTURE_SCHEMA" '"label"'
+
+# ------------------------------------------------------------------ the buttons
+# The Actions string itself, in one place because it was in two and they had
+# drifted: the sweep's nudge hardcoded [Add] [Discard] and so dropped the
+# ALTERNATIVE button — while event.alt.ics was still on disk and ?alt=1 still live.
+# The nudge retracts the original message first, so the second reading was not
+# merely unlabelled on the nudge, it became unreachable.
+echo "capture_actions / record_actions"
+
+AB="https://example.invalid:10000"
+AI="11111111-1111-1111-1111-111111111111"
+
+a="$(capture_actions "$AB" "$AI" '19:15')"
+has  "the primary posts to /add"        "$a" "http, 19:15, ${AB}/afterimage/${AI}/add, method=POST"
+has  "discard is always last"           "$a" "http, Discard, ${AB}/afterimage/${AI}/drop"
+hasnt "no alternative, no alt button"   "$a" "alt=1"
+is   "two buttons with none on offer"   "$(grep -o 'http,' <<<"$a" | wc -l)" "2"
+
+a="$(capture_actions "$AB" "$AI" '19:15' '20:15')"
+has "the alternative gets its own route" "$a" "http, 20:15, ${AB}/afterimage/${AI}/add?alt=1"
+is  "three buttons, ntfy's own ceiling"  "$(grep -o 'http,' <<<"$a" | wc -l)" "3"
+# Not authentication: the header forces a CORS preflight the container answers for
+# exactly one origin. A button without it answers 403 on tap.
+is  "every button carries the header"    "$(grep -o 'headers.X-Afterimage=1' <<<"$a" | wc -l)" "3"
+
+# safe_label is the whitelist backstop, and the ONE place the length bound tracks
+# BUTTON_LABEL_MAX. A label carrying a comma would splice a button of its own.
+is "a clean label passes through"  "$(safe_label "$(BL 2026-07-30 19:15 '')" "$(BL 2026-07-30 20:15 '')" Add)" "19:15"
+# A venue of nothing but punctuation strips to the empty string, which is not a
+# button — the caller's generic word is, and that substitution is the backstop.
+is "a label that cannot survive falls back" \
+   "$(safe_label '{"date":"2026-07-30","start_time":null,"all_day":true,"location":",,,"}' \
+                 '{"date":"2026-07-30","start_time":null,"all_day":true,"location":"Elsewhere"}' Alternative)" \
+   "Alternative"
+
+# record_actions is the same buttons built from what is ON DISK, which is all the
+# sweep has hours later.
+RA="$(mktemp -d)"
+jq -cn '{date:"2026-07-30",end_date:null,start_time:"19:15",all_day:false,location:null}' > "${RA}/proposal.json"
+r="$(record_actions "$AB" "$AI" "$RA")"
+has  "a lone proposal labels its own time" "$r" "http, 19:15,"
+hasnt "and offers no alternative"          "$r" "alt=1"
+
+jq -cn '{date:"2026-07-30",end_date:null,start_time:"20:15",all_day:false,location:null}' > "${RA}/proposal.alt.json"
+: > "${RA}/event.alt.ics"
+r="$(record_actions "$AB" "$AI" "$RA")"
+has "the nudge carries the alternative" "$r" "http, 20:15, ${AB}/afterimage/${AI}/add?alt=1"
+has "and still labels the primary"      "$r" "http, 19:15,"
+# event.alt.ics is the test, not the json: ?alt=1 reads that file, so a button
+# offered without it would be a tap that fails.
+rm -f "${RA}/event.alt.ics"
+hasnt "no alt button without its .ics"  "$(record_actions "$AB" "$AI" "$RA")" "alt=1"
+rm -f "${RA}/proposal.json"
+is "a proposal-less record refuses outright" "$(record_actions "$AB" "$AI" "$RA" >/dev/null 2>&1; echo $?)" "1"
+rm -rf "$RA"
+
+has   "the nudge builds its buttons from the record" "$(cat "$SWP")" 'record_actions "$base" "$id" "$rec"'
+hasnt "and hardcodes no Add button of its own"       "$(cat "$SWP")" 'http, Add, '
 
 # The regression that prompted all this: one act at two showtimes came back as TWO
 # events with no alternatives, so it produced two notifications instead of one with
@@ -731,6 +847,26 @@ prune_runs() { # -> whether dry-run reaches the prune for a backdated record
 }
 is "prune runs even when pending/ is empty" "$(prune_runs)" "pruned"
 
+# The marker left behind by a prune is called screenshot.pruned — so it MATCHES the
+# screenshot.* glob the prune walks. A record whose image was already gone was
+# therefore pruned again every night from the day the MARKER turned
+# PRUNE_IMAGE_AFTER_DAYS old: deleted, rewritten, its mtime reset, and counted. The
+# first such record on this box would have hit that on 2026-08-20.
+prune_marker_only() { # -> repruned | skipped, plus whether the marker survived
+    local d="${ARCHIVE_DIR}/00000000-0000-4000-8000-0000000000fd" o before after v
+    mkdir -p "$d"; : > "${d}/screenshot.pruned"
+    echo '{"id":"x","outcome":"add"}' > "${d}/decision.json"
+    touch -d '30 days ago' "${d}/screenshot.pruned"
+    before="$(stat -c %Y "${d}/screenshot.pruned")"
+    o="$(bash "$sweep" --dry-run 2>&1)"
+    after="$(stat -c %Y "${d}/screenshot.pruned" 2>/dev/null || echo gone)"
+    [[ "$o" == *"would prune image from 00000000"* ]] && v=repruned || v=skipped
+    [[ "$before" == "$after" ]] || v="${v}, marker disturbed"
+    rm -rf "$d"
+    echo "$v"
+}
+is "an already-pruned record is not pruned again" "$(prune_marker_only)" "skipped"
+
 # A file the *.png glob cannot see is invisible to the entire pipeline — no
 # trigger, no triage, no ageing out. The sweep is the only thing that will ever
 # mention it. A fresh .part-* is a legitimate upload mid-write and must NOT be
@@ -746,7 +882,7 @@ is "an old non-png in incoming/ is reported" "$(stray_check stray.jpeg '2 hours 
 is "a fresh upload-in-progress is not"       "$(stray_check .part-x 'now')"           "quiet"
 
 # -------------------------------------------------------------- shared AI layer
-# The transport lives in ai/scripts/ai.lib.sh now, shared with documents.intake, and
+# The transport lives in ai/scripts/ai.lib.sh now, shared with pigeonhole, and
 # so do its tests: api_post's retry loop against a local sink, the api_class status
 # mapping, image_mime/image_ext, request construction and response extraction. They
 # are NOT duplicated here — a second copy is precisely the drift the extraction
@@ -871,6 +1007,69 @@ has "retry keys on the reply, not the proposal" "$sw" '! -f "${rec}/capture.json
 # The output ceiling has to leave room for a full fan-out plus adaptive thinking;
 # a too-small value shows up as stop_reason=max_tokens on busy screenshots only.
 is "max_tokens leaves room" "$(( MAX_TOKENS >= 2048 ))" "1"
+
+# ------------------------------------------------------------ the paused summary
+# One message, whatever the count, replaced on every run — and WITHDRAWN when the
+# outage ends. Two things used to be wrong: the retract sat inside the non-empty
+# branch, so the run that resolved an outage left "Paused: 3 Screenshots" on the
+# phone forever; and the two halves of the pipeline disagreed about what counts as
+# parked.
+echo "parked records"
+
+PK="$(mktemp -d)"
+mkdir -p "${PK}/aaaaaaaa-parked";    date -u > "${PK}/aaaaaaaa-parked/first_failed"
+# The model DID answer this one and said it cannot place it (needs-a-human), then a
+# retry stamped nothing new — capture.json present, proposal.json absent. The old
+# predicate keyed on proposal.json, which is only a PROXY for "did the model
+# answer", so a capture waiting on the OWNER was reported as an outage victim.
+mkdir -p "${PK}/bbbbbbbb-answered"; date -u > "${PK}/bbbbbbbb-answered/first_failed"
+echo '{"is_event":true}' > "${PK}/bbbbbbbb-answered/capture.json"
+# No stamp: the triage has not finished with it, so it is in flight, not parked.
+mkdir -p "${PK}/cccccccc-inflight"
+
+pids="$(parked_ids "$PK")"
+is "the parked record is counted"        "$(grep -c aaaaaaaa <<<"$pids")" "1"
+is "a record the model answered is not"  "$(grep -c bbbbbbbb <<<"$pids")" "0"
+is "nor is one still in flight"          "$(grep -c cccccccc <<<"$pids")" "0"
+is "ids are shortened for the body"      "$(head -n1 <<<"$pids")"         "aaaaaaaa"
+is "an empty pending/ yields nothing"    "$(parked_ids "${PK}/nothing-here" | wc -l)" "0"
+
+# The reason is persisted per record at PARK time and the most recent one wins. The
+# variable the triage's loop ends on is not the answer: the summary covers records
+# this run never touched, and on a run where every capture SUCCEEDED that variable
+# is ai_reason 0 — the empty string.
+printf 'The API is unreachable' > "${PK}/aaaaaaaa-parked/paused_reason"
+touch -d '2 hours ago' "${PK}/aaaaaaaa-parked/paused_reason"
+mkdir -p "${PK}/dddddddd-parked"; date -u > "${PK}/dddddddd-parked/first_failed"
+printf 'Out of credits' > "${PK}/dddddddd-parked/paused_reason"
+is "the most recent park supplies the reason" "$(parked_reason "$PK")" "Out of credits"
+rm -f "${PK}"/*/paused_reason
+is "a record parked before this existed still reads sanely" "$(parked_reason "$PK")" "The API is unreachable"
+rm -rf "$PK"
+
+# Wiring. paused_sync is called UNCONDITIONALLY: it retracts first and publishes
+# only if something is still parked, which is what takes the message off the phone.
+has   "the triage parks with a reason"          "$(cat "$TRI")" 'ai_reason "$ask_rc" > "${rec}/paused_reason"'
+has   "and syncs the summary unconditionally"   "$(cat "$TRI")" 'paused_sync "$PAUSED_NTFY_ID" Screenshot'
+hasnt "with no retract hidden in a branch"      "$(cat "$TRI")" 'retract "$PAUSED_NTFY_ID"'
+hasnt "and no leftover loop variable as reason" "$(cat "$TRI")" 'ai_reason "${ask_rc:-2}"'
+has   "the summary reads the parked records"    "$(cat "$TRI")" 'parked_reason "$PENDING_DIR"'
+# The sweep syncs it too, because the triage only runs when a screenshot arrives:
+# the run that gives up on the LAST parked record is a sweep run, and without this
+# its summary would stand until the next capture, which may be never.
+has "the sweep syncs it too"                    "$(cat "$SWP")" 'paused_sync "$PAUSED_NTFY_ID" Screenshot'
+has "and gives up in the words of the last park" "$(cat "$SWP")" 'paused_reason'
+
+# And that the sweep actually reaches it, after the requeue and give-up passes.
+paused_sync_reached() {
+    local d="${PENDING_DIR}/00000000-0000-4000-8000-0000000000fc" o
+    mkdir -p "$d"; : > "${d}/screenshot.png"
+    date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ > "${d}/first_failed"
+    o="$(bash "$sweep" --dry-run 2>&1)"
+    rm -rf "$d"
+    grep -o 'would sync the paused summary' <<<"$o" | head -n1
+}
+is "the sweep ends by syncing the summary" "$(paused_sync_reached)" "would sync the paused summary"
 
 # ------------------------------------------------------- container integration
 # The undo path this section used to document is GONE (2026-08-09). Discard on an

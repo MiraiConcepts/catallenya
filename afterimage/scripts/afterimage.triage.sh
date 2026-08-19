@@ -88,7 +88,7 @@ EOF
 # ask <image> <now-human> <record-dir> -> structured JSON on stdout, non-zero on failure
 #
 # Thin by design: request construction, transport/retry and the stop_reason gate all
-# live in ai.lib.sh, shared with documents.intake. What stays here is the part that is
+# live in ai.lib.sh, shared with pigeonhole. What stays here is the part that is
 # actually capture's — which prompt, which schema, and folding token usage into the
 # record. Note ai_build_request takes N images; capture passes exactly one.
 ask() {
@@ -254,22 +254,17 @@ notify_event() {
 
     # Both labels are derived from the PAIR, so they always name the axis that
     # differs and can never disagree in format. With no alternative the event is
-    # compared with itself, which yields its own time.
+    # compared with itself, which yields its own time. safe_label carries the
+    # whitelist backstop and capture_actions the URL shape — both in the lib, so
+    # the sweep's nudge builds the same buttons rather than its own weaker set.
     if (( has_alt )); then
-        primary="$(button_label "$ev" "$alt_json")"
-        alt_label="$(button_label "$alt_json" "$ev")"
-        # Backstop only: button_label already emits the whitelist charset, but a
-        # comma or CRLF here would splice the Actions list. The length bound must
-        # track BUTTON_LABEL_MAX — when it did not, a longer label silently became
-        # the generic "Add" instead of the venue it had just been trimmed to.
-        [[ "$primary"   =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
-        [[ "$alt_label" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || alt_label="Alternative"
-        actions="http, ${primary}, ${base}/afterimage/${eid}/add, method=POST, headers.X-Afterimage=1; http, ${alt_label}, ${base}/afterimage/${eid}/add?alt=1, method=POST, headers.X-Afterimage=1; http, Discard, ${base}/afterimage/${eid}/drop, method=POST, headers.X-Afterimage=1"
+        primary="$(safe_label "$ev" "$alt_json" Add)"
+        alt_label="$(safe_label "$alt_json" "$ev" Alternative)"
+        actions="$(capture_actions "$base" "$eid" "$primary" "$alt_label")"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day} (alt: ${alt_label})"
     else
-        primary="$(button_label "$ev" "$ev")"
-        [[ "$primary" =~ ^[A-Za-z0-9\ :.-]{1,${BUTTON_LABEL_MAX}}$ ]] || primary="Add"
-        actions="http, ${primary}, ${base}/afterimage/${eid}/add, method=POST, headers.X-Afterimage=1; http, Discard, ${base}/afterimage/${eid}/drop, method=POST, headers.X-Afterimage=1"
+        primary="$(safe_label "$ev" "$ev" Add)"
+        actions="$(capture_actions "$base" "$eid" "$primary")"
         log "  [${n}/${of}] ${title} — ${ev_date} ${ev_start:-all day}"
     fi
     # No priority: every proposal arrives at the same weight (see notify()).
@@ -281,6 +276,10 @@ notify_event() {
 # --- drain incoming/ -------------------------------------------------------
 shopt -s nullglob
 pngs=("$IN_DIR"/*.png)
+# Deliberately exits before the paused summary below: nothing this script does can
+# change what is parked without a screenshot to work on, and the set only shrinks
+# elsewhere — in the sweep, which syncs the summary itself. Republishing an
+# identical summary on every spurious .path fire would be a re-ping for no news.
 (( ${#pngs[@]} )) || { log "nothing to do"; exit 0; }
 log "draining ${#pngs[@]} capture(s)"
 
@@ -315,8 +314,17 @@ for png in "${pngs[@]}"; do
     ext="$(image_ext "$png")"
     if ! mkdir -p "$rec" || ! mv -f "$png" "${rec}/screenshot.${ext}"; then
         log "  !! cannot claim ${id:0:8} into pending/ — leaving it and skipping"
+        # Counted, because this is the one failure the run cannot even record: the
+        # file stays in incoming/, so there is no record to archive and nothing to
+        # find later. Without it a run whose every capture was stuck exited 0, the
+        # .path unit re-fired until systemd's start-limit killed it, and the only
+        # trace was the journal.
+        FAILED=$((FAILED + 1))
+        # A stable id, so the twelve identical alarms one full pool used to produce
+        # collapse into one message that keeps being replaced.
         notify "Afterimage Stuck" "" "exclamation" \
-               "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared."
+               "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared." \
+               "" "$STUCK_NTFY_ID"
         continue
     fi
     png="${rec}/screenshot.${ext}"
@@ -339,6 +347,13 @@ for png in "${pngs[@]}"; do
         # retry that moved the marker would let a stuck item postpone its own
         # deadline forever, which is the reason `skip` was deleted from pigeonhole.
         [[ -f "${rec}/first_failed" ]] || date -u +%Y-%m-%dT%H:%M:%SZ > "${rec}/first_failed"
+        # The REASON is rewritten on every park, unlike the stamp. The clock has to
+        # run from the first failure; "why is it still parked" is a question about
+        # the latest attempt, so an outage that starts as unreachable and becomes an
+        # empty balance says so. It is persisted per record because the summary
+        # below is built from records this run may never have touched — see
+        # parked_reason() for what reading the loop's leftover variable produced.
+        ai_reason "$ask_rc" > "${rec}/paused_reason"
         FAILED=$((FAILED + 1))
         log "  parked in pending/ — $(ai_reason "$ask_rc"); the sweep will retry it"
         continue
@@ -480,23 +495,30 @@ for png in "${pngs[@]}"; do
     # Materialise every record FIRST. The capture's own record goes to the first
     # UPCOMING event, and archive_record MOVES that directory — so a failure on it
     # would otherwise delete the screenshot the rest are still being built from.
+    # fan_out_records returns one line per event whatever happens, including for an
+    # event whose record could not be built: these arrays are paired with `upcoming`
+    # by INDEX, and a list that compacts on failure hands every later event the wrong
+    # record and drops the last one entirely.
     eids=(); erecs=()
-    for (( k = 0; k < n_up; k++ )); do
-        if (( k == 0 )); then
-            eids+=("$id"); erecs+=("$rec"); continue
-        fi
-        eid="$(cat /proc/sys/kernel/random/uuid)"
-        erec="${PENDING_DIR}/${eid}"
-        if ! fork_record "$rec" "$erec" "$ext" "$id"; then
-            log "  !! cannot create record for event $((k+1))"; continue
-        fi
-        eids+=("$eid"); erecs+=("$erec")
-    done
+    while IFS=$'\t' read -r fo_eid fo_erec; do
+        eids+=("$fo_eid"); erecs+=("$fo_erec")
+    done < <(fan_out_records "$id" "$rec" "$ext" "$n_up")
 
     emitted=0
     for (( k = 0; k < ${#eids[@]}; k++ )); do
-        ev="$(jq -c --argjson i "${upcoming[$k]}" '.events[$i]' <<<"$proposal")"
         eid="${eids[$k]}"; erec="${erecs[$k]}"
+
+        # The empty slot fan_out_records leaves for an event it could not house.
+        # Counted rather than logged and forgotten: this event is gone — no record,
+        # no notification, no sweep branch that will ever mention it — so the run
+        # has to be able to fail over it.
+        if [[ -z "$eid" ]]; then
+            FAILED=$((FAILED + 1))
+            log "  !! event $((k+1))/${n_up} lost: could not create its record"
+            continue
+        fi
+
+        ev="$(jq -c --argjson i "${upcoming[$k]}" '.events[$i]' <<<"$proposal")"
 
         if ! gate_reason="$(validate_proposal "$ev")"; then
             FAILED=$((FAILED + 1))
@@ -524,25 +546,20 @@ for png in "${pngs[@]}"; do
 done
 
 # --- paused: one message per topic, whatever the count -----------------------
-# Built from every parked record, not just this run's. A record is parked when it has
-# a screenshot, no proposal, and a first_failed stamp — the stamp is what separates
-# "the API never answered" from a record still mid-flight in another run.
-paused_items=()
-for prec in "$PENDING_DIR"/*/; do
-    prec="${prec%/}"
-    [[ -f "${prec}/first_failed" ]] || continue
-    [[ -f "${prec}/proposal.json" ]] && continue
-    paused_items+=("$(basename "$prec" | cut -c1-8)")
-done
-if (( ${#paused_items[@]} )); then
-    retract "$PAUSED_NTFY_ID"
-    notify "$(paused_title "${#paused_items[@]}" Screenshot)" "" warning \
-        "$(paused_body "$(ai_reason "${ask_rc:-2}")" \
-                       "archived in 7 days, and the screenshots go with them" \
-                       "${paused_items[@]}")" \
-        "" "$PAUSED_NTFY_ID"
-    log "paused: ${#paused_items[@]} waiting on the API"
-fi
+# Built from every parked record, not just this run's — parked_ids() holds the
+# predicate, shared with the sweep so the two can no longer disagree about what
+# "parked" means.
+#
+# UNCONDITIONAL. The retract used to sit inside the non-empty branch, so the run
+# that RESOLVED an outage — the one that finally got an answer and left nothing
+# parked — took the branch that does nothing, and "Paused: 3 Screenshots" stayed on
+# the phone forever. paused_sync always retracts first and publishes only if there
+# is something to say; a delete for an id the server has never seen answers 200, so
+# there is no state to consult.
+mapfile -t paused_items < <(parked_ids "$PENDING_DIR")
+paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
+            "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
+(( ${#paused_items[@]} )) && log "paused: ${#paused_items[@]} waiting on the API"
 
 log "done: ${OK} ok, ${FAILED} failed"
 
