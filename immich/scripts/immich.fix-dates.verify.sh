@@ -42,6 +42,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=immich.lib.sh
 . "${SCRIPT_DIR}/immich.lib.sh"
+# Date derivation (parse_filename_date, the source readers, in_range,
+# same_second) is shared with scan — one copy, so re-reading a source here
+# exercises exactly the derivation scan used, never a drifted mirror of it.
+# shellcheck source=immich.dates.lib.sh
+. "${SCRIPT_DIR}/immich.dates.lib.sh"
 
 # ── Constants ────────────────────────────────────────────────────────────
 CONTAINER_PATH_PREFIX="/usr/src/app/upload"
@@ -150,132 +155,20 @@ if [[ "$TOTAL" -eq 0 ]]; then
   exit 0
 fi
 
-# ── Helpers (mirror scan; kept inline so verify is self-contained) ──────
-# Parse a filename and emit ISO-SGT date if pattern matches; else empty.
-# Date-only matches default to 12:00:00 SGT.
-parse_filename_date() {
-  local fname=$1
-  local y mo d h mi s
-  h=12; mi=0; s=0
-  if [[ "$fname" =~ ^(IMG|VID|PXL|PANO)_([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2}) ]]; then
-    y="${BASH_REMATCH[2]}"; mo="${BASH_REMATCH[3]}"; d="${BASH_REMATCH[4]}"
-    h="${BASH_REMATCH[5]}"; mi="${BASH_REMATCH[6]}"; s="${BASH_REMATCH[7]}"
-  elif [[ "$fname" =~ ^video-([0-9]{4})-([0-9]{2})-([0-9]{2})-([0-9]{2})-([0-9]{2})-([0-9]{2})\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^[0-9]+_([0-9]{13})_ ]]; then
-    local _ms _sec _parts
-    _ms="${BASH_REMATCH[1]}"
-    _sec=$((_ms / 1000))
-    if (( _sec < 1000000000 || _sec > 4102444800 )); then return 0; fi
-    _parts=$(TZ=Asia/Singapore date -d "@${_sec}" +'%Y %m %d %H %M %S' 2>/dev/null) || return 0
-    read -r y mo d h mi s <<<"$_parts"
-  elif [[ "$fname" =~ ^IMG([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^Screenshot_([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2}) ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^Screenshot[\ _]([0-9]{4})-([0-9]{2})-([0-9]{2})[\ _-](at[\ _])?([0-9]{2})[.-]([0-9]{2})[.-]([0-9]{2}) ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[5]}"; mi="${BASH_REMATCH[6]}"; s="${BASH_REMATCH[7]}"
-  elif [[ "$fname" =~ ^signal-([0-9]{4})-([0-9]{2})-([0-9]{2})-([0-9]{2})-([0-9]{2})-([0-9]{2}) ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})\ ([0-9]{2})\.([0-9]{2})\.([0-9]{2})[-_\ .\(] ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})[_.] ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2})[_.] ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; s="${BASH_REMATCH[6]}"
-  elif [[ "$fname" =~ ^[Ss]creenshot-([0-9]{13})[_.] ]]; then
-    local _ms _sec _parts
-    _ms="${BASH_REMATCH[1]}"
-    _sec=$((_ms / 1000))
-    if (( _sec < 1000000000 || _sec > 4102444800 )); then return 0; fi
-    _parts=$(TZ=Asia/Singapore date -d "@${_sec}" +'%Y %m %d %H %M %S' 2>/dev/null) || return 0
-    read -r y mo d h mi s <<<"$_parts"
-  elif [[ "$fname" =~ ^IMG-([0-9]{4})([0-9]{2})([0-9]{2})-WA[0-9]+\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-  elif [[ "$fname" =~ ^VID-([0-9]{4})([0-9]{2})([0-9]{2})-WA[0-9]+\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-  elif [[ "$fname" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})\ *[\(][0-9]+[\)]\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-  elif [[ "$fname" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})\. ]]; then
-    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
-  else
-    return 0
-  fi
-  if ! date -d "${y}-${mo}-${d} ${h}:${mi}:${s}" >/dev/null 2>&1; then
-    return 0
-  fi
-  # Force base-10: "08"/"09" are invalid octal under %02d (silently print 0).
-  printf '%s-%s-%sT%02d:%02d:%02d%s' "$y" "$mo" "$d" \
-    $((10#$h)) $((10#$mi)) $((10#$s)) "$SGT_OFFSET"
-}
+# ── Helpers ──────────────────────────────────────────────────────────────
+# The derivation itself (parse_filename_date, the source readers, in_range,
+# same_second) comes from immich.dates.lib.sh, sourced above — the same copy
+# scan uses. Only the dispatch and the verdict logic live here.
 
 # Re-read a single source for an asset and return ISO date or empty.
 re_read_source() {
   local source=$1 hpath=$2 cpath=$3 fname=$4
   case "$source" in
-    exif)
-      command -v exiftool >/dev/null 2>&1 || return 0
-      [[ -e "$hpath" ]] || return 0
-      # Pull date + offset separately (avoid exiftool's %z auto-filling host TZ).
-      local raw naked_dt off_dt
-      raw=$(timeout 10 exiftool -q -q -s -s -DateTimeOriginal -OffsetTimeOriginal \
-              -d "%Y-%m-%dT%H:%M:%S" "$hpath" 2>/dev/null || true)
-      naked_dt=""; off_dt=""
-      while IFS= read -r ln; do
-        case "$ln" in
-          DateTimeOriginal*)   naked_dt="${ln#*: }"; naked_dt="${naked_dt// /}" ;;
-          OffsetTimeOriginal*) off_dt="${ln#*: }";   off_dt="${off_dt// /}" ;;
-        esac
-      done <<<"$raw"
-      if [[ "$naked_dt" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-        if [[ "$off_dt" =~ ^[+-][0-9]{2}:[0-9]{2}$ ]]; then
-          printf '%s%s' "$naked_dt" "$off_dt"
-        else
-          printf '%s%s' "$naked_dt" "$SGT_OFFSET"
-        fi
-      fi
-      ;;
-    filename)
-      parse_filename_date "$fname"
-      ;;
-    container)
-      local raw
-      raw=$(timeout 15 docker exec immich-server ffprobe -v error \
-              -show_entries format_tags=creation_time -of csv=p=0 "$cpath" 2>/dev/null || true)
-      if [[ -n "$raw" && "$raw" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
-        printf '%sT%s+00:00' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-      fi
-      ;;
-    mtime)
-      [[ -e "$hpath" ]] || return 0
-      local epoch
-      epoch=$(stat -c '%Y' "$hpath" 2>/dev/null || true)
-      [[ -n "$epoch" ]] && TZ=Asia/Singapore date -d "@$epoch" +'%Y-%m-%dT%H:%M:%S+08:00' 2>/dev/null
-      ;;
+    exif)      read_exif_date "$hpath" ;;
+    filename)  parse_filename_date "$fname" ;;
+    container) read_container_date "$cpath" ;;
+    mtime)     read_mtime_date "$hpath" ;;
   esac
-}
-
-in_range() {
-  local iso=$1 epoch min_epoch max_epoch
-  epoch=$(date -d "$iso" +%s 2>/dev/null) || return 1
-  min_epoch=$(date -d "${MIN_DATE}T00:00:00+00:00" +%s)
-  max_epoch=$(date -d "${MAX_DATE}T23:59:59+00:00" +%s)
-  (( epoch >= min_epoch && epoch <= max_epoch ))
-}
-
-same_second() {
-  local ea eb
-  ea=$(date -d "$1" +%s 2>/dev/null) || return 1
-  eb=$(date -d "$2" +%s 2>/dev/null) || return 1
-  (( ea == eb ))
 }
 
 # Verify one row. Reads tab-separated input row from $1.
@@ -324,7 +217,11 @@ verify_one_row() {
   fi
 }
 
-export -f verify_one_row re_read_source parse_filename_date in_range same_second
+# The lib functions must be exported too: the workers are fresh `bash -c`
+# processes under xargs -P and only see exported functions.
+export -f verify_one_row re_read_source \
+          parse_filename_date read_exif_date read_container_date read_mtime_date \
+          in_range same_second
 export CONTAINER_PATH_PREFIX HOST_PATH_PREFIX SGT_OFFSET MIN_DATE MAX_DATE RUN_DIR
 
 # ── Run verify in parallel ───────────────────────────────────────────────

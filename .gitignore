@@ -142,6 +142,7 @@ ntfy/.env
 !immich/scripts/
 !immich/scripts/immich.conf
 !immich/scripts/immich.lib.sh
+!immich/scripts/immich.dates.lib.sh
 !immich/scripts/immich.validate.sh
 !immich/scripts/immich.find-junk.sh
 !immich/scripts/immich.verify-junk.sh
