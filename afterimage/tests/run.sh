@@ -510,6 +510,22 @@ is "bad alt date" \
    "$(gate "$(mut '.alternatives=[{"label":"x","date":"2023-02-29","start_time":"15:00","location":null}]')")" \
    "BAD_ALT"
 
+# The pattern behind all four of those cases is ONE constant now (2026-08-19); it
+# was written out four times, in the gate above and in button_label. The gate
+# refuses a time that does not match and the button prints a bare HH:MM only when it
+# does, so a copy tightened in one place and not the other would have put a refused
+# time on a button, or sent a good one to the generic "All day" — silently, on the
+# one line the owner reads before tapping.
+echo "HHMM_RE"
+hh() { [[ "$1" =~ $HHMM_RE ]] && echo yes || echo no; }
+for t in 00:00 09:30 19:15 23:59; do is "accepts ${t}" "$(hh "$t")" "yes"; done
+for t in 24:00 19:99 7:00 19:5 "5pm" "" "19:15 " "1915"; do is "rejects '${t}'" "$(hh "$t")" "no"; done
+# The button and the gate must be reading the same constant, not two spellings of it.
+lib="$(cat "${SCRIPT_DIR}/afterimage.lib.sh")"
+is "defined once"        "$(grep -c '^HHMM_RE=' <<<"$lib")" "1"
+is "and copied nowhere"  "$(grep -c '\[01\]\[0-9\]' <<<"$lib")" "1"
+is "every reader uses it" "$(grep -c '=~ \$HHMM_RE' <<<"$lib")" "4"
+
 # ------------------------------------------------------------------- cleaning
 echo "clean_proposal"
 

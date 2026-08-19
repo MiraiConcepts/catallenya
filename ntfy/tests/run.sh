@@ -139,6 +139,35 @@ is    "a bare id is enough to withdraw"        "$(sync_trace pause-1)" "RETRACT 
 te="$(sync_trace "" Document "Out of credits" "x" a.pdf 2>/dev/null)"
 is "no id: nothing retracted, nothing published" "$te" ""
 
+# ------------------------------------------------------------------- _ntfy_env
+# The extractor is shared and the KEY LISTS are not: afterimage and pigeonhole each
+# wrap this with the one extra key their own callbacks need. What is pinned here is
+# that the wrapping is possible at all — an extra key is read, and an extra key that
+# is missing is the caller's problem rather than a failed transport.
+#
+# It reads the real /zpool/catallenya/.env, which is the file production reads and
+# the same one every notify() in the other suites already goes through. Nothing is
+# asserted about its CONTENTS beyond the three keys the transport itself requires.
+echo "_ntfy_env"
+env_probe() { ( unset SYNCTHING_REVERSE_PROXY_PORT; _ntfy_env "$@" >/dev/null 2>&1 \
+                && printf '%s' "${SYNCTHING_REVERSE_PROXY_PORT:-unset}" ); }
+is "an extra key is extracted" "$(env_probe SYNCTHING_REVERSE_PROXY_PORT)" \
+   "$(grep -m1 '^SYNCTHING_REVERSE_PROXY_PORT=' /zpool/catallenya/.env | cut -d= -f2-)"
+is "and is not read unless asked for"   "$(env_probe)"                    "unset"
+is "an absent extra key is not fatal"   "$(_ntfy_env NO_SUCH_KEY_IN_ENV; echo rc=$?)" "rc=0"
+# The trio IS asserted, because notify() builds a URL out of it and an unset
+# component yields a syntactically valid but dead "https://host.ts.net:".
+fn="$(sed -n '/^_ntfy_env() {/,/^}/p' "${SELF_DIR}/../ntfy.lib.sh")"
+has "the caller's keys ride after the trio" "$fn" 'NTFY_REVERSE_PROXY_PORT "$@"'
+has "and the trio is still required"        "$fn" 'NTFY_REVERSE_PROXY_PORT:-'
+# Both wrappers are one line naming one key. A union list here would be a contract
+# nobody wrote, and the next pipeline would silently inherit it.
+for w in /zpool/catallenya/afterimage/scripts/afterimage.lib.sh \
+         /zpool/catallenya/pigeonhole/scripts/pigeonhole.lib.sh; do
+    is "$(basename "$w" .lib.sh) wraps it with its own key" \
+       "$(grep -c '^_load_env() { _ntfy_env [A-Z_]* *; *}$' "$w")" "1"
+done
+
 # ------------------------------------------------------------------ mute seam
 echo "mute seam"
 is "the suite is muted"  "$(ntfy_muted && echo yes)" "yes"

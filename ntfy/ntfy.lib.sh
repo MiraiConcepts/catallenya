@@ -58,10 +58,28 @@ NTFY_MARKDOWN="${NTFY_MARKDOWN:-yes}"
 # Named _ntfy_env, not _load_env: three consumers already define a _load_env of
 # their own that reads their own extra keys, and a shared function that silently
 # depended on which file was sourced last would be a bug waiting for a rename.
+#
+# _ntfy_env [extra-key...] — the trio, plus whatever else the caller names.
+#
+# The EXTRA KEYS are an argument, and the callers' _load_env wrappers are what keep
+# it that way: afterimage needs its own port, pigeonhole needs its own, and this
+# function must never grow a list that tries to know which. What is shared is the
+# LOOP — the `grep -m1` + quote-strip + `printf -v` shape that each consumer had
+# written out longhand, in one case with a subtly different quote-strip. What stays
+# per-consumer is the set of names, which is the only part that carries meaning.
+# Only the trio is asserted: an extra key that is absent is the caller's business,
+# and both callers already say so by name (see capture_base_url / pigeonhole_base_url).
+#
+# SC2120 is disabled because the extra keys arrive from OTHER FILES — this lib's own
+# notify()/retract() need only the trio, so shellcheck, reading one file at a time,
+# concludes the parameter is dead. It is not: see the _load_env one-liners in
+# afterimage.lib.sh and pigeonhole.lib.sh, which are what it exists for.
+# shellcheck disable=SC2120
 _ntfy_env() {
     local root_env="/zpool/catallenya/.env" k v line
     [[ -f "$root_env" ]] || { log "no .env"; return 1; }
-    for k in TAILNET_DOMAIN TAILNET_DNS_NAME NTFY_REVERSE_PROXY_PORT; do
+    # "$@" with no positional parameters is empty, not an error, even under set -u.
+    for k in TAILNET_DOMAIN TAILNET_DNS_NAME NTFY_REVERSE_PROXY_PORT "$@"; do
         line="$(grep -m1 "^${k}=" "$root_env" 2>/dev/null)" || continue
         v="${line#*=}"; v="${v%\"}"; v="${v#\"}"
         printf -v "$k" '%s' "$v"

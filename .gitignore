@@ -254,3 +254,14 @@ ntfy/.env
 !liquidroom/systemd/liquidroom.triage.service
 !liquidroom/tests/
 !liquidroom/tests/run.sh
+
+# The shared Syncthing quiet gate — ONE file, per-file, and this is the sharpest
+# allowlist in the file after tailscale's node key. syncthing/data/ is the synced
+# corpus itself (personal IDs, medical, financial, every device's shared folder)
+# and syncthing/data/config/config.xml carries the API key this very script reads.
+# A `!syncthing/**`, or even a `!syncthing/*.sh` that someone later "tidied" into a
+# directory glob, would publish all of it to a public repo on the next `git add -A`.
+# The bare `!syncthing/` below re-includes only the DIRECTORY, which is what lets
+# git descend to the one line under it; everything else stays under the top `*`.
+!syncthing/
+!syncthing/syncthing.lib.sh
