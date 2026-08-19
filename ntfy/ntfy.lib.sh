@@ -230,3 +230,31 @@ paused_body() {
     (( n > shown )) && out+="… and $(( n - shown )) more"$'\n'
     printf '%s\n_%s. Retrying daily — %s._' "$out" "$reason" "$outcome"
 }
+
+# paused_sync <sequence-id> <noun> <reason> <outcome> [item...]
+#
+# The paused summary's whole lifecycle in one call: withdraw whatever summary is
+# riding <sequence-id>, then publish the current one — or nothing, when nothing is
+# paused any more. Made to be called UNCONDITIONALLY at the end of every run,
+# because the bug it replaces was conditional choreography: both triages had the
+# retract INSIDE their non-empty branch, so the run that RESOLVED an outage skipped
+# the branch and left "Paused: N …" on the phone forever. The unconditional retract
+# is free — the server answers 200 for an id it has never seen (see retract) — so
+# there is no state to consult and no branch to get wrong.
+#
+# <reason> and <outcome> feed paused_body in its own arg order and are never read
+# when no items remain, so a caller reporting "outage over" may pass them empty.
+# The replacement goes out at default priority with the `warning` tag, matching
+# every summary this replaces: nothing in this repo shouts, and warning is the one
+# deliberate glyph the paused shape already carries.
+paused_sync() {
+    local id="${1:-}" noun="${2:-Item}" reason="${3:-}" outcome="${4:-}"
+    local -a items=("${@:5}")
+    # An empty id would publish a summary nothing can ever withdraw — the exact
+    # rot this function exists to end — so decline the whole call instead.
+    [[ -n "$id" ]] || { log "paused_sync: no sequence id, refusing"; return 0; }
+    retract "$id"
+    (( ${#items[@]} > 0 )) || return 0
+    notify "$(paused_title "${#items[@]}" "$noun")" "" warning \
+        "$(paused_body "$reason" "$outcome" "${items[@]}")" "" "$id"
+}
