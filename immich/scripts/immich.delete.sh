@@ -7,7 +7,8 @@
 # recoverable via UI). Use --force for hard delete.
 #
 # Resume: deleted.tsv is appended one row per asset. If a run is interrupted,
-# re-running with --force-rerun skips IDs already in deleted.tsv.
+# re-running with --force-rerun skips IDs whose logged outcome is terminal
+# (2xx deleted, 404 already gone) and retries failure rows (000/5xx).
 #
 # Usage:
 #   bash immich/scripts/immich.delete.sh [OPTIONS]
@@ -198,11 +199,16 @@ OUT_FILE="$RUN_DIR/deleted.tsv"
 if [[ -f "$OUT_FILE" && -z "$FROM_FILE" ]]; then
   if [[ "$FORCE_RERUN" -ne 1 ]]; then
     echo "error: $OUT_FILE already exists." >&2
-    echo "  Pass --force-rerun to retry any IDs not yet logged in it." >&2
+    echo "  Pass --force-rerun to retry IDs without a logged success (2xx/404)." >&2
     exit 2
   fi
   done_ids="$(mktemp)"
-  awk -F'\t' '{print $1}' "$OUT_FILE" | sort -u > "$done_ids"
+  # Only terminal outcomes count as done: 2xx (deleted) and 404 (already gone)
+  # — the same pair the exit code calls success. Failure rows (000 transport,
+  # 5xx) stay retryable: every logged row used to count, so one transient
+  # failure excluded an asset from every future rerun and the advertised
+  # --force-rerun remedy retried exactly nothing.
+  awk -F'\t' '$2 ~ /^2/ || $2 == "404" {print $1}' "$OUT_FILE" | sort -u > "$done_ids"
   remaining="$(mktemp)"
   comm -23 "$TMP_IDS" "$done_ids" > "$remaining"
   mv "$remaining" "$TMP_IDS"

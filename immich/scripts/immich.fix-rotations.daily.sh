@@ -43,7 +43,30 @@ CONCERNS="$(grep -E '^  (SKIP|FAIL) ' <<<"${OUT}" | grep -vE 'SKIP_NON_ROTATE|SK
 # already succeeded — and no hdr_safe on the title. Both come free with the move.
 # Human-readable summaries: "photo.jpg — rotated 90°" / "photo.jpg — needs a look (...)"
 BAKED_LINES="$(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1 — rotated \2°/p' <<<"${OUT}")"
-CONCERN_LINES="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2 — needs a look (\3)/p' <<<"${CONCERNS}")"
+
+# Every line that made CONCERNS non-empty must reach the notification body.
+# Three shapes come out of immich.fix-rotations.sh:
+#   "  SKIP <fn> net=90 ori=6 SKIP_AMBIGUOUS(...)"   verdict form (has net=)
+#   "  SKIP <fn>       original missing"             no net= (fix-rotations.sh)
+#   "  FAIL <fn>       exiftool failed"              no net= (fix-rotations.sh)
+# A single sed requiring " net=" handled only the first, so the other two
+# vanished: an empty body when they were the only findings, and — worse —
+# silent omission in mixed runs. The fallback splits filename from reason on
+# the %-20s padding gap; a line neither pattern understands (e.g. a filename
+# long enough to swallow the padding, or a future concern shape) passes
+# through raw, so a concern can read rough but can never disappear.
+concern_lines() {
+    local line pretty
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2 — needs a look (\3)/p' <<<"${line}")"
+        if [[ -z "${pretty}" ]]; then
+            pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\) \{2,\}\([^ ].*\)$/\2 — needs a look (\3)/p' <<<"${line}")"
+        fi
+        printf '%s\n' "${pretty:-${line}}"
+    done <<<"${CONCERNS}"
+}
+CONCERN_LINES="$(concern_lines)"
 
 if [[ ${RC} -ne 0 ]]; then
     notify "Immich rotation bake failed" "" rotating_light \
