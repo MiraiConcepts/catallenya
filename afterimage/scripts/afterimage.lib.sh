@@ -95,6 +95,19 @@ PRUNE_IMAGE_AFTER_DAYS=7
 # would otherwise have swept every record ever archived.
 RETRACT_WITHIN_DAYS=14
 
+# A 24-hour HH:MM, anchored, with the hour and minute ranges spelled out — a loose
+# [0-9]{2}:[0-9]{2} admits "24:00" and "19:99", and both reach render_ics.py as a
+# time that does not exist.
+#
+# ONE definition, because the two readers must never disagree about what a time IS.
+# validate_proposal refuses a proposal whose start_time does not match this, and
+# button_label prints a bare HH:MM as the button only when it does. While the pattern
+# sat in four places, a tightening in the gate and not in the label — or the reverse —
+# would have put a refused time on a button, or sent a perfectly good one to the
+# generic "All day". Both are silent, and both are about the one line the owner reads
+# before tapping.
+HHMM_RE='^([01][0-9]|2[0-3]):[0-5][0-9]$'
+
 # API_MAX_ATTEMPTS / API_RETRY_BASE_S / API_URL and image_mime / image_ext moved to
 # ai.lib.sh (sourced at the top). Transient-failure policy is unchanged: the record
 # is left in pending/ without a proposal.json and the sweep re-queues the screenshot
@@ -140,7 +153,7 @@ button_label() {
         year)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b %y' 2>/dev/null || printf 'Alternative' ;;
         date)  date -d "$(jq -r '.date' <<<"$a")" '+%-d %b'    2>/dev/null || printf 'Alternative' ;;
         time)
-            if [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then printf '%s' "$at"
+            if [[ "$at" =~ $HHMM_RE ]]; then printf '%s' "$at"
             else printf 'All day'; fi ;;
         venue)
             # Strip to the Actions-header charset before truncating, so a venue with
@@ -173,7 +186,7 @@ button_label() {
                 fi
             elif [[ "$(jq -r '.all_day' <<<"$a")" == "true" || -z "$at" || "$at" == "null" ]]; then
                 printf 'All day'
-            elif [[ "$at" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then printf '%s' "$at"
+            elif [[ "$at" =~ $HHMM_RE ]]; then printf '%s' "$at"
             else printf 'Alternative'; fi ;;
     esac
 }
@@ -372,18 +385,16 @@ die() { log "FATAL: $*"; exit 1; }
 # prevented it. It is also arbitrary code execution if that file ever grows a
 # $(...), which a data file should never be able to do.
 #
+# The EXTRACTION is _ntfy_env's, in ntfy/ntfy.lib.sh; the KEY LIST stays here, and
+# that separation is deliberate rather than a half-finished merge. Three pipelines
+# needed the same loop over different names, so the loop is shared and the names are
+# not: a function holding the union of every pipeline's keys would read as a contract
+# nobody wrote. The one key below is this pipeline's own — the port the Add and
+# Discard buttons POST back to.
+#
 # (Deliberately not naming the variables here: gitleaks 8.24.3, which CI pins,
 # reads a secret-shaped name beside the word "password" as a finding.)
-_load_env() {
-    local root_env="/zpool/catallenya/.env" k v line
-    [[ -f "$root_env" ]] || { log "no .env"; return 1; }
-    for k in TAILNET_DOMAIN TAILNET_DNS_NAME NTFY_REVERSE_PROXY_PORT AFTERIMAGE_REVERSE_PROXY_PORT; do
-        line="$(grep -m1 "^${k}=" "$root_env" 2>/dev/null)" || continue
-        v="${line#*=}"
-        v="${v%\"}"; v="${v#\"}"     # tolerate quoted values
-        printf -v "$k" '%s' "$v"
-    done
-}
+_load_env() { _ntfy_env AFTERIMAGE_REVERSE_PROXY_PORT; }
 
 # hdr_safe and md_escape live in ntfy/ntfy.lib.sh (sourced at the top). They guard
 # the boundary where untrusted text — model output, a synced filename — reaches a
@@ -445,7 +456,7 @@ validate_proposal() {
     for f in start_time end_time; do
         v="$(jq -r --arg f "$f" '.[$f] // "null"' <<<"$p")"
         [[ "$v" == "null" ]] && continue
-        [[ "$v" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "BAD_TIME"; return 1; }
+        [[ "$v" =~ $HHMM_RE ]] || { echo "BAD_TIME"; return 1; }
     done
 
     # The zone must resolve. render_ics.py falls back to EVENT_TZ on an unknown zone,
@@ -467,7 +478,7 @@ validate_proposal() {
         for f in start_time end_time; do
             v="$(jq -r --arg f "$f" '.alternatives[0][$f] // "null"' <<<"$p")"
             [[ "$v" == "null" ]] && continue
-            [[ "$v" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "BAD_ALT"; return 1; }
+            [[ "$v" =~ $HHMM_RE ]] || { echo "BAD_ALT"; return 1; }
         done
     fi
     return 0
