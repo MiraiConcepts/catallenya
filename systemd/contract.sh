@@ -45,7 +45,18 @@ intake_contract() {
         # DISCUSS api_post and high priority, in the notes explaining why they no
         # longer do either — and a rule that cannot tell code from prose about code
         # fires on the very comments left to prevent the regression.
-        code="$(sed 's/#.*//' "$f")"
+        #
+        # Continuation lines are then JOINED and blank runs squeezed, because the
+        # checks below are line-shaped and bash is not: `notify "…" \` with `high`
+        # on the next line is ONE command to the shell and was invisible to a
+        # line-based grep — the one live `high` in the repo shipped in exactly
+        # that wrapped form and passed --check clean. Comments come off FIRST: a
+        # backslash at the end of a comment continues nothing in bash, and joining
+        # before stripping would glue the next code line into the comment and
+        # delete both.
+        code="$(sed 's/#.*//' "$f" \
+                | sed -e ':j' -e '/\\$/ { N; s/\\\n[[:space:]]*/ /; bj }' \
+                | tr -s '[:blank:]' ' ')"
 
         # 1. one transport, not a fifth copy
         if grep -q '^notify() {' "$f"; then

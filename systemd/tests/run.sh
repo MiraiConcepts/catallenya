@@ -41,7 +41,8 @@ hasnt(){ [[ "$2" != *"$3"* ]] && ok "$1" || bad "$1" "must not contain: $3" "$2"
 # the running config.
 
 CHECK_TREE="$(mktemp -d)"
-trap 'rm -rf "$CHECK_TREE"' EXIT
+PRISTINE_TREE="$(mktemp -d)"
+trap 'rm -rf "$CHECK_TREE" "$PRISTINE_TREE"' EXIT
 # Everything the gate reads, layout preserved: units, timers, paths, the policy
 # fragments and the instance stickers.
 # Every directory that can hold a unit. This list is load-bearing and easy to
@@ -53,13 +54,19 @@ trap 'rm -rf "$CHECK_TREE"' EXIT
 (cd "$REPO" && find systemd restic host changedetection ntfy \
     afterimage/systemd pigeonhole/systemd liquidroom/systemd immich \
     \( -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name '*.conf' \) \
-    -exec cp --parents -t "$CHECK_TREE" {} +)
+    -exec cp --parents -t "$PRISTINE_TREE" {} +)
+
+# The whole tree goes back to pristine before EVERY case. The old shape re-copied
+# only the unit a case was about to mutate, so every OTHER unit kept whatever the
+# cases before it had done — and two assertions passed on a lingering mutation
+# from someone else's case rather than pinning their own (2026-08-19 audit).
+restore_tree() { rsync -a --delete "${PRISTINE_TREE}/" "${CHECK_TREE}/"; }
 
 # gate_says <name> <unit-path> <sed-expr> <expected substring>
 gate_says() {
     local name="$1" unit="$2" expr="$3" want="$4"
     local rel="${unit#"${REPO}/"}"
-    cp -f "$unit" "${CHECK_TREE}/${rel}"    # fresh copy — also resets the previous case
+    restore_tree
     sed -i -E "$expr" "${CHECK_TREE}/${rel}"
     local out; out="$(INSTALL_CHECK_REPO="$CHECK_TREE" bash "$INSTALL" --check 2>&1)"
     has "$name" "$out" "$want"
@@ -188,6 +195,40 @@ gate_says "a timer re-setting Persistent= is refused" \
     "${REPO}/host/disk.timer" 's/^OnCalendar=/Persistent=true\nOnCalendar=/' \
     "already sets"
 
+# --- cases the 2026-08-19 audit earned; each defeated the gate before the fix ---
+
+# The old requirement check fell back to a section-blind grep, so a required
+# directive parked in [Unit] — where systemd ignores it — still counted as
+# present. The job then ran at the oneshot default: TimeoutStartSec=infinity.
+gate_says "TimeoutStartSec= in [Unit] does not satisfy the requirement" \
+    "${REPO}/restic/forget/restic.forget.service" \
+    's|^TimeoutStartSec=2h$|#moved|;s|^\[Unit\]|[Unit]\nTimeoutStartSec=2h|' \
+    "requires an explicit finite TimeoutStartSec"
+
+# Worse than a missing bound: User= in [Unit] means systemd runs the unit as
+# ROOT, and the section-blind check ALSO skipped the unbounded-root refusal,
+# because the section-aware reader correctly saw no [Service] User at all.
+gate_says "User= in [Unit] does not satisfy the requirement" \
+    "${REPO}/host/disk.service" \
+    's|^User=carrein$|#moved|;s|^\[Unit\]|[Unit]\nUser=carrein|' \
+    "no explicit User="
+
+# .path units were entirely undispatched until 2026-08-19 — a watcher full of
+# garbage passed the gate clean. The Condition trap is the one that bites
+# silently: a skipped watcher looks installed and never fires.
+gate_says "Condition*= on a .path unit is refused" \
+    "${REPO}/afterimage/systemd/afterimage.triage.path" \
+    's|^\[Unit\]|[Unit]\nConditionPathIsMountPoint=/zpool|' \
+    "A failed Condition is a SKIP"
+
+# A committed-but-unregistered unit validates nothing, installs nothing, and is
+# invisible to the watchdog — a rogue with six violations once sailed past as
+# "OK 35 units". Not gate_says: the mutation is a NEW file, not a sed.
+restore_tree
+printf '%s\n' "[Service]" "ExecStart=/bin/true" > "${CHECK_TREE}/host/zzrogue.service"
+out="$(INSTALL_CHECK_REPO="$CHECK_TREE" bash "$INSTALL" --check 2>&1)"
+has "an unregistered unit in the tree is refused" "$out" "not in install.sh's SYMLINKS map"
+
 # The prune loop once deleted the instance sticker directories this same script
 # creates, because a template instance has no unit file of its own. Both restic
 # check jobs came out of a real install with no MaxAge and no Freshness.
@@ -226,7 +267,7 @@ hb_cleanup() {
     for f in "${FIXTURES[@]:-}"; do [[ -n "$f" ]] && rm -f "${UD}/${f}"; done
     rm -rf "$STATE"
     systemctl --user daemon-reload 2>/dev/null
-    rm -rf "$CHECK_TREE"
+    rm -rf "$CHECK_TREE" "$PRISTINE_TREE"
 }
 trap hb_cleanup EXIT
 
@@ -401,6 +442,29 @@ fi
 has "adopted stickers carry the crash wire"  "$(grep -c 'OnFailure=system-ntfy@%N.service' "$INSTALL")" "2"
 has "adopted stickers carry a finite bound"  "$(grep -c 'TimeoutStartSec=1h' "$INSTALL")" "2"
 
+# sticker() exists twice on purpose — the gate reads the unit FILE, the watchdog
+# reads `systemctl cat` — but the awk between those framings must stay
+# byte-identical. They once disagreed on first-vs-last match, so a unit with two
+# MaxAge= lines showed the gate one value and the watchdog another: two jobs dead
+# for a year while both layers reported them healthy. A textual pin is enough;
+# the comment on each copy says why.
+sticker_awk() {
+    awk '/^sticker\(\) \{/,/^\}/' "$1" \
+        | sed -n "/awk -v k=/,/^[[:space:]]*'/p" | sed '1d;$d'
+}
+GATE_AWK="$(sticker_awk "$INSTALL")"
+HB_AWK="$(sticker_awk "$HEARTBEAT")"
+if [[ -n "$GATE_AWK" && -n "$HB_AWK" ]]; then
+    ok "both sticker() awk bodies extract non-empty"
+else
+    bad "both sticker() awk bodies extract non-empty" "three awk lines from each file" "install.sh: '${GATE_AWK:-<empty>}' heartbeat.sh: '${HB_AWK:-<empty>}'"
+fi
+if [[ -n "$GATE_AWK" && "$GATE_AWK" == "$HB_AWK" ]]; then
+    ok "the two sticker() readers are byte-identical"
+else
+    bad "the two sticker() readers are byte-identical" "identical awk bodies" "$(printf 'install.sh:\n%s\nheartbeat.sh:\n%s' "$GATE_AWK" "$HB_AWK")"
+fi
+
 echo
 # ------------------------------------------------- the intake code contract
 # Everything above tests the gate against a UNIT. These test it against the CODE an
@@ -441,6 +505,13 @@ contract_says "so is a private retract()" "defines its own retract()"
 
 contract_fixture 'notify "Something Broke" high warning "body"'
 contract_says "high priority is refused" "high priority"
+
+# The live escape shipped WRAPPED: `notify "…" \` with the priority on the next
+# line is one command to bash and was invisible to a line-based grep — the
+# single-line case above was vacuous against the bug's real shape.
+contract_fixture 'notify "Refused: 3 Documents" \
+    high warning "$body"'
+contract_says "a wrapped high is still refused" "high priority"
 
 contract_fixture 'out="$(api_post "$msgf")" || rc=$?
 if (( rc == 2 )); then park; else resolve; fi'
