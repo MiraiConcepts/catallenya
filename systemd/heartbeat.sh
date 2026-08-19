@@ -15,17 +15,6 @@
 # catch. Every check below is individually guarded instead.
 set -uo pipefail
 
-ROOT_ENV="/zpool/catallenya/.env"
-if [[ -f "$ROOT_ENV" ]]; then
-    # shellcheck source=/dev/null  # runtime-only file, not in the repo
-    source "$ROOT_ENV"
-else
-    echo "Root .env not found at $ROOT_ENV" >&2
-    exit 1
-fi
-
-NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-
 # The host-health channel, carrying boot events and watchdog findings alike.
 #
 # Renamed from `boot` on 2026-08-13, and the ORDER mattered: subscribe first, test
@@ -34,7 +23,26 @@ NTFY_URL="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_POR
 # the floor — the exact failure this watchdog exists to prevent, committed by the
 # watchdog itself. Changed together with catallenya.sh and system-ntfy.sh's
 # HOST_TOPIC; they must never disagree.
-TOPIC="${HEARTBEAT_NTFY_TOPIC:-host}"
+# shellcheck disable=SC2034  # read by ntfy.lib.sh, sourced below
+NTFY_TOPIC="${HEARTBEAT_NTFY_TOPIC:-host}"
+
+# Notification transport is shared. This replaced a wholesale `source` of the root
+# .env — forty-odd credentials, to build one URL out of three of them — plus a
+# private curl. ntfy.lib.sh extracts only those three keys, and brings --max-time
+# and hdr_safe with it.
+#
+# Absolute path on purpose. REPO_DIR below is overridable so the offline suite can
+# run the roll call against a scratch tree, and the transport must not follow it
+# there: the tree holds fixture units, not this repo's code.
+#
+# NTFY_MARKDOWN=no, the immich opt-out: findings are machine-built lines carrying
+# unit names, stamp paths and quoted sticker values. Under a renderer a pair of
+# underscores in a path would italicise the middle of a finding, and the one thing a
+# watchdog message must be is literal.
+# shellcheck disable=SC2034
+NTFY_MARKDOWN=no
+# shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
+source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
 # Both overridable for the offline suite only, which points them at a scratch tree
 # and the per-user systemd manager. That lets every finding type be provoked with
@@ -368,9 +376,10 @@ fi
 printf '%s\n' "${FINDINGS[@]}"
 
 BODY=$(printf '%s\n' "${FINDINGS[@]}")
-# Same guard both intake libraries use, so the offline suites exercise everything
-# up to the wire without putting anything on the phone.
-if [[ "${NTFY_DISABLE:-}" == "1" ]]; then
+# The transport's own mute seam, asked directly rather than re-read here, so the
+# offline suites exercise everything up to the wire without putting anything on the
+# phone. The message is this script's own: the suite pins it.
+if ntfy_muted; then
     echo "heartbeat: NTFY_DISABLE=1, not publishing"
     exit 0
 fi
@@ -379,12 +388,15 @@ fi
 # a dead ntfy, a wrong URL or an unreachable tailnet is indistinguishable from a
 # healthy round: findings would print to a journal nobody reads and the unit would
 # still succeed and stamp itself fresh.
-if ! curl -sf \
-        -H "Tags: warning" \
-        -H "Title: Watchdog" \
-        -H "Priority: default" \
-        -d "$BODY" \
-        "${NTFY_URL}/${TOPIC}" >/dev/null; then
-    echo "heartbeat: ntfy publish FAILED — ${#FINDINGS[@]} finding(s) undelivered" >&2
+#
+# notify() cannot report that failure by exit code — it is best-effort by design and
+# ends every path in `|| true`, so that a pipeline's own work is never failed by a
+# notification about it. This job is the inverse: the notification IS the work. So
+# the transport's silence is the test. curl -fsS prints nothing on a successful
+# publish and prints the failure otherwise, and _ntfy_env logs when it declines to
+# build a URL at all; anything the transport says here is an undelivered finding.
+send_out="$(notify "Watchdog" "" warning "$BODY" 2>&1)"
+if [[ -n "$send_out" ]]; then
+    echo "heartbeat: ntfy publish FAILED — ${#FINDINGS[@]} finding(s) undelivered: ${send_out}" >&2
     exit 1
 fi

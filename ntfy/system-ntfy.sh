@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# The alarm of last resort. Every OnFailure= in the fleet points here, so this script
+# deliberately DOES NOT source ntfy/ntfy.lib.sh — owner's call, and the reason is the
+# position rather than the code: the one job whose whole purpose is to speak when
+# something else has broken should depend on as little as possible, including on
+# another file in this repo being intact. It is the only publisher in the tree with
+# that exemption. The cost is that the two lines of curl below have to keep pace with
+# the transport by hand; the flags carry the reasons inline for that.
+
 # Source root .env
 ROOT_ENV="/zpool/catallenya/.env"
 if [[ -f "$ROOT_ENV" ]]; then
@@ -137,9 +145,21 @@ fi
 # swallow the alert with a 200-shaped success. systemd still reports a failed
 # OnFailure= handler nowhere, but a failed courier at least shows in
 # `systemctl --failed` instead of nowhere at all.
-curl -f \
+#
+# --max-time: this runs as a FAILURE HANDLER, and an ntfy that accepts the connection
+# and then stops answering would hold the handler open indefinitely — a systemd job
+# stuck reporting a job that is already dead. TimeoutStartSec=2min on the unit is the
+# outer bound; 15s is the same one the shared transport uses, chosen so three of these
+# firing at once still finish inside it.
+#
+# --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME and
+# POSTs that file's contents. The body here is `systemctl status` output, which starts
+# with a bullet today — but it is a machine-built string this script does not control,
+# and the one difference between the two flags is that --data-raw can never be talked
+# into reading a file.
+curl -f --max-time 15 \
      -H "Tags: $tag" \
      -H "Title: $title" \
      -H "Priority: $priority" \
-     -d "$message" \
+     --data-raw "$message" \
      "${NTFY_URL}/${topic}"
