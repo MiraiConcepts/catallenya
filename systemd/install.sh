@@ -187,8 +187,22 @@ directive() {                       # directive <file> <section> <key>
         END { if (seen) print val }
     ' "$1"
 }
+# Requirement checks are SECTION-AWARE and nothing else: a directive in the wrong
+# section is one systemd ignores, so "present somewhere in the file" must never
+# satisfy "required here". The old section-blind fallback let TimeoutStartSec=2h
+# in [Unit] pass while the job actually ran at the oneshot default of infinity,
+# and let User=carrein in [Unit] pass while systemd ran the unit as ROOT — with
+# the unbounded-root check skipped, because the section-aware reader correctly
+# saw no [Service] User at all.
 has_key() {                         # has_key <file> <key> [section]
-    [[ -n "$(directive "$1" "${3:-Service}" "$2")" ]] || \
+    [[ -n "$(directive "$1" "${3:-Service}" "$2")" ]]
+}
+# Prohibition checks stay deliberately BLUNT: a forbidden directive is refused
+# wherever it appears. Even where systemd would ignore it, the line reads as
+# configuration and is a lie — refusing a misplaced RuntimeMaxSec= is
+# conservative, never wrong.
+has_key_anywhere() {                # has_key_anywhere <file> <key> [section]
+    has_key "$@" || \
     grep -qE "^[[:space:]]*${2}[[:space:]]*=" "$1"
 }
 
@@ -210,7 +224,7 @@ check_not_reset() {
     # so re-splitting here buys nothing and shellcheck rightly calls SC2068 an
     # error rather than a warning. Behaviour is identical; CI is not.
     for key in "$@"; do
-        has_key "$file" "$key" && \
+        has_key_anywhere "$file" "$key" && \
             err "${unit}: sets ${key}=, which the ${layer} policy already sets — the unit's value is silently discarded. Remove the line."
     done
     return 0
@@ -265,14 +279,14 @@ validate_service() {
     fi
     grep -qE '^[[:space:]]*Condition[A-Za-z]*[[:space:]]*=' "$file" && \
         err "${unit}: uses a Condition*= directive. A failed Condition is a SKIP, not a failure — no exit code, no OnFailure=, no journal error. Use Requires= so a missing precondition fails loudly. This is how sanoid stopped snapshotting silently."
-    has_key "$file" "RuntimeMaxSec" && \
+    has_key_anywhere "$file" "RuntimeMaxSec" && \
         err "${unit}: sets RuntimeMaxSec=, which systemd IGNORES on Type=oneshot while still reporting it in \`systemctl show\`. Use TimeoutStartSec=."
     # Both would write a FALSE HEALTHY completion stamp: ExecStartPost= runs when
     # systemd considers ExecStart successful, and each of these makes a failure
     # look like success. Neither is used anywhere today; the gate keeps it that way.
     grep -qE '^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*-' "$file" && \
         err "${unit}: ExecStart= is prefixed with '-', so a failing command counts as success and the completion stamp would be written anyway. The watchdog would report this job healthy forever."
-    has_key "$file" "SuccessExitStatus" && \
+    has_key_anywhere "$file" "SuccessExitStatus" && \
         err "${unit}: sets SuccessExitStatus=, which makes a non-zero exit count as success — the completion stamp would be written for a failed run."
 
     # The ExecStart binary must exist and be EXECUTABLE. systemd answers a missing
@@ -308,13 +322,13 @@ validate_service() {
             [[ -n "$maxage" ]] || err "${unit}: Class=monitor requires MaxAge=."
             [[ -z "$freshness" ]] || \
                 err "${unit}: Class=monitor must not declare Freshness= — a monitor produces nothing but its own completion stamp, so it is implied."
-            has_key "$file" "TimeoutStartSec" && \
+            has_key_anywhere "$file" "TimeoutStartSec" && \
                 err "${unit}: Class=monitor must not set TimeoutStartSec= — the class sets 10min and would discard this."
             # Not stylistic. An empty OnSuccess= in a drop-in does NOT reset a
             # [Unit] dependency list (measured: the declared handler still runs),
             # so the monitor class physically cannot strip one. Refusing here is
             # the only enforcement available.
-            has_key "$file" "OnSuccess" Unit && \
+            has_key_anywhere "$file" "OnSuccess" Unit && \
                 err "${unit}: Class=monitor must not declare OnSuccess= — silence is the healthy state, and a drop-in cannot reset a [Unit] dependency list, so this is the only place it can be stopped."
             check_not_reset "$file" "$unit" monitor $MONITOR_SETS
             ;;
@@ -375,12 +389,37 @@ validate_service() {
 
 validate_timer() {
     local unit="$1" file="$2"
-    has_key "$file" "OnCalendar" || err "${unit}: no OnCalendar=."
-    has_key "$file" "RandomizedDelaySec" || \
-        err "${unit}: no RandomizedDelaySec=. Several of these contend for the same repository lock, and an un-jittered timer lands on the hour alongside every other job scheduled on the hour."
+    has_key "$file" "OnCalendar" Timer || err "${unit}: no OnCalendar= in [Timer]."
+    has_key "$file" "RandomizedDelaySec" Timer || \
+        err "${unit}: no RandomizedDelaySec= in [Timer]. Several of these contend for the same repository lock, and an un-jittered timer lands on the hour alongside every other job scheduled on the hour."
     grep -qE '^\[Install\]' "$file" && \
         err "${unit}: declares its own [Install] section, which 10-base-timer.conf already provides."
     check_not_reset "$file" "$unit" base-timer $TIMER_SETS
+    return 0
+}
+
+# .path units went entirely unvalidated until 2026-08-19 — the dispatch matched
+# only *.service and *.timer, so a .path full of garbage passed the gate clean.
+# The rules are few because a .path is small, but each one is a silence:
+validate_path() {
+    local unit="$1" file="$2"
+    # The same trap the service rule guards: a failed Condition is a SKIP, not a
+    # failure — no exit code, no OnFailure=, no journal error. On a watcher that
+    # means the pipeline looks installed while nothing ever fires.
+    grep -qE '^[[:space:]]*Condition[A-Za-z]*[[:space:]]*=' "$file" && \
+        err "${unit}: uses a Condition*= directive. A failed Condition is a SKIP, not a failure — no exit code, no OnFailure=, no journal error — so the watcher would silently never arm. Use Requires= so a missing precondition fails loudly."
+    # Unlike timers, path units inherit no [Install] from a policy drop-in, and
+    # install.sh enables them with `systemctl enable --now`: without a WantedBy=
+    # the enable fails, the watcher runs until the next reboot and never again.
+    grep -qE '^\[Install\]' "$file" || \
+        err "${unit}: has no [Install] section. Path units are enabled with \`systemctl enable --now\`, which needs a WantedBy= — without one the watcher arms this boot and is gone on the next."
+    # A .path that watches nothing loads cleanly and does nothing forever.
+    local key watched=0
+    for key in PathExists PathExistsGlob PathChanged PathModified DirectoryNotEmpty; do
+        [[ -n "$(directive "$file" Path "$key")" ]] && { watched=1; break; }
+    done
+    (( watched )) || \
+        err "${unit}: watches nothing — no PathExists=, PathExistsGlob=, PathChanged=, PathModified= or DirectoryNotEmpty= in [Path]. An armed watcher with no watched path never fires, and the watchdog reads 'active' as healthy."
     return 0
 }
 
@@ -419,8 +458,43 @@ for unit in "${!SYMLINKS[@]}"; do
     case "$unit" in
         *.service) validate_service "$unit" "$src" ;;
         *.timer)   validate_timer   "$unit" "$src" ;;
+        *.path)    validate_path    "$unit" "$src" ;;
     esac
 done
+
+# The SYMLINKS map is hand-maintained, and a unit that never makes it in is the
+# quietest failure this layout allows: it validates nothing, installs nothing,
+# and declares a Class the watchdog will never read — proven with a rogue unit
+# carrying six violations that sailed past as "OK 35 units". So the tree is
+# cross-checked against the map: every committed unit file must be registered.
+# (The reverse — a map key whose file is gone — is already a refusal above.)
+#
+# git is authoritative when available; when it is not — --check must work under
+# an INSTALL_CHECK_REPO scratch tree, and root running the real install may be
+# refused by git's ownership check — fall back to the same directory list the
+# offline suite builds its check tree from. A unit committed to a brand-new
+# directory is what the git arm exists to catch; the fallback cannot see it,
+# which is exactly the blindness that broke 23 suite cases on 2026-08-15.
+tracked_units() {
+    if git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "${REPO_DIR}" ls-files -- '*.service' '*.timer' '*.path'
+    else
+        local d
+        for d in systemd restic host changedetection ntfy afterimage/systemd \
+                 pigeonhole/systemd liquidroom/systemd immich; do
+            [[ -d "${REPO_DIR}/${d}" ]] || continue
+            ( cd "${REPO_DIR}" && find "$d" \
+                \( -name '*.service' -o -name '*.timer' -o -name '*.path' \) )
+        done
+    fi
+}
+declare -A REGISTERED=()
+for unit in "${!SYMLINKS[@]}"; do REGISTERED["${SYMLINKS[$unit]}"]=1; done
+while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    [[ -n "${REGISTERED["${REPO_DIR}/${rel}"]:-}" ]] || \
+        err "${rel}: unit file is in the tree but not in install.sh's SYMLINKS map — it is validated by nothing, installed by nothing, and invisible to the watchdog. Register it, or remove the file."
+done < <(tracked_units)
 
 # A scheduled job with no timer never runs. Checked separately because it needs
 # the whole map, not one unit.
