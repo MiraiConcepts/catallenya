@@ -277,7 +277,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
 - **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
   guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
   adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`
-- **shellcheck**: all tracked `*.sh` at `-S warning` (preinstalled runner binary, no action)
+- **shellcheck**: all tracked `*.sh` at `-S warning` (preinstalled runner binary, no
+  action). **Verify locally against `koalaman/shellcheck:latest`, never `:stable`** —
+  the runner's binary is newer and raises rules `stable` does not. A `:stable` run
+  came back clean on a file where CI then found twelve SC2218 errors (a function
+  called before a same-named definition later in the file), which cost a red build
+  and a round trip:
+  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:latest -S warning $(git ls-files '*.sh')`
 - **mirror**: publishes a feature directory to its own standalone repo via
   `git subtree split`, so a feature can be linked, described and pinned on its own —
   GitHub pins are repo-level, you cannot pin a directory. **Five matrix entries, and

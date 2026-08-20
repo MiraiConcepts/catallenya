@@ -7,19 +7,19 @@
 > [pigeonhole](https://github.com/MiraiConcepts/pigeonhole).
 
 `ai/scripts/ai.lib.sh` is the only place in all of catallenya that talks to
-`api.anthropic.com`. Three scripts source it, but only two of them call the API:
+`api.anthropic.com`, and every script that sources it calls the API:
 
-| Consumer | Job | Uses |
-|---|---|---|
-| `afterimage/scripts/afterimage.triage.sh` | screenshot → proposed calendar event | the API |
-| `pigeonhole/scripts/pigeonhole.triage.sh` | document page → filing decision | the API |
-| `liquidroom/scripts/liquidroom.lib.sh` | track request → stems | `md_escape` / `hdr_safe` only |
+| Consumer | Job |
+|---|---|
+| `afterimage/scripts/afterimage.triage.sh` | screenshot → proposed calendar event |
+| `pigeonhole/scripts/pigeonhole.triage.sh` | document page → filing decision |
 
-**liquidroom makes no API call and needs no key.** It sources this library for the
-two ntfy sanitisers and nothing else — a notification title there carries a
-filename synced in from another device, and those two functions must not exist as
-a second drifting copy. Count it when changing `md_escape` or `hdr_safe`; ignore it
-when changing anything else.
+**Every consumer is an API caller, which is what makes the blast radius here
+predictable.** That was not always true: `liquidroom` used to source this whole
+library while calling no API at all, purely to reach `md_escape` and `hdr_safe`.
+Those two moved to `ntfy/ntfy.lib.sh` on 2026-08-10 — they guard the boundary where
+untrusted text reaches a *notification*, which belongs to that sink and not to the
+API that happened to fetch the text — and liquidroom stopped depending on this file.
 
 ## Why a library and not a service
 
@@ -40,8 +40,9 @@ contained change, not a rewrite. That is the trigger condition; absent it, don't
 
 | Function | Does |
 |---|---|
-| `api_class <status>` | `ok` / `retry` / `fatal`. `000` = curl never completed the exchange |
-| `api_post <body-file>` | POST + retry. `0` ok, `1` fatal, `2` transient exhausted |
+| `api_class <status> [body]` | `ok` / `retry` / `paused` / `fatal`. `000` = curl never completed the exchange. The body is optional and decides one case only — see below |
+| `api_post <body-file>` | POST + retry. `0` ok, `1` fatal, `2` transient exhausted, `3` paused |
+| `ai_reason <rc>` | the one sentence a consumer puts in front of a human |
 | `image_mime` / `image_ext` | format from magic bytes, **never** the filename |
 | `ai_build_request <out> <model> <effort> <max_tokens> <schema> <prompt> [img...]` | writes the `/v1/messages` body |
 | `ai_extract <response>` | `stop_reason` gate + structured-object extraction |
@@ -49,6 +50,31 @@ contained change, not a rewrite. That is the trigger condition; absent it, don't
 `AI_MODEL` / `AI_EFFORT` live here too — both pipelines run the same model at the
 same effort, so a model bump is one edit. Consumers keep only what is theirs:
 prompt, schema, max_tokens.
+
+## Four verdicts, three branches
+
+An API failure is not one thing. `api_class` separates them, and a consumer needs
+only three branches — proceed, resolve now, or park — because `retry` and `paused`
+are disposed of identically and differ only in the sentence `ai_reason` supplies.
+
+| Verdict | rc | Comes from | Means |
+|---|---|---|---|
+| `ok` | 0 | 200 | an answer |
+| `retry` | 2 | 429, any 5xx, `000` — after three in-run attempts | unreachable; it will fix itself |
+| `paused` | 3 | 402, a 403 carrying `billing_error`, or a 400 whose *message* names the credit balance | the account cannot pay; the request was fine |
+| `fatal` | 1 | anything else — and a 200 whose `stop_reason` is a refusal or a truncation | this item will never work |
+
+**`paused` exists because the status code cannot separate an unusable ACCOUNT from
+an unusable REQUEST.** An empty balance and a revoked key both arrive as `403`, so
+`api_class` takes the response body as an optional second argument and reads
+`error.type`. Every call without a body behaves exactly as it did before that
+argument existed.
+
+Getting this wrong is expensive in a specific way: treated as `fatal`, an unpaid
+account made afterimage archive a perfectly good screenshot as failed and prune the
+image a week later, while telling its owner to go and check an API key that was
+never the problem. Treated as `retry`, it would burn attempts on something no amount
+of waiting fixes. It is neither, so it is its own answer.
 
 ## Things that are load-bearing
 
