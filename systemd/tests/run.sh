@@ -533,27 +533,27 @@ contract_clean "prose about the rule is not a violation"
 # there is no merge engine underneath these constructors — nothing at runtime stops a
 # caller passing notify() a hand-built string, so the gate refusing it IS the
 # layering. See ntfy/MESSAGES.md § 8.
-contract_fixture 'notify "Disk Space Alert" "" warning "$ALERT"'
+contract_fixture 'notify_fault "Disk Space Alert" "$ALERT"'
 contract_says "a hand-built title is refused" "builds a notification title by hand"
 
 # The same shape that let `high` survive nine days. A line-based check on the title
 # rule would be vacuous against the bug this repo has actually had.
-contract_fixture 'notify \
-    "Boot Failure" "" warning "$body"'
+contract_fixture 'notify_fault \
+    "Boot Failure" "$body"'
 contract_says "a WRAPPED hand-built title is refused" "builds a notification title by hand"
 
-contract_fixture 'notify "$(title_count Staged 3 Document)" "" clipboard "$body"'
+contract_fixture 'notify_receipt "$(title_count Staged 3 Document)" "$body"'
 contract_clean "an inline constructor passes"
 
 # Two live call sites need a variable: pigeonhole picks between `Blocked` and
 # `Model Failed` on the blocked code, afterimage builds a quotation once and reuses
 # it. The title still comes from a constructor, so the rule follows the assignment.
 contract_fixture 't="$(title_quote "$name" "$(title_pos 2 4)")"
-notify "$t" "" calendar "$body"'
+notify_proposal "$t" "$body" "$acts" "$id"'
 contract_clean "a variable assigned from a constructor passes"
 
 contract_fixture 't="Boot Failure"
-notify "$t" "" warning "$body"'
+notify_fault "$t" "$body"'
 contract_says "a variable holding a literal does not" "builds a notification title by hand"
 
 # --- the message contract: declared verbs are past participles ---------------
@@ -570,6 +570,42 @@ contract_says "and so is an adjective" "not a past participle"
 
 contract_fixture 'NTFY_VERBS=(Stuck Staged Binned)'
 contract_clean "the one irregular on the allowlist passes"
+
+# --- the message contract: the envelope --------------------------------------
+# notify() is the transport primitive and every job goes through a KIND, because the
+# kind is what makes the lifecycle rules structural: notify_receipt has no argument to
+# put a button in, notify_proposal cannot omit the sequence-id that makes it
+# withdrawable. A bare call bypasses all of it.
+contract_fixture 'notify "$(title_count Staged 3 Document)" "$body"'
+contract_says "a bare notify() is refused" "calls notify() directly"
+
+# Wrapped, because that is the shape the one live `high` shipped in.
+contract_fixture 'notify \
+   "$(title_state zpool "78% Full")" "$body"'
+contract_says "and a WRAPPED bare notify() too" "calls notify() directly"
+
+contract_fixture 'notify_receipt "$(title_count Baked 3 Rotation)" "$body"'
+contract_clean "a kind passes"
+
+# clear=true dismisses on the TAP, before the work behind the button has happened, so
+# a refused move would leave the notification gone and the document unmoved — with the
+# buttons that were the only way to act now off the phone.
+contract_fixture 'acts="view, Accept, ${BASE}/a, clear=true"
+notify_proposal "$(title_count Staged 3 Document)" "$b" "$acts" "$id"'
+contract_says "clear=true is refused" "clear=true"
+
+# A nudge is the same decision asked twice. A title identical to the first asking
+# cannot be told from it — you do not know whether you already saw this one.
+contract_fixture 'notify_nudge "$(title_count Staged 3 Document)" "$b" "$id"'
+contract_says "a nudge that reads like a first ask is refused" "does not read as one"
+
+contract_fixture 'notify_nudge "$(title_count "Still Staged" 3 Document)" "$b" "$id"'
+contract_clean "a Still verb satisfies it"
+
+# afterimage's proposal nudge has no verb to prefix — its title is a quotation — so
+# the age bracket is what marks it.
+contract_fixture 'notify_nudge "$(title_quote "$t" "$(title_age "$h")")" "$b" "$id"'
+contract_clean "and so does an age bracket"
 
 rm -rf "$FIX"
 

@@ -20,6 +20,16 @@ set -euo pipefail
 NTFY_TOPIC="disk"
 # shellcheck disable=SC2034
 NTFY_MARKDOWN=no
+
+# A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
+# replaced rather than a pile. This job runs HOURLY and alerts on every run while over threshold, so a pool sitting
+# at 78% across a weekend used to produce forty-five notifications.
+#
+# It does NOT self-clear when the condition goes away. A fault has no buttons, and a
+# notification without buttons is never withdrawn by the system: an absent message is
+# ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
+# ntfy/MESSAGES.md.
+DISK_NTFY_ID="disk-full"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -95,7 +105,7 @@ if [ -n "$ALERT_MESSAGE" ]; then
     else
         DISK_TITLE="$(title_state Filesystems "${#OVER_NAME[@]} Full")"
     fi
-    send_out="$(notify "$DISK_TITLE" "" warning "$ALERT_MESSAGE" 2>&1)"
+    send_out="$(notify_fault "$DISK_TITLE" "$ALERT_MESSAGE" "$DISK_NTFY_ID" 2>&1)"
     if [[ -n "$send_out" ]]; then
         echo "disk: ntfy publish FAILED, the alert above was not delivered: ${send_out}" >&2
         exit 1

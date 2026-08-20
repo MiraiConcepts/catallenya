@@ -62,6 +62,16 @@ PAUSED_NTFY_ID="afterimage-paused"
 # as the file is there, so a full pool bought twelve identical notifications before
 # systemd gave up. A stable id makes the twelfth replace the first.
 STUCK_NTFY_ID="afterimage-stuck"
+
+# Same again for the stray report. The sweep runs NIGHTLY and lists whatever the
+# *.png glob cannot see, so a file the pipeline will never pick up produced a fresh
+# notification every night for as long as it sat there — a fortnight away from home
+# meant fourteen identical messages about the same file. A stable id makes it one.
+#
+# It does NOT self-clear when the spool goes quiet: a fault has no buttons, and a
+# notification without buttons is never withdrawn by the system. See ntfy/MESSAGES.md
+# — an absent message is ambiguous, a stale one is not.
+STRANDED_NTFY_ID="afterimage-stranded"
 # Model + effort come from ai.lib.sh (AI_MODEL / AI_EFFORT), shared with the
 # documents pipeline — one edit there moves both.
 # Output ceiling for one triage call. Adaptive thinking counts against this, and a

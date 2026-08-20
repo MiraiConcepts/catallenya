@@ -105,7 +105,7 @@ for rec in "${records[@]}"; do
             fi
             archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
                 && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
-            notify "$(title_count Abandoned 1 Screenshot)" "" "exclamation" "$give_up_body"
+            notify_fault "$(title_count Abandoned 1 Screenshot)" "$give_up_body"
             continue
         fi
 
@@ -142,10 +142,9 @@ for rec in "${records[@]}"; do
             nh_r="$(jq -r '.reason // ""' "${rec}/capture.json" 2>/dev/null)"
             # Retract-then-publish under the same id the triage used, so the phone ends
             # up with one message rather than two.
-            retract "$id"
-            notify "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" "" "exclamation" \
+            notify_nudge "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" \
                    "$(md_escape "${nh_r:-Time or date unclear — not adding.}") — still waiting after ${nh_age_h}h." \
-                   "" "$id"
+                   "$id"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
             log "re-notified needs-human ${id:0:8} (${nh_age_h}h)"
@@ -180,9 +179,8 @@ for rec in "${records[@]}"; do
             # the phone ends up with one notification rather than two. Deliberately
             # retract-then-publish and not an in-place update: an update may be
             # applied silently, and a nudge that does not alert is not a nudge.
-            retract "$id"
-            notify "$(title_quote "$title" "$(title_age "$age_h")")" "" "calendar" \
-                   "${when} — proposed ${age_h}h ago, no action yet." "$actions" "$id"
+            notify_nudge "$(title_quote "$title" "$(title_age "$age_h")")" \
+                   "${when} — proposed ${age_h}h ago, no action yet." "$id" "$actions"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
             log "re-notified ${id:0:8} (${age_h}h)"
@@ -298,7 +296,7 @@ if (( ${#strays[@]} )); then
         for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
         (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
         body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
-        notify "$(title_count Stranded "${#strays[@]}" File)" "" "exclamation" "$body"
+        notify_fault "$(title_count Stranded "${#strays[@]}" File)" "$body" "$STRANDED_NTFY_ID"
         log "reported ${#strays[@]} stray file(s) in incoming/"
     fi
 fi

@@ -138,27 +138,46 @@ md_escape() {
 # Stripping them empties that value, and retract() declines an empty id.
 ntfy_id_safe() { tr -cd 'A-Za-z0-9._-' <<<"$1" | sed 's/^\.*//'; }
 
-# notify <title> <priority> <tags> <body> [actions] [sequence-id]
+# notify <title> <body> [actions] [sequence-id]
 #
-# An EMPTY priority sends no Priority header at all, which is the default weight.
-# Best-effort by design: a failed notification must never fail the job that raised
-# it, so every path ends in `|| true`.
+# THE TRANSPORT PRIMITIVE. Not called from outside ntfy/ — every job goes through a
+# kind wrapper in kinds.sh, and systemd/contract.sh refuses a bare call. See
+# ntfy/MESSAGES.md § Kinds.
+#
+# PRIORITY AND TAGS ARE GONE (2026-08-20), and both for the same reason.
+#
+# Priority had exactly one legal value. Every caller passed "" and only the courier
+# differed, sending `Priority: default` — the same weight, spelled differently. A
+# parameter nobody may vary is not configuration; it is a slot waiting for someone to
+# put `high` in it, which is precisely what happened once and stayed true for nine
+# days. Removing the argument makes that unrepresentable rather than merely refused.
+#
+# Tags were twelve glyphs, four of which meant "something is wrong" — which one you
+# got depended on the file the author had open. The rest named the pipeline, which the
+# TOPIC already says, and that is the redundancy the title contract removed a phase
+# earlier. Titles now carry the category themselves (Stuck, Failed, Finished, Binned),
+# so the glyph added nothing an emoji could say faster. It also removed a failure mode:
+# ntfy renders an unknown tag as a text CHIP under the message, so a typo produced
+# visual debris; with no tags, it cannot.
+#
+# Best-effort by design: a failed notification must never fail the job that raised it,
+# so every path ends in `|| true`. Jobs that need the opposite — disk, the heartbeat —
+# test this function's SILENCE instead, so nothing here may print on a success path.
 notify() {
     _ntfy_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Tags: $3")
+    local -a hdr=(-H "Title: $(hdr_safe "$1")")
     [[ "$NTFY_MARKDOWN" == "yes" ]] && hdr+=(-H "Markdown: yes")
-    [[ -n "${2:-}" ]] && hdr+=(-H "Priority: $2")
     # Sanitised here, not left to callers. Every current caller whitelists the
     # strings it splices in, but see hdr_safe above for what a CR/LF reaching this
     # particular header does.
-    [[ -n "${5:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$5")")
+    [[ -n "${3:-}" ]] && hdr+=(-H "Actions: $(tr -d '\r\n' <<<"$3")")
     # X-Sequence-ID, and only this spelling family. `X-ID` looks like the obvious
     # name, is accepted with a 200, and is SILENTLY IGNORED — the message comes back
     # with no sequence_id and every later retract addresses nothing. Verified
     # against 2.27.0 by diffing our header against the CLI's own --sequence-id:
     # X-Sequence-ID / Sequence-ID / Sid work, X-ID / X-Seq / Seq do not.
-    [[ -n "${6:-}" ]] && hdr+=(-H "X-Sequence-ID: $(ntfy_id_safe "$6")")
+    [[ -n "${4:-}" ]] && hdr+=(-H "X-Sequence-ID: $(ntfy_id_safe "$4")")
     ntfy_muted && return 0
     # --data-raw, never -d: curl reads a -d value beginning with "@" as a FILENAME
     # and POSTs that file's contents. Bodies here are derived from model output and
@@ -171,7 +190,7 @@ notify() {
     # for immich that was an hour, reported as a failure, for work that had already
     # succeeded and simply could not say so.
     curl -fsS --max-time 15 "${hdr[@]}" \
-        --data-raw "$(tail -c 3500 <<<"$4")" "${url}/${NTFY_TOPIC}" >/dev/null || true
+        --data-raw "$(tail -c 3500 <<<"$2")" "${url}/${NTFY_TOPIC}" >/dev/null || true
 }
 
 # retract <id> — take a previously tagged notification off the phone.
@@ -309,8 +328,21 @@ paused_sync() {
     # An empty id would publish a summary nothing can ever withdraw — the exact
     # rot this function exists to end — so decline the whole call instead.
     [[ -n "$id" ]] || { log "paused_sync: no sequence id, refusing"; return 0; }
-    retract "$id"
+    # THE RETRACT SITS AFTER THIS CHECK, and that is a DELIBERATE REVERSAL of the
+    # 2026-08-19 change, not a regression — do not "fix" it back.
+    #
+    # That change made the retract unconditional so the run which ENDED an outage
+    # cleared the summary. The owner's withdrawal rule (2026-08-20) says the opposite:
+    # a notification WITHOUT BUTTONS is never withdrawn by the system, because an
+    # absent notification is ambiguous — you cannot tell "it fixed itself" from "I
+    # mis-swiped it" from "it was never sent". A stale summary is unambiguous: it says
+    # something happened, and you go and look.
+    #
+    # So the summary still REPLACES itself while an outage runs (retract, then
+    # publish, so the count updates rather than stacking) and simply stops updating
+    # once nothing is paused. The last one stays until swiped.
     (( ${#items[@]} > 0 )) || return 0
-    notify "$(paused_title "${#items[@]}" "$noun" "$cause")" "" warning \
+    retract "$id"
+    notify "$(paused_title "${#items[@]}" "$noun" "$cause")" \
         "$(paused_body "$reason" "$outcome" "${items[@]}")" "" "$id"
 }

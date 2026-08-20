@@ -140,14 +140,14 @@ fi
 # complain about the courier) and carries no [X-Catallenya] Class, so the watchdog
 # skips it too. Only the DAILY backup ping is frequent enough to serve as that canary;
 # weekly, monthly and yearly are not. See ntfy/MESSAGES.md § 5, nuance 13.
+# NO TAG AND NO PRIORITY, matching the shared transport by hand — which is the price
+# of this file's exemption from it. Both were dropped repo-wide on 2026-08-20: priority
+# had one legal value, and tags were twelve glyphs of which four meant "something is
+# wrong". The title says which this is.
 if systemctl is-failed --quiet "${service_name}.service"; then
-    tag="mending_heart"
     title="${job_type}: Failed${routed_note}"
-    priority="default"
 else
-    tag="green_heart"
     title="${job_type}: Succeeded${routed_note}"
-    priority="default"
 fi
 
 # Get systemctl status output
@@ -178,8 +178,6 @@ fi
 # and the one difference between the two flags is that --data-raw can never be talked
 # into reading a file.
 curl -f --max-time 15 \
-     -H "Tags: $tag" \
      -H "Title: $title" \
-     -H "Priority: $priority" \
      --data-raw "$message" \
      "${NTFY_URL}/${topic}"

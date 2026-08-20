@@ -25,6 +25,16 @@ LOG_TAG="catallenya-boot"
 NTFY_TOPIC="host"
 # shellcheck disable=SC2034
 NTFY_MARKDOWN=no
+
+# A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
+# replaced rather than a pile. A box that fails to come up cleanly, is power-cycled and fails again should read as
+# one unresolved boot rather than as two.
+#
+# It does NOT self-clear when the condition goes away. A fault has no buttons, and a
+# notification without buttons is never withdrawn by the system: an absent message is
+# ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
+# ntfy/MESSAGES.md.
+BOOT_NTFY_ID="boot-failed"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -200,7 +210,6 @@ else
     # zero containers down on a run that plainly failed.
     TITLE="$(title_state Boot "${#ERRORS[@]} Error$( (( ${#ERRORS[@]} == 1 )) || printf s )")"
 fi
-TAG="mending_heart"
 BODY="Errors:
 $(printf '  - %s\n' "${ERRORS[@]}")
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
@@ -222,7 +231,7 @@ Containers: ${RUNNING}/${CONTAINER_TOTAL} running"
 if (( NOTIFY )); then
 log "Sending ntfy notification..."
 for attempt in 1 2 3; do
-    send_out="$(notify "$TITLE" "" "$TAG" "$BODY" 2>&1)"
+    send_out="$(notify_fault "$TITLE" "$BODY" "$BOOT_NTFY_ID" 2>&1)"
     if [[ -z "$send_out" ]]; then
         log "Notification sent (attempt ${attempt})"
         break

@@ -50,6 +50,16 @@ NTFY_TOPIC="$(env_key CHANGEDETECTION_NTFY_TOPIC || true)"
 # titles are full of underscores that would italicise half the report.
 # shellcheck disable=SC2034
 NTFY_MARKDOWN=no
+
+# A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
+# replaced rather than a pile. Runs DAILY and re-reports the same broken watch every morning until it is fixed, so a
+# week away used to mean seven identical messages.
+#
+# It does NOT self-clear when the condition goes away. A fault has no buttons, and a
+# notification without buttons is never withdrawn by the system: an absent message is
+# ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
+# ntfy/MESSAGES.md.
+HEALTH_NTFY_ID="changedetection-health"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -109,7 +119,7 @@ report_title() {
 send_alert() {
     local out
     echo "$1"
-    out="$(notify "$1" "" warning "$2" 2>&1)"
+    out="$(notify_fault "$1" "$2" "$HEALTH_NTFY_ID" 2>&1)"
     if [[ -n "$out" ]]; then
         echo "changedetection.health: ntfy publish FAILED, the report above was not delivered: ${out}" >&2
         exit 1

@@ -92,7 +92,7 @@ missing prefix is what makes that difference readable on a lock screen.
 | `Still ` | prefix | a nudge |
 
 **Every one is a past participle.** 21 end in `-ed`; `Stuck` is the single irregular and
-is listed in `NTFY_IRREGULAR_VERBS`. The gate checks this (§7).
+is listed in `NTFY_IRREGULAR_VERBS`. The gate checks this (§8).
 
 ---
 
@@ -128,7 +128,68 @@ boundary as every other title. Two copies of a CR/LF strip is how the two drift.
 
 ---
 
-## 4. The rules
+## 4. The kinds
+
+Every notification is one of five things, and the kind decides **which arguments exist**.
+That is the whole mechanism.
+
+```bash
+notify_proposal <title> <body> <actions> <seq-id>   both REQUIRED
+notify_nudge    <title> <body> <seq-id> [actions]   retracts first; id REQUIRED
+notify_resolved <title> <body> <seq-id> [actions]   retracts first; id REQUIRED
+notify_fault    <title> <body> [seq-id]             never actions
+notify_receipt  <title> <body>                      never actions, never a seq-id
+```
+
+`notify()` is the transport primitive underneath and is not called from outside `ntfy/`.
+Its signature is `notify <title> <body> [actions] [sequence-id]` — **there is no priority
+and no tag.** Priority had one legal value, so it was a slot waiting for someone to put
+`high` in it. Tags were twelve glyphs of which four meant "something is wrong"; the rest
+named the pipeline, which the topic already says.
+
+**The kinds produce no visible difference.** With tags gone, every message renders as
+title plus body regardless. Their value is entirely structural — a receipt has no
+argument to put a button in, a proposal cannot omit the sequence-id that makes it
+withdrawable — and it is what lets the gate refuse a bare `notify()`.
+
+### The withdrawal rule
+
+> **A notification with buttons may be withdrawn. A notification without buttons is
+> never withdrawn by the system.**
+
+An actionable message is withdrawn by the tap that resolves it, or by afterimage's
+archive backstop once its buttons have started answering 404 — a control that lies is
+worse than no control. Everything else stays until you swipe it.
+
+**The reasoning matters more than the rule.** An absent notification is ambiguous: you
+cannot tell "the problem fixed itself" from "I mis-swiped it" from "it was never sent".
+A stale one is unambiguous — it says something happened, so you go and look.
+
+| Kind | Buttons | Withdrawn? |
+|---|---|---|
+| `proposal` `nudge` `resolved` | yes | by the tap, or when the buttons go dead |
+| `fault` `receipt` `paused` | no | **never** |
+
+**A fault's sequence-id means "this can recur".** A job that runs on a schedule and can
+report the same finding twice passes a stable literal, so the second run replaces the
+first instead of stacking: `host/disk.sh` runs hourly, and a pool over threshold across a
+weekend used to produce forty-five notifications. It still does **not** self-clear — see
+the rule. A one-shot fault about a single item passes no id, because nothing later will
+replace it.
+
+Stable fault ids today: `disk-full`, `watchdog-findings`, `changedetection-health`,
+`immich-bake-failed`, `boot-failed`, `afterimage-stuck`, `afterimage-stranded`,
+`pigeonhole-stuck`, `pigeonhole-paused`.
+
+**This reverses a deliberate fix, and that is intentional.** On 2026-08-19
+`paused_sync()` was made to retract unconditionally so the run that *ended* an outage
+cleared the summary. Under the rule above that stale summary is correct — it has no
+buttons — so `paused_sync()` now retracts only when it is about to publish a
+replacement. Do not restore the old behaviour without revisiting the rule.
+
+---
+
+## 5. The rules
 
 **Grammar**
 
@@ -159,13 +220,13 @@ boundary as every other title. Two copies of a CR/LF strip is how the two drift.
 
 | # | Rule |
 |---|---|
-| 16 | Silence is the healthy state — with the deliberate exceptions in §5 |
+| 16 | Silence is the healthy state — with the deliberate exceptions in §6 |
 | 17 | The imperative lives on the **button**; the title only ever reports |
-| 18 | A notification lives exactly as long as its decision is outstanding |
+| 18 | A notification with buttons may be withdrawn; one without buttons never is — see §4 |
 
 ---
 
-## 5. The nuances
+## 6. The nuances
 
 Fifteen deliberate exceptions. Each is a decision, not an oversight; each names the
 service that exemplifies it.
@@ -190,7 +251,7 @@ service that exemplifies it.
 
 ---
 
-## 6. The inventory
+## 7. The inventory
 
 Every title the system can emit.
 
@@ -284,17 +345,23 @@ All carry `RandomizedDelaySec=3600`, hence the one-hour windows.
 
 ---
 
-## 7. Enforcement
+## 8. Enforcement
 
 `systemd/contract.sh`, three rules, run by `bash systemd/install.sh --check` (no root
 needed) and by `systemd/tests/run.sh`:
 
-1. Every `notify` title argument is a `title_count`, `title_state` or `title_quote`
-   substitution — nothing hand-built.
+1. Every title argument is a `title_count`, `title_state` or `title_quote` substitution —
+   nothing hand-built. A variable is followed to its assignment.
 2. Its verb is in `NTFY_MODEL_VERBS` **or** in that file's own `NTFY_VERBS`.
 3. Every `NTFY_VERBS` entry ends in `ed` **or** appears in `NTFY_IRREGULAR_VERBS`.
+4. **No bare `notify ` outside `ntfy/`** — every job goes through a kind. This is what
+   makes the wrappers authoritative; there is no merge engine underneath them.
+5. **No `clear=true`** in an Actions string. It dismisses on the *tap*, before the work
+   behind the button has happened, so a refused move would look like a completed one.
+6. **A `notify_nudge` title reads as a nudge** — a `Still ` verb or a `title_age`
+   bracket. A nudge indistinguishable from the first asking tells you nothing.
 
-Rule 3 is what stops a new service breaking rule 3-of-§4 silently. It refuses
+Gate rule 3 is what stops a new service breaking rule 3-of-§5 silently. It refuses
 `Processing`, `Uploading`, `Waiting` — **and** `Stray`, `Unclear`, `Timeout`, which a
 looser `-ing`-only check would have waved through. Both of those adjectives were proposed
 during design.
@@ -309,7 +376,7 @@ four units' alerts once already.
 
 ---
 
-## 8. Traps
+## 9. Traps
 
 **There is no merge engine.** `systemd/policy/` works because systemd genuinely merges
 drop-ins — verified on this box, a unit's `RuntimeMaxSec=999` lost to a drop-in's `111` —
