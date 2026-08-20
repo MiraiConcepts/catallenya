@@ -81,20 +81,20 @@ unsupported types), because silence about a thing you dropped is the worst outco
 in `ntfy/system-ntfy.sh`. New unit, new pipeline: follow `<topic>.<job>` naming,
 add the topic to the allowlist, and the audit check keeps the two in step.
 
-**A notification says what happened in its first word, and only shouts twice.**
-Documents titles are verb-first with a count — `Staged: 3 Documents`, `Blocked:
-1 Document`, `Review:`, `Refused:`, `Binned:` — so the lock screen answers "what
-happened" before "to what". Tags are semantic (`warning` blocked, `question`
-review, `wastebasket` binned) and **nothing uses `high` priority** (2026-08-10).
-Everything-loud is how a topic gets muted, and a muted topic loses the loud
-messages first — so urgency lives in what a message says, not in how hard it
-knocks. The one message that could not survive being quiet was needs-a-human,
-which fired exactly once with nothing waiting anywhere; it now parks and gets a
-nudge like everything else, which removed the exception rather than amplifying it. Capture reached the same rule from the
-other side, with two glyphs for the whole topic (📆 calendar-shaped, ❗ trouble;
-see `afterimage/README.md`) because every message it sends is calendar-shaped. The
-shared part is the discipline, not the vocabulary: a phone-glanceable first
-word, and priority spent only where a tap is actually owed.
+**A notification says what happened in its first word — and since 2026-08-20 it cannot
+say it any other way.** Titles are built by constructors in `ntfy/kinds.sh` and refused
+by `systemd/contract.sh` if they are not; the vocabulary, the class model and the
+fifteen deliberate exceptions live in **`ntfy/MESSAGES.md`**, which is the source. Read
+that before wording anything.
+
+The short version, because it is what this page's rule became: the title reports what
+happened and the button carries the imperative, so every verb is a past participle
+(`Review:` became `Flagged:` for exactly that reason). Tags stay semantic and **nothing
+uses `high` priority** — everything-loud is how a topic gets muted, and a muted topic
+loses the loud messages first. What is shared across pipelines is decided by CLASS: an
+error out of `ai/scripts/ai.lib.sh` must read identically everywhere (`Model Failed`,
+`Model Paused`), while a pipeline's own machinery words its own failures. The shared
+part is the discipline; the vocabulary is shared only where the situation genuinely is.
 
 **When the desk cannot answer, the item is PARKED, not resolved** (2026-08-10).
 `ai/scripts/ai.lib.sh` returns one of four verdicts, and a consumer needs only three

@@ -34,6 +34,14 @@
 
 declare -F log >/dev/null || log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 
+# The title constructors ride along with the transport. Consumers source this file and
+# get both — see the header of kinds.sh for why they are not asked to source two.
+# Resolved from THIS file's location rather than an absolute path, because
+# ntfy/tests/run.sh sources the transport relatively and would otherwise reach a
+# different copy than the one it is testing.
+# shellcheck source=/zpool/catallenya/ntfy/kinds.sh
+source "$(dirname "${BASH_SOURCE[0]}")/kinds.sh"
+
 # Markdown rendering, per consumer. The three intake pipelines write bodies FOR
 # rendering — italic asides, numbered lists — and escape anything untrusted on the
 # way in. immich does not: its bodies are lines like
@@ -213,13 +221,43 @@ retract() {
 # matters because ntfy silently converts a body over 4096 bytes into an attachment.
 PAUSED_LIST_MAX="${PAUSED_LIST_MAX:-5}"
 
-# paused_title <count> <singular-noun> -> "Paused: 3 Documents"
+# paused_title <count> <singular-noun> [cause] -> "Model Paused: 3 Documents [Unpaid]"
+#
 # Verb-first with a count, so the lock screen answers "what happened" before "to
-# what". The noun arrives singular and is pluralised here, so no caller has to
-# remember the "1 Document" case.
+# what". The noun arrives singular and is pluralised by title_count, so no caller has
+# to remember the "1 Document" case.
+#
+# `Model Paused` rather than the old bare `Paused`: this is the shared AI layer's
+# outcome, and the prefix is what marks it as one fact arriving on several topics
+# rather than a fact about documents or screenshots. See ntfy/MESSAGES.md § 1.
 paused_title() {
-    local n="${1:-0}" noun="${2:-Item}"
-    printf 'Paused: %s %s%s' "$n" "$noun" "$( (( n == 1 )) || printf s )"
+    local n="${1:-0}" noun="${2:-Item}" cause="${3:-}"
+    title_count "Model Paused" "$n" "$noun" "" "$(title_mark "$cause")"
+}
+
+# paused_cause <reason>... -> Unpaid | Unreachable | Mixed | ""
+#
+# The bracketed half of the title. Callers pass every parked record's reason, because
+# an outage can be BOTH — the triage rewrites a record's reason on every park, so a
+# run that starts unreachable and becomes an empty balance leaves both kinds sitting
+# in the spool at once. Reporting only the newest would name one and hide the other.
+#
+# The substrings are matched against ai_reason()'s output in ai/scripts/ai.lib.sh —
+# OUR string, not the API's, which is what makes a prose match acceptable here. It is
+# still a coupling across two files, so ntfy/tests/run.sh asserts the mapping against
+# ai_reason() directly rather than against a copy of its wording.
+paused_cause() {
+    local r unpaid=0 unreach=0
+    for r in "$@"; do
+        case "$r" in
+            *credits*)     unpaid=1  ;;
+            *unreachable*) unreach=1 ;;
+        esac
+    done
+    if   (( unpaid && unreach )); then printf 'Mixed'
+    elif (( unpaid ));            then printf 'Unpaid'
+    elif (( unreach ));           then printf 'Unreachable'
+    fi
 }
 
 # paused_body <reason> <outcome> <item>... -> numbered list + one italic line
@@ -249,7 +287,7 @@ paused_body() {
     printf '%s\n_%s. Retrying daily — %s._' "$out" "$reason" "$outcome"
 }
 
-# paused_sync <sequence-id> <noun> <reason> <outcome> [item...]
+# paused_sync <sequence-id> <noun> <reason> <cause> <outcome> [item...]
 #
 # The paused summary's whole lifecycle in one call: withdraw whatever summary is
 # riding <sequence-id>, then publish the current one — or nothing, when nothing is
@@ -266,13 +304,13 @@ paused_body() {
 # every summary this replaces: nothing in this repo shouts, and warning is the one
 # deliberate glyph the paused shape already carries.
 paused_sync() {
-    local id="${1:-}" noun="${2:-Item}" reason="${3:-}" outcome="${4:-}"
-    local -a items=("${@:5}")
+    local id="${1:-}" noun="${2:-Item}" reason="${3:-}" cause="${4:-}" outcome="${5:-}"
+    local -a items=("${@:6}")
     # An empty id would publish a summary nothing can ever withdraw — the exact
     # rot this function exists to end — so decline the whole call instead.
     [[ -n "$id" ]] || { log "paused_sync: no sequence id, refusing"; return 0; }
     retract "$id"
     (( ${#items[@]} > 0 )) || return 0
-    notify "$(paused_title "${#items[@]}" "$noun")" "" warning \
+    notify "$(paused_title "${#items[@]}" "$noun" "$cause")" "" warning \
         "$(paused_body "$reason" "$outcome" "${items[@]}")" "" "$id"
 }

@@ -69,10 +69,10 @@ concern_lines() {
 CONCERN_LINES="$(concern_lines)"
 
 if [[ ${RC} -ne 0 ]]; then
-    notify "Immich rotation bake failed" "" rotating_light \
+    notify "$(title_state "Rotation Bake" Failed)" "" rotating_light \
         "$(tail -n 8 <<<"${OUT}")"$'\n\n'"Full log: journalctl -u immich.fix-rotations.service"
 elif [[ -n "${BAKED}" && "${BAKED}" -gt 0 ]] || [[ -n "${CONCERNS}" ]]; then
-    notify "Immich: ${BAKED:-0} rotation(s) baked" default white_check_mark \
+    notify "$(title_count Baked "${BAKED:-0}" Rotation)" "" white_check_mark \
         "${BAKED_LINES}${BAKED_LINES:+$'\n'}${CONCERN_LINES}"
 fi
 exit "${RC}"

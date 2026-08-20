@@ -105,7 +105,7 @@ for rec in "${records[@]}"; do
             fi
             archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
                 && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
-            notify "Afterimage Gave Up" "" "exclamation" "$give_up_body"
+            notify "$(title_count Abandoned 1 Screenshot)" "" "exclamation" "$give_up_body"
             continue
         fi
 
@@ -143,7 +143,7 @@ for rec in "${records[@]}"; do
             # Retract-then-publish under the same id the triage used, so the phone ends
             # up with one message rather than two.
             retract "$id"
-            notify "${nh_t:-Needs A Human}" "" "exclamation" \
+            notify "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" "" "exclamation" \
                    "$(md_escape "${nh_r:-Time or date unclear — not adding.}") — still waiting after ${nh_age_h}h." \
                    "" "$id"
             : > "${rec}/renotified"
@@ -181,7 +181,7 @@ for rec in "${records[@]}"; do
             # retract-then-publish and not an in-place update: an update may be
             # applied silently, and a nudge that does not alert is not a nudge.
             retract "$id"
-            notify "Still Waiting: ${title}" "" "calendar" \
+            notify "$(title_quote "$title" "$(title_age "$age_h")")" "" "calendar" \
                    "${when} — proposed ${age_h}h ago, no action yet." "$actions" "$id"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
@@ -201,6 +201,7 @@ if (( DRY )); then
     log "would sync the paused summary (${#paused_items[@]} parked)"
 else
     paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
+                "$(parked_cause "$PENDING_DIR")" \
                 "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
 fi
 
@@ -297,7 +298,7 @@ if (( ${#strays[@]} )); then
         for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
         (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
         body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
-        notify "Stray Files In Afterimage Spool" "" "exclamation" "$body"
+        notify "$(title_count Stranded "${#strays[@]}" File)" "" "exclamation" "$body"
         log "reported ${#strays[@]} stray file(s) in incoming/"
     fi
 fi

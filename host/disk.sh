@@ -36,14 +36,25 @@ read -r ZPOOL_USAGE ZPOOL_SIZE ZPOOL_ALLOC ZPOOL_FREE < <(zpool list -H -o capac
 ZPOOL_USAGE=${ZPOOL_USAGE%\%}
 
 ALERT_MESSAGE=""
+# Which filesystems crossed, and how full. The TITLE is built from these rather than
+# from a literal: `Disk Space Alert` never said which one or how full, and both facts
+# were already sitting in the body you had to open to read them.
+#
+# The subject may not repeat the topic — this publishes to `disk` — so one filesystem
+# over names ITSELF (`zpool`, `root`), and both over fall back to a count, because two
+# subjects do not fit one subject slot. `zpool` and `root` are identifiers and keep
+# their real case: the pool is literally called `zpool`, and `Zpool` names nothing.
+OVER_NAME=(); OVER_PCT=()
 
 if [ "$ROOT_USAGE" -ge "$ROOT_THRESHOLD" ]; then
     ROOT_DIFF=$((ROOT_USAGE - ROOT_THRESHOLD))
+    OVER_NAME+=("root"); OVER_PCT+=("$ROOT_USAGE")
     ALERT_MESSAGE="Root partition at ${ROOT_USAGE}% — ${ROOT_USED} used of ${ROOT_SIZE} (${ROOT_AVAIL} free), ${ROOT_DIFF}% over ${ROOT_THRESHOLD}% threshold"
 fi
 
 if [ "$ZPOOL_USAGE" -ge "$ZPOOL_THRESHOLD" ]; then
     ZPOOL_DIFF=$((ZPOOL_USAGE - ZPOOL_THRESHOLD))
+    OVER_NAME+=("zpool"); OVER_PCT+=("$ZPOOL_USAGE")
     new_line="Zpool at ${ZPOOL_USAGE}% — ${ZPOOL_ALLOC} used of ${ZPOOL_SIZE} (${ZPOOL_FREE} free), ${ZPOOL_DIFF}% over ${ZPOOL_THRESHOLD}% threshold"
 
     if [ -n "$ALERT_MESSAGE" ]; then
@@ -79,7 +90,12 @@ if [ -n "$ALERT_MESSAGE" ]; then
     # the watchdog reports this monitor stale within its 3h MaxAge; the inherited
     # OnFailure= fires; and `systemctl --failed` shows it. The first is what survives
     # an ntfy that is itself down.
-    send_out="$(notify "Disk Space Alert" "" warning "$ALERT_MESSAGE" 2>&1)"
+    if (( ${#OVER_NAME[@]} == 1 )); then
+        DISK_TITLE="$(title_state "${OVER_NAME[0]}" "${OVER_PCT[0]}% Full")"
+    else
+        DISK_TITLE="$(title_state Filesystems "${#OVER_NAME[@]} Full")"
+    fi
+    send_out="$(notify "$DISK_TITLE" "" warning "$ALERT_MESSAGE" 2>&1)"
     if [[ -n "$send_out" ]]; then
         echo "disk: ntfy publish FAILED, the alert above was not delivered: ${send_out}" >&2
         exit 1

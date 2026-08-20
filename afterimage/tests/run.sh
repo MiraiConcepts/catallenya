@@ -244,15 +244,19 @@ has "triage writes capture.json"    "$(cat "$TRI")" 'capture.json'
 # no Priority header at all, which is ntfy's own default.
 hasnt "nothing in the triage shouts"  "$(cat "$TRI")" ' high "'
 hasnt "nor in the sweep"              "$(cat "${SCRIPT_DIR}/afterimage.sweep.sh")" ' high "'
-# And the alarms name the pipeline they belong to, which is no longer "capture".
-has "the fatal alarm is named for the pipeline" "$(cat "$TRI")" 'notify "Afterimage Failed"'
+# The fatal alarm belongs to the MODEL class: rc 1 out of ai.lib.sh is one fact
+# arriving on two topics, so afterimage and pigeonhole must word it identically.
+# The `Model ` prefix is what marks it as shared rather than as a fact about
+# screenshots — see ntfy/MESSAGES.md § 1.
+has "the fatal alarm is model-class"    "$(cat "$TRI")" 'title_count "Model Failed" 1 Screenshot'
+has "and no title is hand-built"        "$(cat "$TRI")" 'notify "$(title_'
 has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
 # needs-a-human used to close its record on the spot, which made it the only message
 # that fired exactly once — no buttons, nothing waiting anywhere, no nudge — so a miss
 # lost the capture. It was `high` to compensate. It now parks like everything else and
 # the sweep nudges it, which removes the special case rather than making it louder.
 hasnt "needs-human does not archive on the spot" "$(cat "$TRI")" 'archive_record "$id" "$rec" needs_human'
-has   "and its message is tagged for a nudge"    "$(cat "$TRI")" '"${nh_title:-Needs A Human}" "" "exclamation"'
+has   "and its message is tagged for a nudge"    "$(cat "$TRI")" 'title_count Flagged 1 Event "${nh_title}"'
 SWP="${SCRIPT_DIR}/afterimage.sweep.sh"
 has   "the sweep nudges a needs-human record"    "$(cat "$SWP")" 're-notified needs-human'
 has   "and expires it on the same clock"         "$(cat "$SWP")" 'archive_record "$id" "$rec" needs_human'
@@ -274,7 +278,7 @@ hasnt "the fan-out no longer compacts"      "$(cat "$TRI")" 'cannot create recor
 # A screenshot that cannot be claimed is the one failure with no record to archive:
 # the file stays in incoming/, PathExistsGlob re-fires, and before this the run still
 # exited 0 while the phone collected an identical alarm on every spin.
-stuck="$(grep -B6 -A6 'Afterimage Stuck' "$TRI")"
+stuck="$(grep -B6 -A6 'title_count Stuck 1 Screenshot' "$TRI")"
 has "a stuck screenshot counts as a failure" "$stuck" 'FAILED=$((FAILED + 1))'
 has "and its alarm rides a stable id"        "$stuck" 'STUCK_NTFY_ID'
 is  "which is one message, not one per spin" "$STUCK_NTFY_ID" "afterimage-stuck"

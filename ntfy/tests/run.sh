@@ -62,10 +62,10 @@ is "leading dots go"     "$(ntfy_id_safe '..x')"   'x'
 
 # ------------------------------------------------------------------- the shape
 echo "paused_title"
-is "plural by default"   "$(paused_title 3 Document)"   "Paused: 3 Documents"
-is "singular at one"     "$(paused_title 1 Document)"   "Paused: 1 Document"
-is "zero is plural"      "$(paused_title 0 Document)"   "Paused: 0 Documents"
-is "noun is the caller's" "$(paused_title 2 Screenshot)" "Paused: 2 Screenshots"
+is "plural by default"   "$(paused_title 3 Document)"   "Model Paused: 3 Documents"
+is "singular at one"     "$(paused_title 1 Document)"   "Model Paused: 1 Document"
+is "zero is plural"      "$(paused_title 0 Document)"   "Model Paused: 0 Documents"
+is "noun is the caller's" "$(paused_title 2 Screenshot)" "Model Paused: 2 Screenshots"
 
 echo "paused_body"
 b="$(paused_body "Out of credits" "moved to bin/ in 7 days" one two three)"
@@ -116,9 +116,11 @@ sync_trace() {
     )
 }
 
-t="$(sync_trace pause-1 Document "Out of credits" "moved to bin/ in 7 days" a.pdf b.pdf)"
+# The CAUSE is the fourth argument, between the reason and the outcome clause: it
+# becomes the bracket on the title, while the reason stays in the body sentence.
+t="$(sync_trace pause-1 Document "Out of credits" Unpaid "moved to bin/ in 7 days" a.pdf b.pdf)"
 is  "retract fires first, before any publish" "$(head -n1 <<<"$t")" "RETRACT pause-1"
-has "then the summary, count and noun threaded" "$t" "title=[Paused: 2 Documents]"
+has "then the summary, count and noun threaded" "$t" "title=[Model Paused: 2 Documents [Unpaid]]"
 has "default priority — nothing shouts"  "$t" "prio=[]"
 has "the one deliberate glyph"           "$t" "tags=[warning]"
 has "no buttons on a summary"            "$t" "actions=[]"
@@ -176,6 +178,66 @@ NTFY_TOPIC=test-topic
 is "notify is a no-op when muted"  "$(notify "t" "" tag "body"; echo rc=$?)" "rc=0"
 is "retract is a no-op when muted" "$(retract deadbeef; echo rc=$?)"          "rc=0"
 is "retract declines an empty id"  "$(retract ""; echo rc=$?)"                "rc=0"
+
+# ------------------------------------------------------------------ constructors
+# The SNAPSHOT. There is no `systemctl cat` for a message — nothing can say what a
+# title will look like without running the code — so this is the merged view: one
+# rendering per shape, asserted byte-for-byte. If a constructor changes, this is what
+# tells you which titles moved.
+echo "title constructors"
+is "count, plural"        "$(title_count Staged 3 Document)"        "Staged: 3 Documents"
+is "count, singular"      "$(title_count Blocked 1 Document)"       "Blocked: 1 Document"
+is "the digit survives"   "$(title_count Binned 1 Document)"        "Binned: 1 Document"
+is "a multi-word verb"    "$(title_count "Model Failed" 1 Screenshot)" "Model Failed: 1 Screenshot"
+is "a name replaces the count" "$(title_count Flagged 1 Event Kene)" "Flagged: Kene"
+is "a nudge carries its age"   "$(title_count "Still Staged" 3 Document "" "$(title_age 31)")" \
+                               "Still Staged: 3 Documents [1d]"
+is "state, counted"       "$(title_state Watchdog "3 Findings")"    "Watchdog: 3 Findings"
+is "state, bare"          "$(title_state Backup Succeeded)"         "Backup: Succeeded"
+is "an identifier keeps its case" "$(title_state zpool "78% Full")" "zpool: 78% Full"
+is "state with a mark"    "$(title_state Backup Failed "$(title_mark restic)")" \
+                          "Backup: Failed [restic]"
+is "a bare quotation"     "$(title_quote Kene)"                     "Kene"
+is "a quotation with a position" "$(title_quote Kene "$(title_pos 2 4)")" "Kene [2/4]"
+is "a lone event has no position" "$(title_quote Kene "$(title_pos 1 1)")" "Kene"
+is "a quotation nudges by age"   "$(title_quote Kene "$(title_age 31)")"  "Kene [1d]"
+
+# The age scale. Coarse because both pipelines nudge exactly once and the nightly
+# sweep pins the value between 24h and 48h — a precise number would report sweep
+# timing rather than urgency.
+echo "title_age"
+is "hours below a day"  "$(title_age 6)"   "[6h]"
+is "a day at 24h"       "$(title_age 24)"  "[1d]"
+is "still days at 47h"  "$(title_age 47)"  "[1d]"
+is "weeks past a fortnight" "$(title_age 400)" "[2w]"
+
+# Rule 14: the cap exists so WE choose what survives, and the verb is never it.
+echo "truncation"
+long_title="$(title_count Finished 1 Track "Godspeed You! Black Emperor - Storm (Live at the Fillmore)")"
+has   "the verb survives"        "$long_title" "Finished: "
+has   "and the name is cut"      "$long_title" "…"
+is    "at the cap"               "${#long_title}" "40"
+hasnt "no three-dot ellipsis"    "$long_title" "..."
+short="$(title_count Finished 1 Track "Artist - Track")"
+is    "a short name is untouched" "$short" "Finished: Artist - Track"
+# A bracket must never be what gets cut: it carries the position or the age.
+marked="$(title_quote "A Really Very Long Event Title That Overruns" "$(title_pos 2 4)")"
+has   "a bracket survives truncation" "$marked" "[2/4]"
+
+# ------------------------------------------------------------------ paused cause
+# paused_cause matches ai_reason()'s OUTPUT, which lives in another file. Asserting
+# against ai_reason() directly rather than against a copy of its wording is what
+# stops the two drifting: change the sentence there and this fails here.
+echo "paused cause"
+is "rc 3 is unpaid"       "$(paused_cause "$(ai_reason 3)")"                  "Unpaid"
+is "rc 2 is unreachable"  "$(paused_cause "$(ai_reason 2)")"                  "Unreachable"
+is "both at once is mixed" "$(paused_cause "$(ai_reason 2)" "$(ai_reason 3)")" "Mixed"
+is "an unknown reason names nothing" "$(paused_cause "Something else entirely")" ""
+is "no reasons name nothing"         "$(paused_cause)"                         ""
+is "the title carries the cause" \
+   "$(paused_title 3 Document "$(paused_cause "$(ai_reason 3)")")" \
+   "Model Paused: 3 Documents [Unpaid]"
+is "and reads as the model class"    "$(paused_title 1 Screenshot)" "Model Paused: 1 Screenshot"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

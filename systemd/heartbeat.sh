@@ -395,7 +395,12 @@ fi
 # the transport's silence is the test. curl -fsS prints nothing on a successful
 # publish and prints the failure otherwise, and _ntfy_env logs when it declines to
 # build a URL at all; anything the transport says here is an undelivered finding.
-send_out="$(notify "Watchdog" "" warning "$BODY" 2>&1)"
+# `Watchdog: 3 Findings`, not a bare `Watchdog`. The subject does not repeat the
+# topic — this publishes to `host`, which also carries boot and rerouted alerts — and
+# the state carries the count, which is the fact you previously had to open the
+# notification to learn.
+n_find=${#FINDINGS[@]}
+send_out="$(notify "$(title_state Watchdog "${n_find} Finding$( (( n_find == 1 )) || printf s )")" "" warning "$BODY" 2>&1)"
 if [[ -n "$send_out" ]]; then
     echo "heartbeat: ntfy publish FAILED — ${#FINDINGS[@]} finding(s) undelivered: ${send_out}" >&2
     exit 1
