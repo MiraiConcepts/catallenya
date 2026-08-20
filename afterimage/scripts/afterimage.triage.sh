@@ -121,11 +121,15 @@ notify_event() {
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
     title="$(jq -r '.title // "Untitled"' <<<"$ev")"
-    # "Kene (2/4)" — where this sits among the events from one screenshot, in the
-    # line you can read without opening the notification. A lone event carries no
-    # suffix, because "(1/1)" is noise on the overwhelmingly common case.
-    disp_title="$title"
-    (( of > 1 )) && disp_title="${title} (${n}/${of})"
+    # "Kene [2/4]" — where this sits among the events from one screenshot, in the
+    # line you can read without opening the notification. title_pos is silent at
+    # of<=1, because "[1/1]" is noise on the overwhelmingly common case, so the
+    # position can be passed unconditionally.
+    #
+    # title_quote, not a hand-built string: a proposal's title IS the event's name
+    # lifted off a screenshot, so it is the one shape in the repo with no verb. The
+    # constructor is also what caps it, and it caps the NAME rather than the bracket.
+    disp_title="$(title_quote "$title" "$(title_pos "$n" "$of")")"
     ev_date="$(jq -r '.date'             <<<"$ev")"
     ev_end_date="$(jq -r '.end_date // ""' <<<"$ev")"
     [[ "$ev_end_date" == "null" || "$ev_end_date" == "$ev_date" ]] && ev_end_date=""
@@ -242,11 +246,18 @@ notify_event() {
     fi
 
     if ! base="$(capture_base_url)"; then
+        # A FAULT, not a proposal. This used to read "Kene (no buttons)" — a
+        # quotation with a system-authored parenthetical stapled on, and the only
+        # title in the repo that mixed the two. Nothing here is the event's fault:
+        # the proposal is fine and staged, and what broke is our own callback URL.
+        # The name moves into the body, where the rest of the explanation already is.
+        #
         # Tagged even though it has no buttons: the record IS left pending, so the
         # sweep will nudge it and eventually archive it, and both of those want to
         # withdraw this message rather than leave it beside their own.
-        notify "${disp_title} (no buttons)" "" "exclamation" \
-               "$body. Could not build callback URL; record ${eid:0:8} left pending." \
+        notify "$(title_count Unlinked 1 Event)" "" "exclamation" \
+               "$(md_escape "$title")
+$body. Could not build callback URL; record ${eid:0:8} left pending." \
                "" "$eid"
         log "  !! could not build capture base url"
         return
@@ -322,7 +333,7 @@ for png in "${pngs[@]}"; do
         FAILED=$((FAILED + 1))
         # A stable id, so the twelve identical alarms one full pool used to produce
         # collapse into one message that keeps being replaced.
-        notify "Afterimage Stuck" "" "exclamation" \
+        notify "$(title_count Stuck 1 Screenshot)" "" "exclamation" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared." \
                "" "$STUCK_NTFY_ID"
         continue
@@ -366,7 +377,7 @@ for png in "${pngs[@]}"; do
         # The body used to say "check the API key" for every one of these, which is
         # right for a 401 and actively misleading for the commonest case — the model
         # declining to read a screenshot. ai_reason() names what actually happened.
-        notify "Afterimage Failed" "" "exclamation" \
+        notify "$(title_count "Model Failed" 1 Screenshot)" "" "exclamation" \
                "Could not read that screenshot (id ${id:0:8}). $(ai_reason "$ask_rc") — not a temporary error."
         continue
     fi
@@ -394,7 +405,7 @@ for png in "${pngs[@]}"; do
             OK=$((OK + 1))
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
-            notify "Missing Event" "" "exclamation" \
+            notify "$(title_count Skipped 1 Screenshot)" "" "exclamation" \
                    "$(md_escape "${reason:-That screenshot did not look like an event.}")"
             continue ;;
         needs_human)
@@ -417,7 +428,7 @@ for png in "${pngs[@]}"; do
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
             # Tagged with the record id, which is what lets the nudge replace this
             # message rather than arrive beside it.
-            notify "${nh_title:-Needs A Human}" "" "exclamation" \
+            notify "$(title_count Flagged 1 Event "${nh_title}")" "" "exclamation" \
                    "$(md_escape "${reason:-Time or date unclear — not adding.}")" "" "$id"
             continue ;;
     esac
@@ -480,7 +491,7 @@ for png in "${pngs[@]}"; do
                 "$n_past" "$( (( n_past == 1 )) || printf s )")"
         for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• $(md_escape "$t")"; done
         (( n_past > 5 )) && body+=$'\n'"• … and $(( n_past - 5 )) more"
-        notify "Already Passed" "" "calendar" "$body"
+        notify "$(title_count Passed "$n_past" Event)" "" "calendar" "$body"
     }
 
     # Nothing left to act on: the capture resolves here, with one note.
@@ -558,6 +569,7 @@ done
 # there is no state to consult.
 mapfile -t paused_items < <(parked_ids "$PENDING_DIR")
 paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
+            "$(parked_cause "$PENDING_DIR")" \
             "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
 (( ${#paused_items[@]} )) && log "paused: ${#paused_items[@]} waiting on the API"
 

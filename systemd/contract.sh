@@ -10,6 +10,15 @@
 # Requires err() from the caller: the gate accumulates into ERRORS and refuses to
 # install if any are present, and the suite inspects the same array.
 
+# NTFY_IRREGULAR_VERBS, for the past-participle rule below. Sourced rather than
+# duplicated: the whole point of that rule is that the allowlist has exactly one
+# entry and is visible where the constructors are, and a second copy here would be
+# the drift the message contract exists to end. kinds.sh defines functions and arrays
+# and runs nothing, so sourcing it from the gate is free — and it means `--check`
+# fails loudly if the file it is enforcing has gone missing.
+# shellcheck source=/zpool/catallenya/ntfy/kinds.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../ntfy/kinds.sh"
+
 # --- the intake contract ----------------------------------------------------
 # Everything above validates a UNIT. This validates the CODE an intake job runs,
 # because the three things most likely to drift back are properties of the script and
@@ -76,6 +85,55 @@ intake_contract() {
         if grep -q 'api_post' <<<"$code"; then
             grep -qE '== 3|rc 3' <<<"$code" ||
                 err "${label}: ${base} calls api_post but never branches on rc 3 — an account that cannot pay would be read as a broken item, resolved instead of parked, and its evidence pruned a week later."
+        fi
+
+        # 4. every title comes from a constructor
+        #
+        # THIS RULE IS THE LAYERING. Everything else in the message contract is a
+        # convention the constructors happen to implement; without this, nothing at
+        # runtime stops a caller passing notify() a hand-built string, and the six
+        # grammars grow back one call site at a time. Unlike systemd/policy/, there
+        # is no merge engine underneath to make the layering true on its own.
+        #
+        # ntfy/system-ntfy.sh is the single exemption and is checked separately below:
+        # it sources nothing on purpose, so it cannot call a constructor.
+        if [[ "$base" != system-ntfy.sh && "$base" != kinds.sh && "$base" != ntfy.lib.sh ]]; then
+            local call var
+            while IFS= read -r call; do
+                [[ -n "$call" ]] || continue
+                # Inline constructor — the common shape.
+                grep -qE 'notify (")?\$\((title_count|title_state|title_quote)' <<<"$call" && continue
+                # Or a variable, PROVIDED this file assigns it from a constructor.
+                # Two call sites legitimately need one: pigeonhole picks between
+                # `Blocked` and `Model Failed` on the blocked code, and afterimage
+                # builds a quotation once and reuses it. The title still comes from a
+                # constructor; only the literal is not at the call site.
+                var="$(sed -nE 's/.*notify "?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?.*/\1/p' <<<"$call")"
+                if [[ -n "$var" ]] \
+                   && grep -qE "(^| )${var}=\"?\\\$\((title_count|title_state|title_quote)" <<<"$code"; then
+                    continue
+                fi
+                err "${label}: ${base} builds a notification title by hand: ${call:0:70} — every title comes from title_count, title_state or title_quote in ntfy/kinds.sh. See ntfy/MESSAGES.md."
+            done < <(grep -oE '(^| )notify ("[^"]*"|\$\([^)]*\)|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)' <<<"$code" || true)
+        fi
+
+        # 5. a declared verb is a past participle
+        #
+        # The gate can check that a title's verb is one the feature declared, but the
+        # declaration itself is where a new service would otherwise break the rule
+        # silently. 21 of the 22 verbs in the repo end in "ed", so the shape IS
+        # checkable; NTFY_IRREGULAR_VERBS in ntfy/kinds.sh carries the one that does
+        # not. A looser check — rejecting "-ing" only — would have passed `Stray` and
+        # `Unclear`, both of which were proposed during design and are adjectives.
+        if grep -q 'NTFY_VERBS=(' <<<"$code"; then
+            local verbs v
+            verbs="$(sed -n 's/.*NTFY_VERBS=(\([^)]*\)).*/\1/p' <<<"$code")"
+            for v in $verbs; do
+                v="${v//\"/}"
+                [[ "$v" == *ed ]] && continue
+                grep -qw -- "$v" <<<"${NTFY_IRREGULAR_VERBS[*]:-}" && continue
+                err "${label}: ${base} declares NTFY_VERBS entry '${v}', which is not a past participle — a title reports what happened; the button carries the imperative. Add it to NTFY_IRREGULAR_VERBS in ntfy/kinds.sh only if it genuinely is one."
+            done
         fi
     done
     eval "$had_nullglob"

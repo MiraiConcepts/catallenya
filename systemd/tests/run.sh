@@ -528,6 +528,49 @@ contract_fixture '# api_post moved to ai.lib.sh; nothing here calls it any more.
 echo hello'
 contract_clean "prose about the rule is not a violation"
 
+# --- the message contract: titles come from constructors ---------------------
+# Rule 1 of the message contract is the load-bearing one. Unlike systemd/policy/,
+# there is no merge engine underneath these constructors — nothing at runtime stops a
+# caller passing notify() a hand-built string, so the gate refusing it IS the
+# layering. See ntfy/MESSAGES.md § 8.
+contract_fixture 'notify "Disk Space Alert" "" warning "$ALERT"'
+contract_says "a hand-built title is refused" "builds a notification title by hand"
+
+# The same shape that let `high` survive nine days. A line-based check on the title
+# rule would be vacuous against the bug this repo has actually had.
+contract_fixture 'notify \
+    "Boot Failure" "" warning "$body"'
+contract_says "a WRAPPED hand-built title is refused" "builds a notification title by hand"
+
+contract_fixture 'notify "$(title_count Staged 3 Document)" "" clipboard "$body"'
+contract_clean "an inline constructor passes"
+
+# Two live call sites need a variable: pigeonhole picks between `Blocked` and
+# `Model Failed` on the blocked code, afterimage builds a quotation once and reuses
+# it. The title still comes from a constructor, so the rule follows the assignment.
+contract_fixture 't="$(title_quote "$name" "$(title_pos 2 4)")"
+notify "$t" "" calendar "$body"'
+contract_clean "a variable assigned from a constructor passes"
+
+contract_fixture 't="Boot Failure"
+notify "$t" "" warning "$body"'
+contract_says "a variable holding a literal does not" "builds a notification title by hand"
+
+# --- the message contract: declared verbs are past participles ---------------
+# The gate can check that a title's verb was declared, but the DECLARATION is where a
+# new service would otherwise break the rule silently.
+contract_fixture 'NTFY_VERBS=(Processing Uploaded)'
+contract_says "a present participle is refused" "not a past participle"
+
+# Both of these were proposed during the design of this contract and both are
+# adjectives. A looser check — rejecting "-ing" only — would have waved them through,
+# which is the whole reason the rule is "ends in ed" plus a one-entry allowlist.
+contract_fixture 'NTFY_VERBS=(Stray Unclear)'
+contract_says "and so is an adjective" "not a past participle"
+
+contract_fixture 'NTFY_VERBS=(Stuck Staged Binned)'
+contract_clean "the one irregular on the allowlist passes"
+
 rm -rf "$FIX"
 
 printf 'systemd factory: %d passed, %d failed\n' "$PASS" "$FAIL"

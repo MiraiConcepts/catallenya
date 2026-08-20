@@ -174,22 +174,38 @@ if [[ ${#PATHS[@]} -gt 0 ]]; then
     PATH_COUNT=$(systemctl is-active "${PATHS[@]}" 2>/dev/null | grep -c '^active$' || true)
 fi
 
+# SILENT ON SUCCESS since 2026-08-20, matching every other job on the box. This was
+# the only notification in the repo that fired on success unconditionally.
+#
+# The consequence is real and was accepted deliberately: this host does NOT auto-power
+# on when mains returns, so after a cut, silence no longer distinguishes "came back
+# clean" from "still dark". Nothing else changes — the watchdog still covers this job
+# by ActiveState (Freshness=boot), which does not depend on a notification arriving.
+NOTIFY=1
 if [[ ${#ERRORS[@]} -eq 0 ]]; then
-    TITLE="Boot Success"
-    TAG="green_heart"
-    BODY="All systems nominal.
-Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
-Paths: ${PATH_COUNT}/${#PATHS[@]} active
-Containers: ${RUNNING}/${CONTAINER_TOTAL} running"
+    NOTIFY=0
+    log "Boot clean: ${TIMER_COUNT}/${#TIMERS[@]} timers, ${PATH_COUNT}/${#PATHS[@]} paths, ${RUNNING}/${CONTAINER_TOTAL} containers — not notifying"
+fi
+
+# `Boot: 2 Containers Down`, not `Boot Failure`. The subject is `Boot` and not the
+# topic — this publishes to `host`, which also carries the watchdog and rerouted
+# alerts — and the state carries the count, which is the fact the old literal made you
+# open the notification to learn.
+DOWN=$(( CONTAINER_TOTAL - RUNNING ))
+if (( DOWN > 0 )); then
+    TITLE="$(title_state Boot "${DOWN} Container$( (( DOWN == 1 )) || printf s ) Down")"
 else
-    TITLE="Boot Failure"
-    TAG="mending_heart"
-    BODY="Errors:
+    # Errors that are not a container: a timer that would not start, a failed
+    # daemon-reload. Counting them keeps the state slot honest rather than reporting
+    # zero containers down on a run that plainly failed.
+    TITLE="$(title_state Boot "${#ERRORS[@]} Error$( (( ${#ERRORS[@]} == 1 )) || printf s )")"
+fi
+TAG="mending_heart"
+BODY="Errors:
 $(printf '  - %s\n' "${ERRORS[@]}")
 Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
 Paths: ${PATH_COUNT}/${#PATHS[@]} active
 Containers: ${RUNNING}/${CONTAINER_TOTAL} running"
-fi
 
 # No priority argument: an empty one sends no Priority header, which is the same
 # weight the explicit "default" used to ask for. Nothing in this repo shouts.
@@ -203,6 +219,7 @@ fi
 # would be reported through the same ntfy that just refused the message, and the
 # watchdog covers this job by ActiveState (Freshness=boot) rather than by anything
 # that arrives on the phone.
+if (( NOTIFY )); then
 log "Sending ntfy notification..."
 for attempt in 1 2 3; do
     send_out="$(notify "$TITLE" "" "$TAG" "$BODY" 2>&1)"
@@ -217,6 +234,7 @@ for attempt in 1 2 3; do
         log "Notification UNDELIVERED after ${attempt} attempts — the boot report above is the only record"
     fi
 done
+fi
 
 # --- Exit ---
 if [[ ${#ERRORS[@]} -gt 0 ]]; then

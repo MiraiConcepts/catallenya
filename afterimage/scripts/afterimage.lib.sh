@@ -16,6 +16,24 @@ source "/zpool/catallenya/ai/scripts/ai.lib.sh"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
+# --- notification vocabulary -------------------------------------------------
+# Declared here, never in a central table: this is the same shape as a unit's
+# [X-Catallenya] Class= sticker — the thing declares, and nothing repeats it in a map
+# somebody has to remember to extend. A central verb list would be the SUBSCRIBED
+# list again, which silently ate four units' alerts before it was derived instead.
+#
+# systemd/contract.sh reads these: a title's verb must be in NTFY_MODEL_VERBS or here,
+# and every entry must be a past participle. See ntfy/MESSAGES.md.
+#
+# TWO NOUNS, and the pipeline STAGE decides which: Screenshot until the model has
+# produced events, Event afterwards. `Passed: 3 Screenshots` would be a lie — three
+# events came from one screenshot. `File` is neither: it is what the *.png glob cannot
+# see, which is why it is stranded rather than skipped.
+# shellcheck disable=SC2034  # consumed by systemd/contract.sh
+NTFY_VERBS=(Stuck Unlinked Skipped Passed Stranded Flagged Abandoned)
+# shellcheck disable=SC2034  # consumed by systemd/contract.sh
+NTFY_NOUNS=(Screenshot Event File)
+
 AFTERIMAGE_DIR="/zpool/catallenya/afterimage"
 DATA_DIR="${AFTERIMAGE_DIR}/data"
 IN_DIR="${DATA_DIR}/incoming"
@@ -372,6 +390,23 @@ parked_reason() {
     done
     [[ -n "$newest" ]] && reason="$(cat "$newest")"
     printf '%s' "${reason:-$(ai_reason 2)}"
+}
+
+# parked_cause <pending-dir> -> Unpaid | Unreachable | Mixed | ""
+#
+# The bracketed half of the paused title. Deliberately reads EVERY parked record
+# rather than the newest one parked_reason picks: an outage can be both at once —
+# the triage rewrites a record's reason on every park, so a spool can hold records
+# that failed unreachable beside records that failed unpaid. Naming only the newest
+# would hide the other, and the two want different remedies.
+parked_cause() {
+    local dir="$1" f
+    local -a reasons=()
+    for f in "$dir"/*/paused_reason; do
+        [[ -f "$f" ]] || continue
+        reasons+=("$(cat "$f")")
+    done
+    paused_cause "${reasons[@]:-}"
 }
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }

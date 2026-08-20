@@ -120,13 +120,33 @@ else
     job_type="$(tr '[:lower:]' '[:upper:]' <<< ${job_type:0:1})${job_type:1}"
 fi
 
+# THE ONE PLACE IN THE REPO THAT BUILDS A TITLE BY HAND.
+#
+# ntfy/kinds.sh has title_state() for exactly this shape and this file deliberately
+# does not use it — for the same reason it does not source ntfy/ntfy.lib.sh. This is
+# the alarm of last resort that every OnFailure= points at, and it must depend on as
+# little as possible, including on another file in this repo being intact. The cost of
+# that exemption is that the grammar has to be kept in step by hand, so:
+#
+#   <Subject>: <State>[ [rerouted-topic]]      e.g. "Backup: Failed [restic]"
+#
+# systemd/contract.sh checks this file by PATTERN rather than by constructor. See
+# ntfy/MESSAGES.md § 5, nuance 12.
+#
+# THE SUCCESS BRANCH IS NOT DEAD CODE AND MUST NOT BE DELETED. Three units wire
+# OnSuccess= here — restic.backup, restic.forget and restic.check@ — and those pings
+# are the ONLY positive evidence that this path still reaches the phone. Nothing
+# watches the courier: it inherits no OnFailure= (that would call the courier to
+# complain about the courier) and carries no [X-Catallenya] Class, so the watchdog
+# skips it too. Only the DAILY backup ping is frequent enough to serve as that canary;
+# weekly, monthly and yearly are not. See ntfy/MESSAGES.md § 5, nuance 13.
 if systemctl is-failed --quiet "${service_name}.service"; then
     tag="mending_heart"
-    title="${job_type} Failure${routed_note}"
+    title="${job_type}: Failed${routed_note}"
     priority="default"
 else
     tag="green_heart"
-    title="${job_type} Success${routed_note}"
+    title="${job_type}: Succeeded${routed_note}"
     priority="default"
 fi
 

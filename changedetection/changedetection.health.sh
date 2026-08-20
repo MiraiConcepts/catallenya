@@ -75,10 +75,41 @@ COUNT_FILE="/zpool/catallenya/systemd/state/.changedetection-watch-count"
 # _ntfy_env logs when it declines. Anything it says is an undelivered alert, and
 # failing means no completion stamp — so the watchdog reports this job within its 36h
 # MaxAge even when ntfy itself is what is down.
+# report_title <report> -> the fault title for a report of N problems.
+#
+# The subject may not repeat the topic, so on topic `changedetection` it names what is
+# actually wrong rather than the service. With exactly ONE bad watch that is the watch
+# itself — the most useful thing a lock screen can say — and with more it is a count,
+# because two names is a list and three is a paragraph. The old title was the literal
+# `Changedetection Health`, which said neither.
+#
+# A report with no recognisable problem line still counts as one finding: something was
+# reported, and `0 Findings` would read as a clean bill of health for an alert that
+# fired.
+report_title() {
+    local report="$1" n line state watch
+    n="$(grep -cE '^(BROKEN|STALLED|QUIET|MUTED):' <<<"$report" || true)"
+    (( n < 1 )) && n=1
+    if (( n == 1 )) && line="$(grep -m1 -E '^(BROKEN|STALLED|QUIET|MUTED):' <<<"$report")"; then
+        state="${line%%:*}"; watch="${line#*: }"
+        # BROKEN -> Broken. Title Case, matching every other state in the contract.
+        state="${state:0:1}$(tr '[:upper:]' '[:lower:]' <<<"${state:1}")"
+        # The API-level failures name no watch — "cannot reach the changedetection
+        # API (…)", "the watch list is EMPTY (…)" — so there is nothing to put in the
+        # subject slot and the count form is the honest one.
+        case "$watch" in
+            cannot\ reach* | the\ watch\ list*) title_state Watches "1 Finding" ;;
+            *)                                  title_state "$watch" "$state" ;;
+        esac
+    else
+        title_state Watches "${n} Finding$( (( n == 1 )) || printf s )"
+    fi
+}
+
 send_alert() {
     local out
     echo "$1"
-    out="$(notify "Changedetection Health" "" warning "$1" 2>&1)"
+    out="$(notify "$1" "" warning "$2" 2>&1)"
     if [[ -n "$out" ]]; then
         echo "changedetection.health: ntfy publish FAILED, the report above was not delivered: ${out}" >&2
         exit 1
@@ -89,7 +120,8 @@ send_alert() {
 # rather than by dying: an exec against a stopped container would abort the script, and
 # OnFailure= would then send a systemctl dump that says nothing about watches.
 if [[ "$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo missing)" != "running" ]]; then
-    send_alert "changedetection container is not running — no watch is being checked at all."
+    send_alert "$(title_state Changedetection "Not Running")" \
+        "changedetection container is not running — no watch is being checked at all."
     exit 0
 fi
 
@@ -263,5 +295,5 @@ fi
 
 # Silence is the healthy state, matching restic.staleness — no OnSuccess chatter.
 if [[ -n "${REPORT//[[:space:]]/}" ]]; then
-    send_alert "$REPORT"
+    send_alert "$(report_title "$REPORT")" "$REPORT"
 fi
