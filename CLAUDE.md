@@ -266,9 +266,17 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 ### CI/CD
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manual dispatch:
-- **GitLeaks** (v3): scans full git history for leaked secrets. Known-fake findings are
-  suppressed by fingerprint in `.gitleaksignore` (the deliberate 2025-11-05 test key; a
-  2026-07-27 false positive on a prose comment). CI pins the SCANNER explicitly via
+- **GitLeaks** (v3): scans for leaked secrets. **Scan SCOPE depends on the event: a
+  `push` scans only that push's diff, while `workflow_dispatch` scans the FULL
+  history** — so a manual run is the only thing here that re-reads the whole repo.
+  That matters because `.gitleaksignore` suppresses by fingerprint, and a fingerprint
+  is `<commit>:<path-AS-IT-WAS-in-that-commit>:<rule>:<line>`. The 2026-08-15 rename's
+  repo-wide find-and-replace rewrote one of those paths to match the current tree,
+  which no later rename can do — the suppression stopped matching, and it sailed
+  through four green pushes before the next dispatch failed on a finding that had been
+  suppressed for three weeks. Never let a bulk edit touch that file. Known-fake
+  findings suppressed there: the deliberate 2025-11-05 test key; a 2026-07-27 false
+  positive on a prose comment. CI pins the SCANNER explicitly via
   `GITLEAKS_VERSION: "8.24.3"` (2026-08-10) — the action SHA only fixes the wrapper,
   and the binary it downloads is whatever that release bundles, so a weekly dependabot
   SHA bump would have moved it with nothing in the diff to say so. 8.30.1 does not
