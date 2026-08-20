@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Refuse to commit anything that lives where the secrets and the personal corpus
+# live. This is the SECOND lock, and it exists because the first one — the
+# per-file .gitignore allowlist — is a single file that a future edit can loosen
+# in one line. Two locks, no shared key: this list is hardcoded here and is not
+# derived from .gitignore, so a mistake in that file cannot also disarm this.
+#
+# Why a hook and not CI: this repo is public and pushes to five mirrors. A CI
+# check runs AFTER the push, which is after the secret is already public and
+# already indexed. The only useful place to stop it is before the commit exists.
+#
+# The sharpest thing behind these paths is syncthing/data/config/key.pem — the
+# Syncthing DEVICE IDENTITY. Syncthing's transport is deliberately internet-
+# facing (global discovery, relays and NAT are all enabled here), so that key
+# leaking is not gated by the tailnet the way the API key is: anyone holding it
+# could impersonate this box to the other five devices, over public relays, and
+# read or overwrite every shared folder.
+set -uo pipefail
+
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
+(( ${#staged[@]} )) || exit 0
+
+# Directories that hold nothing committable. Trailing slash is deliberate:
+# syncthing/data/ must not also match syncthing/syncthing.lib.sh, which is
+# tracked on purpose.
+DENY_PREFIX=(
+    "syncthing/data/"          # the synced corpus + config.xml (API key) + key.pem
+    "afterimage/data/"         # screenshots; one can hold whatever was on screen
+    "pigeonhole/intake-state/" # documents in flight
+    "immich/data/"             # the photo library
+    "liquidroom/state/"        # models and audio
+    "caddy/data/"              # TLS material
+    "memoka/postgres/" "memoka/redis/" "zipline/data/" "archivebox/data/"
+)
+
+# Secret-shaped names, matched on the BASENAME so a path anywhere is caught.
+# tailscale/initrd-identity/ is NOT a prefix above: it holds tracked scripts,
+# and only the .state file in it is the node key.
+DENY_GLOB=(
+    "tailscaled.state" "*.pem" "*.key" "*.p12" "*.pfx" "id_rsa*"
+    "*secret*" "*token*" "creds.env" ".env" ".rclone.conf" "*.htpasswd"
+)
+
+# Tracked on purpose, and shaped like a secret. Keep this list tiny and exact.
+ALLOW=( ".env.ci" )
+
+blocked=()
+for f in "${staged[@]}"; do
+    for a in "${ALLOW[@]}"; do [[ "$f" == "$a" ]] && continue 2; done
+    for p in "${DENY_PREFIX[@]}"; do
+        [[ "$f" == "$p"* ]] && { blocked+=("$f   → lives under $p"); continue 2; }
+    done
+    base="${f##*/}"
+    for g in "${DENY_GLOB[@]}"; do
+        # shellcheck disable=SC2053  # glob match is the point
+        [[ "$base" == $g ]] && { blocked+=("$f   → name matches $g"); continue 2; }
+    done
+done
+
+(( ${#blocked[@]} )) || exit 0
+
+printf '\n  COMMIT REFUSED — %d staged path(s) belong where secrets live:\n\n' "${#blocked[@]}" >&2
+printf '    %s\n' "${blocked[@]}" >&2
+cat >&2 <<'MSG'
+
+  This repository is PUBLIC and mirrors to five more. Pushing is publishing,
+  and git history keeps what it is given.
+
+  If this is a mistake, unstage it:      git restore --staged <path>
+  If .gitignore was loosened, check it:  git check-ignore --no-index -v <path>
+
+  If you are certain the file is safe, this hook can be bypassed with
+  `git commit --no-verify` — but read the path above one more time first.
+
+MSG
+exit 1
