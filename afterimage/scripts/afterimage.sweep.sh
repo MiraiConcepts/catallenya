@@ -141,10 +141,18 @@ for rec in "${records[@]}"; do
             nh_t="$(jq -r 'first(.events[]?.title // empty) // ""' "${rec}/capture.json" 2>/dev/null)"
             nh_r="$(jq -r '.reason // ""' "${rec}/capture.json" 2>/dev/null)"
             # Retract-then-publish under the same id the triage used, so the phone ends
-            # up with one message rather than two.
+            # up with one message rather than two — notify_nudge does the retract.
+            #
+            # The Discard button rides along where a callback URL can be built. It is
+            # OPTIONAL here rather than gating the nudge, unlike the proposal branch
+            # below: a needs-a-human record wants a human either way, and dropping the
+            # reminder because ntfy's URL could not be assembled would lose the thing
+            # the nudge exists for.
+            nh_act=""
+            nh_base="$(capture_base_url)" && nh_act="$(discard_action "$nh_base" "$id")"
             notify_nudge "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" \
                    "$(md_escape "${nh_r:-Time or date unclear — not adding.}") — still waiting after ${nh_age_h}h." \
-                   "$id"
+                   "$id" "$nh_act"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
             log "re-notified needs-human ${id:0:8} (${nh_age_h}h)"

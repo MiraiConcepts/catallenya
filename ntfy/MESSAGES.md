@@ -170,6 +170,12 @@ A stale one is unambiguous — it says something happened, so you go and look.
 | `proposal` `nudge` `resolved` | yes | by the tap, or when the buttons go dead |
 | `fault` `receipt` `paused` | no | **never** |
 
+**There are no exceptions to that second row.** The last one closed on 2026-08-20:
+afterimage's `Flagged: Kene` had no buttons yet was withdrawn at seven days by the
+archive backstop, silently, because its record was gone. It now carries a Discard
+button — see nuance 6b — so its withdrawal is a tap's or a dead control's, which the
+rule already allows.
+
 **A fault's sequence-id means "this can recur".** A job that runs on a schedule and can
 report the same finding twice passes a stable literal, so the second run replaces the
 first instead of stacking: `host/disk.sh` runs hourly, and a pool over threshold across a
@@ -239,6 +245,7 @@ service that exemplifies it.
 | 4 | `Flagged` `Stuck` `Refused` `Skipped` `Stranded` are shared **by choice** | several | they are situation-class, so sharing is permitted, not required. The situations genuinely match — `Flagged` means *model answered, human should look* in both pipelines |
 | 5 | The gate **is** the layering | `systemd/contract.sh` | unlike systemd there is no merge engine. Nothing at runtime stops a hand-built string. See §8 |
 | 6 | A proposal's nudge takes **no verb** | afterimage `sweep:184` | its original title is a quotation with no verb to reuse. afterimage therefore has two nudge shapes on purpose |
+| 6b | `Flagged: Kene` carries a **Discard** button | afterimage `triage:431` | `Add` is impossible without a parsed date, so this was a button-less fault — and therefore the one message the withdrawal rule said to keep while the archive backstop removed it at seven days anyway, silently. Discard is only an archive, which is what the day-7 expiry does regardless, so giving it that one button settles the contradiction in the rule's favour rather than against it |
 | 7 | Noun follows the pipeline **stage** | afterimage | `Screenshot` until the model produces events, `Event` after. `Passed: 3 Screenshots` would be wrong — three events came from one screenshot |
 | 8 | Filenames stay in the **body**, not the title | pigeonhole | `title_count` accepts a name; pigeonhole deliberately passes none, because a batch of three wants three names listed, not one promoted |
 | 9 | One notification **per verb**, not per run | liquidroom | a run where two tracks succeeded and one failed cannot honestly be titled `Finished` |
@@ -264,10 +271,10 @@ Every title the system can emit.
 | can't move out of `incoming/` — disk full | `Stuck: 1 Screenshot` |
 | API rejected — rc 1 | `Model Failed: 1 Screenshot` |
 | model says it isn't an event | `Skipped: 1 Screenshot` |
-| date or time ambiguous | `Flagged: Kene` |
+| date or time ambiguous | `Flagged: Kene` · **Discard** |
 | events found, all in the past | `Passed: 3 Events` |
 | parked 7d from first failure | `Abandoned: 1 Screenshot` |
-| needs-human untouched 24h | `Still Flagged: Kene [1d]` |
+| needs-human untouched 24h | `Still Flagged: Kene [1d]` · **Discard** |
 | proposal untouched 24h | `Kene [1d]` |
 | strays the `*.png` glob can't see | `Stranded: 3 Files` |
 | anything parked | `Model Paused: 2 Screenshots [Unpaid]` |

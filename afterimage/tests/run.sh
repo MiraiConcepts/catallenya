@@ -257,6 +257,19 @@ has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
 # the sweep nudges it, which removes the special case rather than making it louder.
 hasnt "needs-human does not archive on the spot" "$(cat "$TRI")" 'archive_record "$id" "$rec" needs_human'
 has   "and its message is tagged for a nudge"    "$(cat "$TRI")" 'title_count Flagged 1 Event "${nh_title}"'
+# A NEEDS-A-HUMAN MESSAGE CARRIES A DISCARD BUTTON (2026-08-20). It was the one
+# button-less message in the repo that the system removed anyway: the withdrawal rule
+# says keep a message with no buttons, while the archive backstop withdrew it at seven
+# days because its record was gone. `Add` is impossible without a parsed date, but
+# Discard is only an archive — which is what the day-7 expiry does for you regardless.
+# Giving it that button settles the contradiction in the rule's favour.
+has   "needs-human offers Discard"              "$(cat "$TRI")" 'notify_proposal "$(title_count Flagged'
+has   "built from the shared action"            "$(cat "$TRI")" 'discard_action "$nh_base" "$id"'
+# A proposal with no buttons is not a proposal, so a run that cannot assemble a
+# callback URL falls back rather than publishing a lie.
+has   "and falls back to a fault with no URL"   "$(cat "$TRI")" 'notify_fault "$(title_count Flagged'
+has   "the sweep's nudge carries it too" \
+      "$(cat "${SCRIPT_DIR}/afterimage.sweep.sh")" 'discard_action "$nh_base" "$id"'
 SWP="${SCRIPT_DIR}/afterimage.sweep.sh"
 has   "the sweep nudges a needs-human record"    "$(cat "$SWP")" 're-notified needs-human'
 has   "and expires it on the same clock"         "$(cat "$SWP")" 'archive_record "$id" "$rec" needs_human'
@@ -716,6 +729,13 @@ has  "the primary posts to /add"        "$a" "http, 19:15, ${AB}/afterimage/${AI
 has  "discard is always last"           "$a" "http, Discard, ${AB}/afterimage/${AI}/drop"
 hasnt "no alternative, no alt button"   "$a" "alt=1"
 is   "two buttons with none on offer"   "$(grep -o 'http,' <<<"$a" | wc -l)" "2"
+
+# discard_action was extracted so this path and the needs-a-human path build the
+# same URL from one place. The assertion above already pins the shape; this pins that
+# they are the SAME shape, which is the only reason the extraction was worth doing.
+is   "discard_action builds that exact button" "$(discard_action "$AB" "$AI")" \
+     "http, Discard, ${AB}/afterimage/${AI}/drop, method=POST, headers.X-Afterimage=1"
+has  "and capture_actions ends with it"        "$a" "$(discard_action "$AB" "$AI")"
 
 a="$(capture_actions "$AB" "$AI" '19:15' '20:15')"
 has "the alternative gets its own route" "$a" "http, 20:15, ${AB}/afterimage/${AI}/add?alt=1"

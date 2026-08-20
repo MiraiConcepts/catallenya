@@ -426,10 +426,27 @@ for png in "${pngs[@]}"; do
             # a glance than "Needs A Human", and the body already explains what is
             # wrong. The generic title is the fallback, not the default.
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
-            # Tagged with the record id, which is what lets the nudge replace this
-            # message rather than arrive beside it.
-            notify_fault "$(title_count Flagged 1 Event "${nh_title}")" \
-                   "$(md_escape "${reason:-Time or date unclear — not adding.}")" "$id"
+            # A PROPOSAL, because it offers a tap: Discard. `Add` is impossible —
+            # there is no parsed date to add — but the record can be cleared, and
+            # that is what the day-7 expiry does for you anyway.
+            #
+            # This was a button-less fault until 2026-08-20, which made it the one
+            # message in the repo the system withdrew silently: no buttons meant the
+            # withdrawal rule said keep it, while the archive backstop removed it at
+            # seven days because the record was gone. Giving it the button it always
+            # deserved settles that in the direction of the rule rather than against
+            # it. Falling back to a fault is only for a run that cannot build a
+            # callback URL at all — a proposal with no buttons is not a proposal.
+            #
+            # The record id is what lets the sweep's nudge replace this message
+            # rather than arrive beside it.
+            nh_body="$(md_escape "${reason:-Time or date unclear — not adding.}")"
+            if nh_base="$(capture_base_url)"; then
+                notify_proposal "$(title_count Flagged 1 Event "${nh_title}")" \
+                       "$nh_body" "$(discard_action "$nh_base" "$id")" "$id"
+            else
+                notify_fault "$(title_count Flagged 1 Event "${nh_title}")" "$nh_body" "$id"
+            fi
             continue ;;
     esac
 

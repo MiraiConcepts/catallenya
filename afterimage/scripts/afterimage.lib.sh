@@ -249,12 +249,27 @@ safe_label() {
 # X-Afterimage is not authentication. It forces a CORS preflight, which the
 # container answers for exactly one origin, so a page open on a tailnet device
 # cannot fire a callback it scraped off the (unauthenticated) topic.
+# discard_action <base> <id> — the Discard button on its own.
+#
+# Extracted so the needs-a-human path and capture_actions() build the same URL from
+# the same place. A needs-a-human record has NO proposal.json, so `Add` is impossible
+# — but Discard is only an archive, which the container's /drop route already does for
+# any pending record, proposal or not.
+#
+# Giving that record its one real button is what puts it back under the withdrawal
+# rule: it can now be cleared by a tap, and if it is ignored the archive backstop
+# withdraws a control that has genuinely gone dead. Before this it was the single
+# button-less message in the repo that the system removed anyway, silently, at 7 days.
+discard_action() {
+    printf 'http, Discard, %s/afterimage/%s/drop, method=POST, headers.X-Afterimage=1' "$1" "$2"
+}
+
 capture_actions() {
     local base="$1" id="$2" primary="$3" alt="${4:-}" a
     a="http, ${primary}, ${base}/afterimage/${id}/add, method=POST, headers.X-Afterimage=1"
     [[ -n "$alt" ]] && \
         a+="; http, ${alt}, ${base}/afterimage/${id}/add?alt=1, method=POST, headers.X-Afterimage=1"
-    a+="; http, Discard, ${base}/afterimage/${id}/drop, method=POST, headers.X-Afterimage=1"
+    a+="; $(discard_action "$base" "$id")"
     printf '%s' "$a"
 }
 
