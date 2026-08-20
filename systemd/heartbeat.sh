@@ -41,6 +41,16 @@ NTFY_TOPIC="${HEARTBEAT_NTFY_TOPIC:-host}"
 # watchdog message must be is literal.
 # shellcheck disable=SC2034
 NTFY_MARKDOWN=no
+
+# A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
+# replaced rather than a pile. Runs DAILY, and a stale job stays stale — the same finding arrived every morning until
+# someone acted on it.
+#
+# It does NOT self-clear when the condition goes away. A fault has no buttons, and a
+# notification without buttons is never withdrawn by the system: an absent message is
+# ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
+# ntfy/MESSAGES.md.
+WATCHDOG_NTFY_ID="watchdog-findings"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -400,7 +410,7 @@ fi
 # the state carries the count, which is the fact you previously had to open the
 # notification to learn.
 n_find=${#FINDINGS[@]}
-send_out="$(notify "$(title_state Watchdog "${n_find} Finding$( (( n_find == 1 )) || printf s )")" "" warning "$BODY" 2>&1)"
+send_out="$(notify_fault "$(title_state Watchdog "${n_find} Finding$( (( n_find == 1 )) || printf s )")" "$BODY" "$WATCHDOG_NTFY_ID" 2>&1)"
 if [[ -n "$send_out" ]]; then
     echo "heartbeat: ntfy publish FAILED — ${#FINDINGS[@]} finding(s) undelivered: ${send_out}" >&2
     exit 1

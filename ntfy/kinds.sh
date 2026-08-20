@@ -201,3 +201,86 @@ title_quote() {
     [[ -n "$mark" ]] && tail=" ${mark}"
     printf '%s%s' "$(_title_trunc "$name" "$(( TITLE_MAX - ${#tail} ))")" "$tail"
 }
+
+# --- kinds -------------------------------------------------------------------
+# WHAT A KIND IS. Every notification this box sends is one of five things, and which
+# one decides what arguments exist. That is the whole mechanism: a receipt has no
+# parameter to put a button in, so it cannot grow one; a proposal cannot omit the
+# sequence-id that makes it withdrawable, because the id is required.
+#
+# THEY PRODUCE NO VISIBLE DIFFERENCE, and it is worth being honest about that. Tags
+# were dropped in the same change, so every message renders as title plus body
+# regardless of kind. The value is structural — the rules above become impossible to
+# break rather than merely forbidden — and it is what lets systemd/contract.sh refuse
+# a bare notify() from outside this directory.
+#
+# THE WITHDRAWAL RULE (owner, 2026-08-20), which is why the signatures differ:
+#
+#   A notification WITH buttons may be withdrawn. A notification WITHOUT buttons is
+#   never withdrawn by the system.
+#
+# An actionable message is withdrawn by the tap that resolves it, or by afterimage's
+# archive backstop once its buttons have started answering 404 — a control that lies
+# is worse than no control. Everything else stays until you swipe it, because an
+# absent notification is ambiguous and a stale one is not. See ntfy/MESSAGES.md.
+
+# notify_proposal <title> <body> <actions> <seq-id>
+# Something is waiting for a tap, first time of asking. Both trailing arguments are
+# REQUIRED: buttons with no id would be a decision nothing could ever withdraw.
+notify_proposal() {
+    notify "${1:?notify_proposal: title}" "${2:?notify_proposal: body}" \
+           "${3:?notify_proposal: actions}" "${4:?notify_proposal: sequence-id}"
+}
+
+# notify_nudge <title> <body> <seq-id> [actions]
+# The same decision, asked again. RETRACTS FIRST so the phone ends up with one
+# message rather than two — which is why the id comes before the optional actions.
+#
+# Retract-then-publish rather than an in-place update: an update may be applied
+# silently, and a nudge that does not alert is not a nudge. Seven call sites used to
+# write the retract by hand immediately above their notify; doing it here is one
+# fewer thing to forget.
+#
+# Actions are optional because afterimage's needs-a-human nudge has none — it carries
+# an id so the sweep can replace it, but there is nothing to tap.
+notify_nudge() {
+    local id="${3:?notify_nudge: sequence-id}"
+    retract "$id"
+    notify "${1:?notify_nudge: title}" "${2:?notify_nudge: body}" "${4:-}" "$id"
+}
+
+# notify_resolved <title> <body> <seq-id> [actions]
+# Resolved without you — binned at seven days, given up on. Mechanically identical to
+# a nudge and kept separate because the call site should say which it is, and because
+# the gate holds a nudge to a `Still ` title while this is free of that.
+notify_resolved() {
+    local id="${3:?notify_resolved: sequence-id}"
+    retract "$id"
+    notify "${1:?notify_resolved: title}" "${2:?notify_resolved: body}" "${4:-}" "$id"
+}
+
+# notify_fault <title> <body> [seq-id]
+# Something broke. Never has buttons, so it is never withdrawn — see the rule above.
+#
+# THE ID IS OPTIONAL AND MEANS "this condition can recur". A job that runs on a
+# schedule and can report the same finding twice passes a stable literal, so the
+# second run REPLACES the first instead of stacking beside it: host/disk.sh runs
+# hourly, and a pool sitting over threshold across a weekend used to produce
+# forty-five notifications. A one-shot fault about a single item — Model Failed,
+# Abandoned, Refused — passes none, because nothing later will ever replace it.
+#
+# MUST STAY OUTPUT-TRANSPARENT. disk.sh, catallenya.sh, heartbeat.sh and
+# changedetection.health.sh capture this call's output and treat ANY output as an
+# undelivered alert, because for them the notification is the work. Nothing may be
+# printed on the success path.
+notify_fault() {
+    notify "${1:?notify_fault: title}" "${2:?notify_fault: body}" "" "${3:-}"
+}
+
+# notify_receipt <title> <body>
+# Work finished, nothing owed. No buttons and no id, both by construction: there is
+# no argument to put them in, so a receipt can never become something you must act on
+# and can never be withdrawn.
+notify_receipt() {
+    notify "${1:?notify_receipt: title}" "${2:?notify_receipt: body}"
+}

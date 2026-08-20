@@ -110,8 +110,10 @@ echo "paused_sync"
 sync_trace() {
     (
         retract() { printf 'RETRACT %s\n' "${1:-}"; }
-        notify()  { printf 'NOTIFY title=[%s] prio=[%s] tags=[%s] actions=[%s] id=[%s]\n%s\n' \
-                        "${1:-}" "${2:-}" "${3:-}" "${5:-}" "${6:-}" "${4:-}"; }
+        # notify <title> <body> [actions] [seq-id] — priority and tags were removed
+        # from the signature on 2026-08-20.
+        notify()  { printf 'NOTIFY title=[%s] actions=[%s] id=[%s]\n%s\n' \
+                        "${1:-}" "${3:-}" "${4:-}" "${2:-}"; }
         paused_sync "$@"
     )
 }
@@ -121,21 +123,24 @@ sync_trace() {
 t="$(sync_trace pause-1 Document "Out of credits" Unpaid "moved to bin/ in 7 days" a.pdf b.pdf)"
 is  "retract fires first, before any publish" "$(head -n1 <<<"$t")" "RETRACT pause-1"
 has "then the summary, count and noun threaded" "$t" "title=[Model Paused: 2 Documents [Unpaid]]"
-has "default priority — nothing shouts"  "$t" "prio=[]"
-has "the one deliberate glyph"           "$t" "tags=[warning]"
 has "no buttons on a summary"            "$t" "actions=[]"
 has "replacement rides the SAME id"      "$t" "id=[pause-1]"
 has "items reach paused_body"            "$t" '1\. a.pdf'
 has "reason and outcome too, in its own arg order" "$t" \
     "_Out of credits. Retrying daily — moved to bin/ in 7 days._"
 
-# The fix itself: the run that finds nothing paused still retracts — this is what
-# takes "Paused: N …" off the phone when the outage ends — and publishes nothing.
-# Both triages used to skip the retract with the branch, so the summary rotted.
+# THE RUN THAT ENDS AN OUTAGE DOES NOTHING, and that is a DELIBERATE REVERSAL of the
+# 2026-08-19 behaviour rather than a regression — see paused_sync's own comment.
+#
+# That change made the retract unconditional so a resolved outage cleared the summary.
+# The withdrawal rule (2026-08-20) says the opposite: a notification WITHOUT BUTTONS is
+# never withdrawn by the system, because an absent notification is ambiguous — fixed,
+# mis-swiped, or never sent — while a stale one is not. The summary still replaces
+# itself WHILE an outage runs, which is what the retract above proves; it simply stops
+# updating once nothing is paused, and the last one waits to be swiped.
 t0="$(sync_trace pause-1 Document "" "")"
-is    "resolved outage: retract still happens" "$t0" "RETRACT pause-1"
-hasnt "and no replacement is published"        "$t0" "NOTIFY"
-is    "a bare id is enough to withdraw"        "$(sync_trace pause-1)" "RETRACT pause-1"
+is "resolved outage: nothing retracted, nothing published" "$t0" ""
+is "a bare id publishes nothing either"                    "$(sync_trace pause-1)" ""
 
 # An empty id would publish a summary nothing can ever withdraw; the call declines.
 te="$(sync_trace "" Document "Out of credits" "x" a.pdf 2>/dev/null)"
@@ -238,6 +243,75 @@ is "the title carries the cause" \
    "$(paused_title 3 Document "$(paused_cause "$(ai_reason 3)")")" \
    "Model Paused: 3 Documents [Unpaid]"
 is "and reads as the model class"    "$(paused_title 1 Screenshot)" "Model Paused: 1 Screenshot"
+
+# ------------------------------------------------------------------ the kinds
+# Every job reaches the wire through a KIND, and the kind is what makes the lifecycle
+# rules structural rather than remembered. These assert the SHAPES — which arguments
+# exist, and what each wrapper does with them — because that is the entire value:
+# tags were dropped in the same change, so no kind renders differently.
+echo "kinds"
+kind_trace() {
+    (
+        retract() { printf 'RETRACT %s\n' "${1:-}"; }
+        notify()  { printf 'NOTIFY t=[%s] b=[%s] a=[%s] id=[%s]\n' \
+                        "${1:-}" "${2:-}" "${3:-}" "${4:-}"; }
+        "$@"
+    )
+}
+
+is "a receipt has no actions and no id" \
+   "$(kind_trace notify_receipt "Baked: 3 Rotations" body)" \
+   "NOTIFY t=[Baked: 3 Rotations] b=[body] a=[] id=[]"
+is "a fault may carry a stable id" \
+   "$(kind_trace notify_fault "zpool: 78% Full" body disk-full)" \
+   "NOTIFY t=[zpool: 78% Full] b=[body] a=[] id=[disk-full]"
+is "a fault never carries actions" \
+   "$(kind_trace notify_fault "zpool: 78% Full" body)" \
+   "NOTIFY t=[zpool: 78% Full] b=[body] a=[] id=[]"
+is "a proposal threads both" \
+   "$(kind_trace notify_proposal "Staged: 3 Documents" body acts rec-1)" \
+   "NOTIFY t=[Staged: 3 Documents] b=[body] a=[acts] id=[rec-1]"
+
+# THE NUDGE RETRACTS FIRST, under the same id, so the phone ends up with one message
+# rather than two. Seven call sites used to write that retract by hand immediately
+# above their notify; doing it in the wrapper is one fewer thing to forget.
+is "a nudge retracts before publishing" \
+   "$(kind_trace notify_nudge "Still Staged: 3 Documents [1d]" body batch acts)" \
+   "RETRACT batch
+NOTIFY t=[Still Staged: 3 Documents [1d]] b=[body] a=[acts] id=[batch]"
+is "and its actions are optional" \
+   "$(kind_trace notify_nudge "Still Flagged: Kene [1d]" body rec-1)" \
+   "RETRACT rec-1
+NOTIFY t=[Still Flagged: Kene [1d]] b=[body] a=[] id=[rec-1]"
+is "a resolution does the same" \
+   "$(kind_trace notify_resolved "Binned: 1 Document" body rec-1 acts)" \
+   "RETRACT rec-1
+NOTIFY t=[Binned: 1 Document] b=[body] a=[acts] id=[rec-1]"
+
+# The REQUIRED arguments are what make the rules impossible to break rather than
+# forbidden: buttons with no id would be a decision nothing could ever withdraw.
+is "a proposal refuses a missing id"     "$(kind_trace notify_proposal t b acts 2>/dev/null; echo rc=$?)" "rc=1"
+is "a nudge refuses a missing id"        "$(kind_trace notify_nudge t b 2>/dev/null; echo rc=$?)"         "rc=1"
+is "a receipt refuses a missing body"    "$(kind_trace notify_receipt t 2>/dev/null; echo rc=$?)"         "rc=1"
+
+# notify() itself no longer takes a priority or a tag. Both were removed on
+# 2026-08-20: priority had one legal value, and tags were twelve glyphs of which four
+# meant "something is wrong". Asserting the HEADERS is what proves it, because a
+# leftover argument would otherwise just be ignored.
+echo "envelope"
+# The shadow prints to STDERR: notify()'s real curl line ends in `>/dev/null`, which
+# would swallow anything written to stdout and make every assertion below vacuously
+# pass on an empty string.
+hdr_probe() { bash -c '
+    source /zpool/catallenya/ntfy/ntfy.lib.sh
+    curl() { printf "%s\n" "$@" >&2; }
+    _ntfy_env() { TAILNET_DOMAIN=x; TAILNET_DNS_NAME=y; NTFY_REVERSE_PROXY_PORT=1; }
+    ntfy_muted() { return 1; }
+    NTFY_TOPIC=t notify "title" "body" "" ""' 2>&1; }
+hdrs="$(hdr_probe)"
+hasnt "no Tags header"      "$hdrs" "Tags:"
+hasnt "no Priority header"  "$hdrs" "Priority:"
+has   "still a Title"       "$hdrs" "Title: title"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

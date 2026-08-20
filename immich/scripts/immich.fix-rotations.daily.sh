@@ -25,6 +25,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NTFY_TOPIC="immich"
 # shellcheck disable=SC2034
 NTFY_MARKDOWN=no
+
+# A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
+# replaced rather than a pile. Runs DAILY, and whatever breaks a bake usually breaks the next one too.
+#
+# It does NOT self-clear when the condition goes away. A fault has no buttons, and a
+# notification without buttons is never withdrawn by the system: an absent message is
+# ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
+# ntfy/MESSAGES.md.
+BAKE_NTFY_ID="immich-bake-failed"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -69,10 +78,11 @@ concern_lines() {
 CONCERN_LINES="$(concern_lines)"
 
 if [[ ${RC} -ne 0 ]]; then
-    notify "$(title_state "Rotation Bake" Failed)" "" rotating_light \
-        "$(tail -n 8 <<<"${OUT}")"$'\n\n'"Full log: journalctl -u immich.fix-rotations.service"
+    notify_fault "$(title_state "Rotation Bake" Failed)" \
+        "$(tail -n 8 <<<"${OUT}")"$'\n\n'"Full log: journalctl -u immich.fix-rotations.service" \
+        "$BAKE_NTFY_ID"
 elif [[ -n "${BAKED}" && "${BAKED}" -gt 0 ]] || [[ -n "${CONCERNS}" ]]; then
-    notify "$(title_count Baked "${BAKED:-0}" Rotation)" "" white_check_mark \
+    notify_receipt "$(title_count Baked "${BAKED:-0}" Rotation)" \
         "${BAKED_LINES}${BAKED_LINES:+$'\n'}${CONCERN_LINES}"
 fi
 exit "${RC}"

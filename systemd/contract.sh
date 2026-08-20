@@ -99,22 +99,52 @@ intake_contract() {
         # it sources nothing on purpose, so it cannot call a constructor.
         if [[ "$base" != system-ntfy.sh && "$base" != kinds.sh && "$base" != ntfy.lib.sh ]]; then
             local call var
+
+            # 4a. THE PRIMITIVE IS PRIVATE. Every job goes through a kind, because the
+            # kind is what makes the lifecycle rules structural rather than remembered:
+            # notify_receipt has no argument to put a button in, notify_proposal cannot
+            # omit the sequence-id that makes it withdrawable. A bare notify() bypasses
+            # all of it, and there is no merge engine underneath to catch that.
+            if grep -qE '(^| )notify ' <<<"$code"; then
+                err "${label}: ${base} calls notify() directly — use a kind from ntfy/kinds.sh (notify_proposal, notify_nudge, notify_resolved, notify_fault, notify_receipt). See ntfy/MESSAGES.md."
+            fi
+
+            # 4b. clear=true dismisses on the TAP, before the work behind the button has
+            # happened. A refused move would then leave the notification gone and the
+            # document unmoved — the buttons were the only way to act, and they are now
+            # off the phone. Every pipeline withdraws AFTER the work succeeds instead.
+            if grep -q 'clear=true' <<<"$code"; then
+                err "${label}: ${base} sets clear=true on a notification action — it dismisses on the tap, before the work is done, so a refusal looks like a success. Withdraw after the work succeeds instead."
+            fi
+
             while IFS= read -r call; do
                 [[ -n "$call" ]] || continue
                 # Inline constructor — the common shape.
-                grep -qE 'notify (")?\$\((title_count|title_state|title_quote)' <<<"$call" && continue
+                grep -qE 'notify_(proposal|nudge|resolved|fault|receipt) (")?\$\((title_count|title_state|title_quote)' <<<"$call" && continue
                 # Or a variable, PROVIDED this file assigns it from a constructor.
                 # Two call sites legitimately need one: pigeonhole picks between
                 # `Blocked` and `Model Failed` on the blocked code, and afterimage
                 # builds a quotation once and reuses it. The title still comes from a
                 # constructor; only the literal is not at the call site.
-                var="$(sed -nE 's/.*notify "?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?.*/\1/p' <<<"$call")"
+                var="$(sed -nE 's/.*notify_[a-z]+ "?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?.*/\1/p' <<<"$call")"
                 if [[ -n "$var" ]] \
                    && grep -qE "(^| )${var}=\"?\\\$\((title_count|title_state|title_quote)" <<<"$code"; then
                     continue
                 fi
                 err "${label}: ${base} builds a notification title by hand: ${call:0:70} — every title comes from title_count, title_state or title_quote in ntfy/kinds.sh. See ntfy/MESSAGES.md."
-            done < <(grep -oE '(^| )notify ("[^"]*"|\$\([^)]*\)|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)' <<<"$code" || true)
+            done < <(grep -oE '(^| )notify_(proposal|nudge|resolved|fault|receipt) ("[^"]*"|\$\([^)]*\)|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)' <<<"$code" || true)
+
+            # 4c. A NUDGE MUST READ AS ONE. It is the same decision asked a second time,
+            # and a title identical to the first asking is indistinguishable from it —
+            # you cannot tell whether you already saw this or whether it is new. Either
+            # the `Still ` prefix or an age bracket says so; pigeonhole uses the first,
+            # afterimage's proposal nudge the second, because a quotation has no verb
+            # to prefix.
+            while IFS= read -r call; do
+                [[ -n "$call" ]] || continue
+                grep -qE 'Still |title_age ' <<<"$call" && continue
+                err "${label}: ${base} sends a nudge whose title does not read as one: ${call:0:70} — use a \`Still \` verb or a title_age bracket, or it cannot be told from the first notification."
+            done < <(grep -oE '(^| )notify_nudge [^;&|]*' <<<"$code" || true)
         fi
 
         # 5. a declared verb is a past participle

@@ -255,10 +255,10 @@ notify_event() {
         # Tagged even though it has no buttons: the record IS left pending, so the
         # sweep will nudge it and eventually archive it, and both of those want to
         # withdraw this message rather than leave it beside their own.
-        notify "$(title_count Unlinked 1 Event)" "" "exclamation" \
+        notify_fault "$(title_count Unlinked 1 Event)" \
                "$(md_escape "$title")
 $body. Could not build callback URL; record ${eid:0:8} left pending." \
-               "" "$eid"
+               "$eid"
         log "  !! could not build capture base url"
         return
     fi
@@ -281,7 +281,7 @@ $body. Could not build callback URL; record ${eid:0:8} left pending." \
     # No priority: every proposal arrives at the same weight (see notify()).
     # Tagged with the record id so the sweep's nudge can replace this message and
     # the archive pass can withdraw it — one live notification per record, ever.
-    notify "${disp_title}" "" "calendar" "$body" "$actions" "$eid"
+    notify_proposal "${disp_title}" "$body" "$actions" "$eid"
 }
 
 # --- drain incoming/ -------------------------------------------------------
@@ -333,9 +333,9 @@ for png in "${pngs[@]}"; do
         FAILED=$((FAILED + 1))
         # A stable id, so the twelve identical alarms one full pool used to produce
         # collapse into one message that keeps being replaced.
-        notify "$(title_count Stuck 1 Screenshot)" "" "exclamation" \
+        notify_fault "$(title_count Stuck 1 Screenshot)" \
                "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared." \
-               "" "$STUCK_NTFY_ID"
+               "$STUCK_NTFY_ID"
         continue
     fi
     png="${rec}/screenshot.${ext}"
@@ -377,7 +377,7 @@ for png in "${pngs[@]}"; do
         # The body used to say "check the API key" for every one of these, which is
         # right for a 401 and actively misleading for the commonest case — the model
         # declining to read a screenshot. ai_reason() names what actually happened.
-        notify "$(title_count "Model Failed" 1 Screenshot)" "" "exclamation" \
+        notify_fault "$(title_count "Model Failed" 1 Screenshot)" \
                "Could not read that screenshot (id ${id:0:8}). $(ai_reason "$ask_rc") — not a temporary error."
         continue
     fi
@@ -405,7 +405,7 @@ for png in "${pngs[@]}"; do
             OK=$((OK + 1))
             archive_record "$id" "$rec" not_event "${reason:-}"
             log "  not an event: ${reason:-(no reason given)}"
-            notify "$(title_count Skipped 1 Screenshot)" "" "exclamation" \
+            notify_receipt "$(title_count Skipped 1 Screenshot)" \
                    "$(md_escape "${reason:-That screenshot did not look like an event.}")"
             continue ;;
         needs_human)
@@ -428,8 +428,8 @@ for png in "${pngs[@]}"; do
             nh_title="$(jq -r 'first(.events[]?.title // empty) // ""' <<<"$proposal")"
             # Tagged with the record id, which is what lets the nudge replace this
             # message rather than arrive beside it.
-            notify "$(title_count Flagged 1 Event "${nh_title}")" "" "exclamation" \
-                   "$(md_escape "${reason:-Time or date unclear — not adding.}")" "" "$id"
+            notify_fault "$(title_count Flagged 1 Event "${nh_title}")" \
+                   "$(md_escape "${reason:-Time or date unclear — not adding.}")" "$id"
             continue ;;
     esac
 
@@ -491,7 +491,7 @@ for png in "${pngs[@]}"; do
                 "$n_past" "$( (( n_past == 1 )) || printf s )")"
         for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• $(md_escape "$t")"; done
         (( n_past > 5 )) && body+=$'\n'"• … and $(( n_past - 5 )) more"
-        notify "$(title_count Passed "$n_past" Event)" "" "calendar" "$body"
+        notify_receipt "$(title_count Passed "$n_past" Event)" "$body"
     }
 
     # Nothing left to act on: the capture resolves here, with one note.

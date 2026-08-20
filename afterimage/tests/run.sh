@@ -249,7 +249,7 @@ hasnt "nor in the sweep"              "$(cat "${SCRIPT_DIR}/afterimage.sweep.sh"
 # The `Model ` prefix is what marks it as shared rather than as a fact about
 # screenshots — see ntfy/MESSAGES.md § 1.
 has "the fatal alarm is model-class"    "$(cat "$TRI")" 'title_count "Model Failed" 1 Screenshot'
-has "and no title is hand-built"        "$(cat "$TRI")" 'notify "$(title_'
+has "and no title is hand-built"        "$(cat "$TRI")" 'notify_fault "$(title_'
 has "triage enforces the cap"       "$(cat "$TRI")" 'MAX_EVENTS_PER_CAPTURE ))'
 # needs-a-human used to close its record on the spot, which made it the only message
 # that fired exactly once — no buttons, nothing waiting anywhere, no nudge — so a miss
@@ -344,7 +344,12 @@ ne_run() { # ne_run <event-json> -> body on stdout, non-zero if the function die
         source "${NE_DIR}/afterimage.lib.sh"
         SCRIPT_DIR="$NE_DIR"
         now_z="20260728T000000Z"
-        notify() { printf "%s\n" "$4"; }
+        # notify_event reaches the wire through a KIND, not through notify(): a
+        # proposal on the happy path, a fault when the callback URL cannot be built.
+        # Both put the body in $2 — priority and tags left the signature on
+        # 2026-08-20, and the kind decides the rest.
+        notify_proposal() { printf "%s\n" "$2"; }
+        notify_fault()    { printf "%s\n" "$2"; }
         capture_base_url() { printf "https://example.invalid:10000"; }
         '"$(sed -n '/^notify_event() {$/,/^}$/p' "${SCRIPT_DIR}/afterimage.triage.sh")"'
         rec="$(mktemp -d)"; trap "rm -rf \"$rec\"" EXIT
@@ -977,7 +982,7 @@ has "notify can carry an id"    "$nt" 'X-Sequence-ID:'
 # X-ID is accepted with a 200 and silently ignored — the message stores no
 # sequence_id and every retract then addresses nothing. Verified against 2.27.0.
 hasnt "and not the header that looks right"   "$nt" 'X-ID:'
-has "and sanitises it"          "$nt" 'ntfy_id_safe "$6"'
+has "and sanitises it"          "$nt" 'ntfy_id_safe "$4"'
 # The proposal is the message that goes stale. If it ships untagged, nothing above
 # can ever withdraw it and the whole pass is decorative.
 has "the proposal is tagged"    "$(cat "${SCRIPT_DIR}/afterimage.triage.sh")" '"$actions" "$eid"'
