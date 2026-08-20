@@ -28,6 +28,11 @@
 
 # Explicit exclude audit logs
 !audit/audit.sh
+# The tracked master copy of the pre-commit hook. .git/hooks/ is never tracked by
+# git, so without this the guard would exist only on the machine that installed it
+# — absent after a rebuild-and-restore, which is exactly when the corpus it guards
+# has just been put back. Section 17 of audit.sh reports the two drifting apart.
+!audit/pre-commit
 
 # Docs are per-file: docs/remote-luks-unlock.md is host-local ON PURPOSE (it is a
 # recovery runbook naming real hosts and slots) and must never gain a `**` here.

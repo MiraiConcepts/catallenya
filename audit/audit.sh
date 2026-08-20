@@ -278,6 +278,38 @@ else
 fi
 echo
 
+echo "--- 17. The pre-commit secret guard is installed ---"
+# The second lock on the secrets, and the only one that acts BEFORE a push. This
+# repo is public and force-pushes to five mirrors, so CI cannot help here: it runs
+# after the push, which is after the leak. audit/pre-commit is the tracked master;
+# .git/hooks/ is never tracked by git, so the working copy has to be installed by
+# hand and can silently go missing — most plausibly after a rebuild-and-restore,
+# when the corpus it guards has just been put back and the guard has not.
+# core.hooksPath wins over .git/hooks when set, so ask git rather than assume.
+HOOKS_DIR=$(git -C "$COMPOSE_DIR" config --get core.hooksPath || true)
+if [[ -z "$HOOKS_DIR" ]]; then
+  HOOKS_DIR="$(git -C "$COMPOSE_DIR" rev-parse --git-common-dir)/hooks"
+fi
+[[ "$HOOKS_DIR" != /* ]] && HOOKS_DIR="${COMPOSE_DIR}/${HOOKS_DIR}"
+INSTALLED_HOOK="$(realpath -m "${HOOKS_DIR}/pre-commit")"
+MASTER_HOOK="${COMPOSE_DIR}/audit/pre-commit"
+if [[ ! -f "$INSTALLED_HOOK" ]]; then
+  echo "  ✗ no pre-commit hook at ${INSTALLED_HOOK}"
+  echo "    install: install -m 755 audit/pre-commit \"${INSTALLED_HOOK}\""
+  FAIL=1
+elif [[ ! -x "$INSTALLED_HOOK" ]]; then
+  # A hook that is present but not executable is not run, and git says nothing.
+  echo "  ✗ ${INSTALLED_HOOK} is not executable — git will skip it silently"
+  FAIL=1
+elif ! cmp -s "$INSTALLED_HOOK" "$MASTER_HOOK"; then
+  echo "  ✗ installed pre-commit hook differs from audit/pre-commit"
+  echo "    reinstall: install -m 755 audit/pre-commit \"${INSTALLED_HOOK}\""
+  FAIL=1
+else
+  echo "  ✓ pre-commit secret guard installed and matches audit/pre-commit"
+fi
+echo
+
 if [[ "$FAIL" -ne 0 ]]; then
   echo "=== Audit Complete — DRIFT FOUND ==="
   echo "Audit FAILED — see $LOG_FILE" >&3
