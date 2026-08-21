@@ -233,10 +233,9 @@ retract() {
 # and a screenshot's image does not. Flattening that would make the message
 # consistent by hiding the part you most need to know.
 
-# How many items to name before summarising. Five is what afterimage's "Already
-# Passed" note already uses, so it is a shape the owner has read before; the cap
-# matters because ntfy silently converts a body over 4096 bytes into an attachment.
-PAUSED_LIST_MAX="${PAUSED_LIST_MAX:-5}"
+# PAUSED_LIST_MAX is gone (2026-08-21). It was a second name for "how many items to
+# name before summarising", set to the same 5 as BODY_LIST_MAX — and two names for one
+# number is how they end up disagreeing. The list is body_list's now, cap included.
 
 # paused_title <count> <singular-noun> [cause] -> "Model Paused: 3 Documents [Unpaid]"
 #
@@ -277,31 +276,25 @@ paused_cause() {
     fi
 }
 
-# paused_body <reason> <outcome> <item>... -> numbered list + one italic line
+# paused_body <reason> <outcome> <item>... -> items, then facts, then prose.
 #
 # `reason` comes from ai_reason() and is therefore byte-identical across topics.
-# `outcome` is the caller's own day-7 clause. Neither is escaped: both are ours.
-# The ITEMS are not — a filename arrives over Syncthing from another device and an
-# id is ours only by convention — so every one goes through md_escape.
+# `outcome` is the caller's own day-7 clause. Neither is escaped: both are ours. The
+# ITEMS are not — a filename arrives over Syncthing from another device and an id is
+# ours only by convention — but body_list escapes every line it renders, so nothing
+# here has to remember to.
 #
-# "1\." rather than "1." on purpose: an unescaped "1." at the start of a line is
-# ordered-list syntax, and the renderer would renumber the list it built for us.
+# THE WHOLE THING USED TO BE ONE ITALIC LINE: `_Out of credits. Retrying daily —
+# archived in 7 days._` Three separate facts run together, whispered, and joined by an
+# em-dash. Italics mean truncation here and nothing else; the reason and the retry
+# cadence are states of the run, which is what a fact is; and the outcome is the
+# sentence you most need to read, which makes it prose.
 paused_body() {
     local reason="${1:-}" outcome="${2:-}"; shift 2 || true
-    local -a items=("$@")
-    # Split across statements deliberately: bash expands every right-hand side in a
-    # single `local` BEFORE it assigns any of them, so `local n=... shown="$n"` reads
-    # the OUTER n and silently yields an empty shown — which here printed the summary
-    # line and none of the items.
-    local out="" i
-    local n="${#items[@]}"
-    local shown="$n"
-    (( shown > PAUSED_LIST_MAX )) && shown="$PAUSED_LIST_MAX"
-    for (( i = 0; i < shown; i++ )); do
-        out+="$((i + 1))\\. $(md_escape "${items[$i]}")"$'\n'
-    done
-    (( n > shown )) && out+="… and $(( n - shown )) more"$'\n'
-    printf '%s\n_%s. Retrying daily — %s._' "$out" "$reason" "$outcome"
+    local -a facts=()
+    [[ -n "$reason" ]] && facts+=("$reason")
+    facts+=("Retrying daily")
+    body_join "$(body_list "$@")" "$(body_fact "${facts[@]}")" "$outcome"
 }
 
 # paused_sync <sequence-id> <noun> <reason> <cause> <outcome> [item...]
