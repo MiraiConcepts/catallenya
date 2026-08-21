@@ -354,6 +354,20 @@ allof="$(body_list --all a b c d e f g)"
 has   "--all shows every item"      "$allof" "7\\. g"
 hasnt "and counts nothing off"      "$allof" "and 2 more"
 
+echo "body_fact"
+facts="$(body_fact "1.3T of 1.7T used" "400G free")"
+is    "one line per fact"           "$facts" $'\u25aa 1.3T of 1.7T used\n\u25aa 400G free'
+# Chosen over `-`, which markdown turns into a real list — the same trap the escaped
+# `1\.` exists for — and over `•`, which is what the Android app renders a real list
+# marker AS, so a fact would be indistinguishable from a mangled item.
+hasnt "not a markdown list marker"  "$facts" $'\n- '
+hasnt "and not a bullet"            "$facts" $'\n\u2022 '
+# No full stop on any line but prose (settled 2026-08-21): a stop after a path reads
+# as part of the filename, and one rule beats remembering which line you are on.
+is    "no trailing full stop"       "$(body_fact "400G free")" $'\u25aa 400G free'
+is    "empty args yield nothing"    "$(body_fact "")" ""
+has   "text is escaped"             "$(body_fact "a_b_c")" 'a\_b\_c'
+
 echo "body_aside"
 is    "wrapped in italics"          "$(body_aside "3 more still queued")" "_3 more still queued_"
 is    "empty text yields nothing"   "$(body_aside "")" ""

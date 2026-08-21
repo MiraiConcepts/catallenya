@@ -140,7 +140,7 @@ written today.
 1. IMG_1234.jpg                    ITEM      a thing — file, document, track, job
     Rotated: 90°                   DETAIL    what happened to it, indented
 
-▪ Free: 400G.                      FACT      a metric or a state about the run
+▪ 400G free                        FACT      a metric or a state about the run
 
 Only *.png is triaged.             PROSE     one explanation, in sentences
 
@@ -163,18 +163,36 @@ prevent.
 |---|---|---|
 | 1 | Items are numbered `1\.`, capped at five | `1. scan_20260820.pdf` |
 | 2 | A detail is `Label: value`, **labelled only when the value alone is ambiguous** | `Rotated: 90°` but a bare `09_receipts-…/Acme.pdf` |
-| 3 | Details take **no full stop** — a stop after a path reads as part of the filename | `Reason: PDF is locked or unreadable` |
-| 4 | Facts are `▪ Label: value.` **with** a full stop | `▪ Free: 400G.` |
-| 5 | Metrics get their own line, never a comma-joined run | `▪ Timers: 15/15.` |
-| 6 | Prose is capitalised sentences, as many as it needs | `Could not reach the API for 7d. Take it again once things are healthy.` |
-| 7 | A body **may instruct** where there is a next step | `Take it again once things are healthy.` |
-| 8 | **No rhetorical questions** — state it as a possibility | `The disk may be full.` not `Disk full?` |
-| 9 | **No em-dashes**, anywhere in a body | the indent and the full stop do that work |
-| 10 | Units are **compact** | `402d` · `2d 4h` · `70m` · `1.3T of 1.7T` |
-| 11 | Paths are **full** | `09_receipts-and-purchases/2026-08-20 Acme Receipt.pdf` |
-| 12 | **Only a truncation count is italic** | `_… and 3 more._` |
-| 13 | Prose uses natural language, **pronoun where the title already named it** | `Could not move it out of incoming/.` |
-| 14 | No ceiling on length | the list cap bounds the common case |
+| 3 | **No full stop on any line but prose** — a stop after a path reads as part of the filename, and one rule beats remembering which line you are on | `Reason: PDF is locked or unreadable` |
+| 4 | A fact is **self-describing and carries no stub label** | `▪ 400G free`, never `▪ Free: 400G` |
+| 5 | A fact is a **complete statement**; where prose reads badly use a full descriptive phrase, never a stub | `▪ Estimated time left: 70m`, never `▪ about 70m` |
+| 6 | Facts are **capitalised** | `▪ Out of credits` · `▪ Retrying daily` |
+| 7 | Metrics get their own line, never a comma-joined run | `▪ 15/15 timers active` |
+| 8 | Prose is capitalised sentences **with** full stops, as many as it needs | `Could not reach the API for 7d. Take it again once things are healthy.` |
+| 9 | A body **may instruct** where there is a next step | `Take it again once things are healthy.` |
+| 10 | **No rhetorical questions** — state it as a possibility | `The disk may be full.` not `Disk full?` |
+| 11 | **No em-dashes**, anywhere in a body | the indent does that work |
+| 12 | Units are **compact** | `402d` · `2d 4h` · `70m` · `1.3T of 1.7T` |
+| 13 | Paths are **full** | `09_receipts-and-purchases/2026-08-20 Acme Receipt.pdf` |
+| 14 | **Only a truncation count is italic** | `_… and 3 more._` |
+| 15 | Prose uses natural language, **pronoun where the title already named it** | `Could not move it out of incoming/.` |
+| 16 | No ceiling on length | the list cap bounds the common case |
+
+#### Why facts carry no label and details do
+
+It looks arbitrary and is not. **A detail hangs off the item above it**, so a label says
+*which aspect of that item* you are being told — `Rotated: 90°` under a filename. **A fact
+stands alone**, so it has no context to lean on and must describe itself.
+
+The failure this invites is dropping context to keep the line short. `▪ about 70m` obeys
+the letter of "no label" and means nothing. Where plain prose reads badly, the answer is a
+**full descriptive phrase**, never a stub:
+
+| stub label | terse prose | correct |
+|---|---|---|
+| `▪ Estimated: 70m` | `▪ about 70m` | `▪ Estimated time left: 70m` |
+| `▪ Not found: 1` | `▪ 1 not found` | `▪ 1 track not found` |
+| `▪ Free: 400G` | — | `▪ 400G free` |
 
 #### Truncation keeps three meanings
 
@@ -188,25 +206,27 @@ _3 more events not sent._    data was dropped and is gone
 
 #### The `▪` marker
 
-U+25AA BLACK SMALL SQUARE. **It has an emoji presentation and some Android builds may
-render it as a coloured square** — accepted deliberately, and the first thing to check
-on the device. The safe fallbacks, if it renders wrong, are `■` U+25A0 or `•` U+2022,
-neither of which is emoji-capable.
+U+25AA BLACK SMALL SQUARE. Chosen over `-`, which markdown turns into a real list — the
+same trap the escaped `1\.` exists for — and over `•`, which is already what the Android
+app renders a real list marker AS, so a fact would be indistinguishable from a mangled
+item. **It has an emoji presentation and some Android builds may render it as a coloured
+square** — accepted deliberately, and the first thing to check on the device. The safe
+fallbacks are `■` U+25A0 or `•` U+2022, neither of which is emoji-capable.
 
-#### Two things kept that look inconsistent
+#### One thing kept that looks inconsistent
 
 **afterimage keeps record ids** — `(id 3f2a9c1b)` — because a screenshot has no name
 until the model reads one out of it, and every body carrying an id is a case where that
 never happened. pigeonhole has filenames and so never needs one.
 
-**The afterimage proposal uses unlabelled facts**, because a date, a time and a venue
-announce what they are:
+The proposal body is what the no-label rule was written for: a date, a time and a venue
+each announce what they are, so a label would only repeat them.
 
 ```
 Kene [2/4]
-▪ Thursday, 27 August 2026.
-▪ 19:30 - 21:00.
-▪ Candlenut.
+▪ Thursday, 27 August 2026
+▪ 19:30 - 21:00
+▪ Candlenut
 ```
 
 ---
