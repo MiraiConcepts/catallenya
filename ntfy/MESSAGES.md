@@ -354,41 +354,62 @@ All carry `RandomizedDelaySec=3600`, hence the one-hour windows.
 
 ---
 
-## 8. Self-alerting jobs
+## 8. Reporters and workers
 
-Four jobs send their own notification rather than leaving it to the courier, because
-they have something better to say than "a unit failed". Three of them follow one rule:
+Six jobs send their own notification rather than leaving it to the courier. They split
+into two kinds, and the split decides whether the courier ALSO fires.
 
-> **A job that sends its own message exits non-zero ONLY when that message could not be
-> delivered.**
-
-That is what keeps the two layers from overlapping. `host/disk.sh`, `systemd/heartbeat.sh`
-and `changedetection/changedetection.health.sh` all test the transport's *silence* —
-`curl -fsS` prints nothing on success — and exit non-zero only if it said something. So:
-
-| | alert delivered | alert NOT delivered |
+| | **Reporter** | **Worker** |
 |---|---|---|
-| the job exits | `0` | `1` |
-| courier fires | no | **yes** |
-| you receive | the job's own message | `Disk: Failed` — the only way you learn |
+| The bad news is about | the **world** — a full pool, a broken watch, a stale job | the **job itself** — the bake crashed, files would not move, the boot did not finish |
+| Did the job do its work? | yes; it looked, and found something | no |
+| Exit code | `0` | non-zero |
+| Courier fires | only if the alert did not land | **always** |
+| Jobs | `disk` · `changedetection` · `heartbeat` | `catallenya` · `immich` · `afterimage` · `pigeonhole` |
 
-**`catallenya.service` is the one exception**, and it is declared rather than merely
-done. Its exit code reports the *boot*, not the notification: a bad boot must leave a
-failed unit or the failure stops being visible at all. So it notified *and* tripped the
-inherited `OnFailure=`, putting two messages about one event on the `host` topic seconds
-apart. It now cancels `OnFailure=` in `catallenya.service.d/30-boot.conf`.
+**A reporter exits non-zero only when its own message could not be delivered.** All three
+test the transport's *silence* — `curl -fsS` prints nothing on success — and fail only if
+it said something. So the two layers never overlap: alert delivered, courier quiet; alert
+lost, courier fires and is the only way you learn.
 
-**That is not the `Condition*=` case.** A bad boot still leaves five signals minus one
-duplicate: a non-zero exit, the journal, `systemctl --failed`, the unit's own
-`Boot: N Containers Down`, and the watchdog's `ActiveState` check — `heartbeat.sh`
-raises `FAILED` for exactly this unit via `Freshness=boot`. The courier would not have
-been a working fallback anyway: it publishes through the same ntfy that just refused the
-unit's own message, seconds later, and the script already retries three times.
+**A worker must exit non-zero, and that is not negotiable.** `ExecStartPost=` writes the
+completion stamp only when `ExecStart` succeeded, so a failed run that exited 0 would
+stamp healthy and the watchdog would report it fresh. The exit code is what keeps a
+failed bake, a stuck spool or a bad boot from looking fine.
 
-**`systemd/install.sh` refuses an empty `OnFailure=` on any unit that has not declared
-`SelfAlerting=acknowledged`** in its `[X-Catallenya]` sticker — the same escape-hatch
-shape as `UnboundedRoot=acknowledged`. Switching off failure alerting is exactly the
-silent-failure class this repo is built to prevent, so it may be done, but never quietly.
+### So a worker sends two messages, and that is accepted
+
+A failed bake produces `Rotation Bake: Failed` from the script and again from the
+courier. A bad boot produces `Boot: 2 Containers Down` and `Catallenya: Failed`. Both
+land seconds apart on the same topic.
+
+**Kept deliberately (2026-08-21), after being changed and changed back.** `catallenya`
+briefly cancelled its inherited `OnFailure=` to send one message instead of two. The
+reasons for reverting:
+
+- **The courier's copy is the only evidence the `OnFailure=` path still works for that
+  unit.** Same argument that keeps restic's success pings: mute a job, and if its own
+  notify quietly breaks, nothing reports that the path is dead.
+- **It closes the one real blind spot.** A script that dies BEFORE reaching its notify —
+  a missing `.env`, an OOM, a timeout kill — has sent nothing. With the courier muted,
+  that is silent until the watchdog notices, up to 36h later for a daily job. With it
+  firing, it is covered in seconds.
+- **The events are rare.** A handful a year, on things you unambiguously want to know
+  about. Not the class of problem that `host/disk.sh` had, where an hourly job stacked
+  45 notifications over one weekend.
+
+The two messages are not identical in value: the job's says *what* went wrong
+(`Stuck: 2 Documents`), the courier's says *the unit failed* and carries the job's own
+journal output. The first is better wording; the second is the proof the path is alive.
+
+### The escape hatch exists and is unused
+
+`systemd/install.sh` refuses an empty `OnFailure=` on any unit that has not declared
+`SelfAlerting=acknowledged` in its `[X-Catallenya]` sticker — the same shape as
+`UnboundedRoot=acknowledged`. **No unit declares it**, and the gate keeps it that way,
+exactly as it does for `RuntimeMaxSec=` and `ExecStart=-`. Switching off a job's failure
+alerting is the silent-failure class this repo is built to prevent, so it may be done,
+but never quietly.
 
 ---
 
