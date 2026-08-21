@@ -126,41 +126,88 @@ title_quote "Kene" "$(title_age 31)"                # Kene [1d]
 name — a hand-typed track filename, a model-written event title — is handled at the same
 boundary as every other title. Two copies of a CR/LF strip is how the two drift.
 
-### Bodies
+### Bodies — the language
 
-```bash
-body_list [--all] <item>...   the numbered list every body is built from
-body_aside <text>             the italic afterthought
+Titles could have a closed vocabulary. Prose cannot, so what a body gets instead is a
+**style system**: decisions that constrain how any future sentence is written. Settled
+2026-08-21, and the point of settling it in one pass is that this text is generated
+once and then frozen — a body written next year should be indistinguishable from one
+written today.
+
+#### Four shapes, and nothing else
+
+```
+1. IMG_1234.jpg                    ITEM      a thing — file, document, track, job
+    Rotated: 90°                   DETAIL    what happened to it, indented
+
+▪ Free: 400G.                      FACT      a metric or a state about the run
+
+Only *.png is triaged.             PROSE     one explanation, in sentences
+
+_… and 3 more._                    ASIDE     a truncation count, and nothing else
 ```
 
-An item may carry a **detail after a TAB**, rendered indented beneath its name:
+**Order: items, blank, facts, blank, prose.** The aside sits with whatever it truncates.
 
-```bash
-body_list "IMG_1234.jpg"$'\t'"rotated 90°"
+#### When to use which
 
-    1\. IMG_1234.jpg
-        rotated 90°
+**Terse lines for a list of things** — files, actions, metrics. **A sentence when there
+is one thing to explain.** Never drop context to shorten a line, and never chop a single
+explanation into bullets: `Could not move it out of incoming/. The disk may be full.`
+reads better than three fragments, and three fragments is what the rule exists to
+prevent.
+
+#### The rules
+
+| | Rule | Example |
+|---|---|---|
+| 1 | Items are numbered `1\.`, capped at five | `1. scan_20260820.pdf` |
+| 2 | A detail is `Label: value`, **labelled only when the value alone is ambiguous** | `Rotated: 90°` but a bare `09_receipts-…/Acme.pdf` |
+| 3 | Details take **no full stop** — a stop after a path reads as part of the filename | `Reason: PDF is locked or unreadable` |
+| 4 | Facts are `▪ Label: value.` **with** a full stop | `▪ Free: 400G.` |
+| 5 | Metrics get their own line, never a comma-joined run | `▪ Timers: 15/15.` |
+| 6 | Prose is capitalised sentences, as many as it needs | `Could not reach the API for 7d. Take it again once things are healthy.` |
+| 7 | A body **may instruct** where there is a next step | `Take it again once things are healthy.` |
+| 8 | **No rhetorical questions** — state it as a possibility | `The disk may be full.` not `Disk full?` |
+| 9 | **No em-dashes**, anywhere in a body | the indent and the full stop do that work |
+| 10 | Units are **compact** | `402d` · `2d 4h` · `70m` · `1.3T of 1.7T` |
+| 11 | Paths are **full** | `09_receipts-and-purchases/2026-08-20 Acme Receipt.pdf` |
+| 12 | **Only a truncation count is italic** | `_… and 3 more._` |
+| 13 | Prose uses natural language, **pronoun where the title already named it** | `Could not move it out of incoming/.` |
+| 14 | No ceiling on length | the list cap bounds the common case |
+
+#### Truncation keeps three meanings
+
+They are different facts and read differently:
+
+```
+_… and 3 more._              the list was cut at five
+_3 more still queued._       work is waiting for the next run
+_3 more events not sent._    data was dropped and is gone
 ```
 
-Three device facts are baked in, all learned on the actual phone and all previously
-copy-pasted between pipelines:
+#### The `▪` marker
 
-| | Why |
-|---|---|
-| `1\.` is **escaped** | the Android app renders genuine markdown ordered-list markers as unnumbered **dots**, so the numbers vanish — and the numbers are what let you check a list against the count in the title |
-| the indent is **NBSP+space pairs** | the ntfy **web** renderer collapses ordinary leading whitespace, so a plain-space indent looks right on Android and disappears in the browser |
-| the name line ends in **two spaces** | a markdown hard break; without it the detail joins the name into one paragraph |
+U+25AA BLACK SMALL SQUARE. **It has an emoji presentation and some Android builds may
+render it as a coloured square** — accepted deliberately, and the first thing to check
+on the device. The safe fallbacks, if it renders wrong, are `■` U+25A0 or `•` U+2022,
+neither of which is emoji-capable.
 
-**`body_list` escapes every item, and that is what retires `NTFY_MARKDOWN`.** The flag
-existed because bodies were hand-assembled strings carrying raw filenames — a camera
-name is mostly underscores, which a renderer eats, and an unescaped filename off
-Syncthing is somewhere a live `[tap here](https://evil)` could hide.
+#### Two things kept that look inconsistent
 
-**The cap is five**, except `--all` for pigeonhole's staged batch, whose Accept files
-every member: showing 5 of 12 above a button that acts on 12 means approving seven
-documents you never saw. The cap also guards a limit nothing in the body can see —
-ntfy silently converts a body over **4096 bytes** into an attachment, whose content
-expires in three hours.
+**afterimage keeps record ids** — `(id 3f2a9c1b)` — because a screenshot has no name
+until the model reads one out of it, and every body carrying an id is a case where that
+never happened. pigeonhole has filenames and so never needs one.
+
+**The afterimage proposal uses unlabelled facts**, because a date, a time and a venue
+announce what they are:
+
+```
+Kene [2/4]
+▪ Thursday, 27 August 2026.
+▪ 19:30 - 21:00.
+▪ Candlenut.
+```
 
 ---
 

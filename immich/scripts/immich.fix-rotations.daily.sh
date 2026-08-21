@@ -67,7 +67,7 @@ BAKED_ITEMS=()
 while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     BAKED_ITEMS+=("$line")
-done < <(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1\trotated \2°/p' <<<"${OUT}")
+done < <(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1\tRotated: \2°/p' <<<"${OUT}")
 
 # Every line that made CONCERNS non-empty must reach a notification. Three shapes come
 # out of immich.fix-rotations.sh:
@@ -82,9 +82,9 @@ done < <(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1\trotated \2°/p' <
 FLAG_ITEMS=()
 while IFS= read -r line; do
     [[ -n "${line}" ]] || continue
-    pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2\t\3/p' <<<"${line}")"
+    pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2\tReason: \3/p' <<<"${line}")"
     if [[ -z "${pretty}" ]]; then
-        pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\) \{2,\}\([^ ].*\)$/\2\t\3/p' <<<"${line}")"
+        pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\) \{2,\}\([^ ].*\)$/\2\tReason: \3/p' <<<"${line}")"
     fi
     FLAG_ITEMS+=("${pretty:-${line}}")
 done <<<"${CONCERNS}"
@@ -98,7 +98,7 @@ done <<<"${CONCERNS}"
 if [[ ${RC} -ne 0 ]]; then
     fail_body=""
     (( ${#FLAG_ITEMS[@]} )) && fail_body="$(body_list "${FLAG_ITEMS[@]}")"$'\n'
-    fail_body+="$(body_aside "Baked ${BAKED:-0} before the run stopped. Output is in the alert beside this one.")"
+    fail_body+="Baked ${BAKED:-0} before the run stopped. Output is in the alert beside this one."
     notify_fault "$(title_state "Rotation Bake" Failed)" "$fail_body" "$BAKE_NTFY_ID"
 else
     # A receipt for the rotations that landed. Silent when there were none — a bake
