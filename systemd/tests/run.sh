@@ -608,6 +608,38 @@ contract_fixture 'acts="view, Accept, ${BASE}/a, clear=true"
 notify_proposal "$(title_count Staged 3 Document)" "$b" "$acts" "$id"'
 contract_says "clear=true is refused" "clear=true"
 
+# --- the message contract: the body ------------------------------------------
+# A literal "1\." is what FOUR files each discovered separately on the phone (Android
+# renders real ordered-list markers as unnumbered dots, so the numbers vanish), and
+# each then grew its own five-item cap, its own "… and N more" tail and its own NBSP
+# indent — two of which were already different widths by the time they were collected.
+contract_fixture 'body+="${n}\\. ${l}"
+notify_receipt "$(title_count Downloaded 2 Track)" "$body"'
+contract_says "a hand-built numbered list is refused" "numbered list by hand"
+
+contract_fixture 'body="1\\. $(md_escape "$orig")"
+notify_receipt "$(title_count Binned 1 Document)" "$body"'
+contract_says "…including a single hardcoded item" "numbered list by hand"
+
+contract_fixture 'notify_receipt "$(title_count Downloaded 2 Track)" "$(body_list "${items[@]}")"'
+contract_clean "the renderer passes"
+
+# Italics mean a truncation count and nothing else — narrowed 2026-08-21, because
+# italics that mean several things mean nothing. They had been carrying ETAs, parked
+# reasons and the one sentence a binned note existed to say.
+contract_fixture 'body+="_In bin/ after 7 days with no decision._"
+notify_resolved "$(title_count Binned 1 Document)" "$body" "$id" "$acts"'
+contract_says "a hand-built italic line is refused" "italic line by hand"
+
+# The shape paused_body shipped in for a year: italics inside a printf FORMAT string,
+# which a pattern anchored on a leading `"_` walks straight past.
+contract_fixture 'printf "%s\n_%s. Retrying daily — %s._" "$out" "$reason" "$outcome"
+notify_fault "$(title_count "Model Paused" 2 Document)" "$body"'
+contract_says "…including one inside a printf format" "italic line by hand"
+
+contract_fixture 'notify_receipt "$(title_count Passed 3 Event)" "$(body_join "$(body_list "${t[@]}")" "$(body_aside "3 more not sent")")"'
+contract_clean "body_aside passes"
+
 # A nudge is the same decision asked twice. A title identical to the first asking
 # cannot be told from it — you do not know whether you already saw this one.
 contract_fixture 'notify_nudge "$(title_count Staged 3 Document)" "$b" "$id"'

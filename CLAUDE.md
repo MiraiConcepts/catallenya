@@ -238,6 +238,26 @@ the bracketed qualifiers. Vocabulary is declared **per feature** (`NTFY_VERBS`,
 `NTFY_NOUNS`, `NTFY_SUBJECTS`) — the same shape as `[X-Catallenya] Class=`, because a
 central verb table would be the `SUBSCRIBED` list again.
 
+**The bodies, phase 3 (2026-08-21).** Every notification in the repo is now built by
+four renderers in `ntfy/kinds.sh` — `body_list`, `body_fact`, `body_aside`, `body_join`
+— and **`NTFY_MARKDOWN` is gone**. It had been a per-consumer opt-out with five users,
+all for the same reason: bodies machine-built from text this box does not author, where
+a camera filename comes out with its middle italicised and a name arriving over
+Syncthing could hide a live link. The renderers escape every line, so rendering is safe
+everywhere rather than switched off in the five places it was dangerous — and with
+nothing setting it, the flag was a slot waiting for someone to put `no` in it, exactly
+what priority was. **`body_join` escapes nothing and must not** (its arguments are
+already rendered), which makes the PROSE argument the caller's to escape.
+
+Four shapes and nothing else — **item**, **detail** (indented under its item), **fact**
+(`▪`), **prose** — in the order items → facts → prose. **A fact carries no stub label
+and must read as a complete statement**: `▪ 400G free`, never `▪ Free: 400G`, and
+`▪ Estimated time left: 70m`, never the `▪ about 70m` that a no-labels rule read
+literally produces. A detail may be labelled, because it hangs off the item above it;
+a fact stands alone and has to describe itself. **No full stop on any line but prose.**
+**Italics mean a truncation count and nothing else** — three forms, all from
+`body_aside`. Full contract in `ntfy/MESSAGES.md` § 3.
+
 **The envelope, phase 2.** There are **no tags and no priority** anywhere — both left
 `notify()`'s signature on 2026-08-20. Priority had exactly one legal value, so it was a
 slot waiting for someone to put `high` in it; tags were twelve glyphs of which four meant
@@ -259,13 +279,17 @@ regression. Repeating faults instead carry a **stable sequence id** so they repl
 rather than stack — `host/disk.sh` runs hourly, and a pool over threshold across a
 weekend used to produce forty-five notifications.
 
-`systemd/contract.sh` enforces six rules at `--check`. Three are about the title: it
+`systemd/contract.sh` enforces eight rules at `--check`. Three are about the title: it
 comes from a constructor (following a variable to its assignment); its verb is declared;
 and every declared verb ends in `ed` or is in `NTFY_IRREGULAR_VERBS` (today: `Stuck`) —
 which is what stops a new service breaking the past-participle rule silently, refusing
 `Processing` **and** `Stray`/`Unclear`, both proposed during design. Three are about the
 envelope: no bare `notify` outside `ntfy/`, no `clear=true` in an Actions string, and a
-`notify_nudge` title must read as a nudge (`Still ` or an age bracket).
+`notify_nudge` title must read as a nudge (`Still ` or an age bracket). **Two are about
+the body**, added 2026-08-21 with the renderers: no hand-built numbered list, and no
+hand-built italic line. The second looks for an underscore run closing before a quote
+rather than a leading `"_`, because that is the shape `paused_body` shipped in for a
+year — italics inside a `printf` *format* string.
 
 **The loan from `systemd/policy/` is weaker than it looks, and this is the thing to
 know before trusting it.** systemd has a real merge engine, so its layering holds even

@@ -561,7 +561,7 @@ but never quietly.
 
 ## 9. Enforcement
 
-`systemd/contract.sh`, three rules, run by `bash systemd/install.sh --check` (no root
+`systemd/contract.sh`, eight rules, run by `bash systemd/install.sh --check` (no root
 needed) and by `systemd/tests/run.sh`:
 
 1. Every title argument is a `title_count`, `title_state` or `title_quote` substitution —
@@ -574,6 +574,17 @@ needed) and by `systemd/tests/run.sh`:
    behind the button has happened, so a refused move would look like a completed one.
 6. **A `notify_nudge` title reads as a nudge** — a `Still ` verb or a `title_age`
    bracket. A nudge indistinguishable from the first asking tells you nothing.
+7. **No hand-built numbered list.** A literal `1\.` is what four files each discovered
+   separately on the phone, after which each grew its own cap, its own truncation tail
+   and its own indent — two of which were already different widths by the time they
+   were collected.
+8. **No hand-built italic line.** Italics mark a truncation count and nothing else, and
+   `body_aside` is the only thing that emits them. The check looks for an underscore run
+   closing before a quote, so it catches the shape `paused_body` shipped in for a year:
+   italics inside a `printf` *format* string, which anything anchored on a leading `"_`
+   walks straight past.
+
+Rules 1–3 are about the title, 4–6 about the envelope, 7–8 about the body.
 
 Gate rule 3 is what stops a new service breaking rule 3-of-§5 silently. It refuses
 `Processing`, `Uploading`, `Waiting` — **and** `Stray`, `Unclear`, `Timeout`, which a
