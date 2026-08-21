@@ -289,8 +289,15 @@ validate_service() {
     # later reader cannot tell a deliberate exemption from a mistake.
     #
     # Same shape as UnboundedRoot=acknowledged: the escape hatch is real and must be
-    # WRITTEN DOWN. Note this fires for repo unit files and tracked drop-ins — the one
-    # live cancellation is written into /etc by this script, and carries the sticker.
+    # WRITTEN DOWN.
+    #
+    # NOTHING USES IT TODAY, and the gate keeps it that way — the same reason the
+    # RuntimeMaxSec= and `ExecStart=-` rules above exist for directives no unit sets.
+    # catallenya briefly cancelled its OnFailure= to stop a bad boot sending two
+    # messages; that was reverted deliberately (see ntfy/MESSAGES.md § 8) because the
+    # second message is the only evidence the OnFailure= path still works for that
+    # unit, and because a script that dies BEFORE it can notify is then covered in
+    # seconds rather than by the watchdog hours later.
     if grep -qE '^[[:space:]]*OnFailure[[:space:]]*=[[:space:]]*$' "$file" && \
        [[ "$(sticker "$file" SelfAlerting)" != "acknowledged" ]]; then
         err "${unit}: cancels its inherited OnFailure= with an empty assignment, which switches off failure alerting for this job. That is allowed only for a job that sends its own notification — declare 'SelfAlerting=acknowledged' in [X-Catallenya] with a comment saying what does alert, and what still catches the failure if that message never arrives."
@@ -618,7 +625,6 @@ WantedBy=multi-user.target
 Class=adhoc
 Freshness=boot
 UnboundedRoot=acknowledged
-SelfAlerting=acknowledged
 EOF
 
 echo "Creating unit symlinks..."
@@ -694,38 +700,6 @@ cat > "${SYSTEMD_DIR}/catallenya.service.d/30-boot.conf" <<'BOOTEOF'
 #
 # This is the only unit with the exemption. Every other job keeps NNP.
 #
-# --- and the second exemption, which is about notifications ------------------
-#
-# ONFAILURE= IS CANCELLED HERE, and the empty assignment is what does it: systemd
-# APPENDS to a dependency list, so a value in the unit file would be added to
-# 10-base.conf's rather than replacing it. Same trap as the sanoid ExecStart=
-# overrides. Higher-numbered, so this runs after the base policy that set it.
-#
-# WHY. Three of the four jobs that send their own notification exit non-zero ONLY
-# when that notification could not be delivered — so the courier is a fallback for
-# an undelivered alert and never a second copy. This job cannot follow that rule:
-# its exit code reports the BOOT, not the notification, and a bad boot must leave a
-# failed unit or the failure stops being visible anywhere. So it notified AND
-# tripped the inherited OnFailure=, and one bad boot put two messages on the `host`
-# topic seconds apart, saying the same thing.
-#
-# WHAT STILL CATCHES A BAD BOOT, with this off: the non-zero exit, the journal,
-# `systemctl --failed`, this unit's own `Boot: N Containers Down` message, and the
-# watchdog's ActiveState check — heartbeat.sh raises FAILED for exactly this unit
-# via Freshness=boot. Five signals become four, and the one removed was a duplicate
-# of another. It is NOT the Condition*= case, which leaves nothing anywhere.
-#
-# The courier would not have been a working fallback anyway: it publishes through
-# the same ntfy that just refused this unit's own message, seconds later, and the
-# script already retries three times over ten seconds.
-#
-# systemd/install.sh REFUSES this cancellation on any unit that has not declared
-# `SelfAlerting=acknowledged` in its [X-Catallenya] sticker — see the gate. Turning
-# off failure alerting is exactly the silent-failure class this repo is built to
-# prevent, so it may be done, but never quietly.
-[Unit]
-OnFailure=
-
 [Service]
 NoNewPrivileges=false
 BOOTEOF
