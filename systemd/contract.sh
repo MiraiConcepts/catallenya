@@ -117,6 +117,26 @@ intake_contract() {
                 err "${label}: ${base} sets clear=true on a notification action — it dismisses on the tap, before the work is done, so a refusal looks like a success. Withdraw after the work succeeds instead."
             fi
 
+            # 4c. THE LIST MARKER BELONGS TO body_list. A literal "1\." is what four
+            # files each discovered separately on the phone — Android renders REAL
+            # ordered-list markers as unnumbered dots, so the numbers vanish — and
+            # each then carried its own five-item cap, its own "… and N more" tail
+            # and its own NBSP indent. Two of those indents were already different
+            # widths by the time they were collected. A body built by hand is a
+            # sixth grammar waiting to happen.
+            if grep -qE '"[0-9]+\\\\\. |\$\(\( ?i \+ 1 ?\)\)\\\\\.|\{n\}\\\\\.' <<<"$code"; then
+                err "${label}: ${base} builds a numbered list by hand — use body_list from ntfy/kinds.sh, which carries the escaped marker, the hard break, the NBSP indent and the cap. See ntfy/MESSAGES.md § 3."
+            fi
+
+            # 4d. ITALICS MEAN TRUNCATION, and nothing else. The scope was narrowed on
+            # 2026-08-21 because italics that mean several things mean nothing: they
+            # had been carrying ETAs, parked reasons and — worst — the sentence a
+            # binned note existed to say. body_aside is the only thing that emits
+            # them, so a literal pair in a body is the tell.
+            if grep -qE '_[^"]{0,120}_"' <<<"$code"; then
+                err "${label}: ${base} builds an italic line by hand — italics mark a truncation count and nothing else, and body_aside is what emits them. See ntfy/MESSAGES.md § 3."
+            fi
+
             while IFS= read -r call; do
                 [[ -n "$call" ]] || continue
                 # Inline constructor — the common shape.
