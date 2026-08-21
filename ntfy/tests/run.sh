@@ -368,6 +368,17 @@ is    "no trailing full stop"       "$(body_fact "400G free")" $'\u25aa 400G fre
 is    "empty args yield nothing"    "$(body_fact "")" ""
 has   "text is escaped"             "$(body_fact "a_b_c")" 'a\_b\_c'
 
+echo "body_join"
+# The order rule is items, blank, facts, blank, prose. `$( )` strips trailing
+# newlines, so a section boundary needs TWO literal newlines and looks like a typo
+# with one — which is exactly why callers do not write it themselves any more.
+joined="$(body_join "1\\. a" "$(body_fact "400G free")" "It may be full.")"
+is    "sections separated by a blank" "$joined" $'1\\. a\n\n▪ 400G free\n\nIt may be full.'
+is    "an empty section is dropped"   "$(body_join "" "$(body_fact "400G free")" "")" $'\u25aa 400G free'
+is    "nothing at all yields nothing" "$(body_join "" "" "")" ""
+has   "one section is left alone"     "$(body_join "just this")" "just this"
+hasnt "and gains no blank line"       "$(body_join "just this")" $'\n'
+
 echo "body_aside"
 is    "wrapped in italics"          "$(body_aside "3 more still queued")" "_3 more still queued_"
 is    "empty text yields nothing"   "$(body_aside "")" ""

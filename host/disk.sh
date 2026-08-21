@@ -13,13 +13,13 @@ set -euo pipefail
 # directory, and User=carrein under the monitor class's ProtectSystem=strict, which
 # leaves the whole tree readable and only this job's stamp writable.
 #
-# NTFY_MARKDOWN=no, the immich opt-out: the body below is machine-built from `df` and
-# `zpool list` output, written for a lock screen rather than for a renderer. Nothing
-# in it is authored as Markdown, so rendering it could only ever surprise.
-# shellcheck disable=SC2034  # both are read by ntfy.lib.sh, sourced below
+# NTFY_MARKDOWN is GONE (2026-08-21). It was set to `no` here because the body was
+# machine-built from `df` and `zpool list` and nothing in it was authored as Markdown,
+# so rendering it could only surprise. body_fact() escapes every line it renders, which
+# is what made the opt-out unnecessary — escaping in one place is what makes rendering
+# safe everywhere.
+# shellcheck disable=SC2034  # read by ntfy.lib.sh, sourced below
 NTFY_TOPIC="disk"
-# shellcheck disable=SC2034
-NTFY_MARKDOWN=no
 
 # A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
 # replaced rather than a pile. This job runs HOURLY and alerts on every run while over threshold, so a pool sitting
@@ -29,6 +29,10 @@ NTFY_MARKDOWN=no
 # notification without buttons is never withdrawn by the system: an absent message is
 # ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
 # ntfy/MESSAGES.md.
+#
+# ONE ID PER FILESYSTEM, because they are different subjects with different remedies:
+# root filling up and the pool filling up have nothing to do with each other, and a
+# shared id would mean whichever crossed second silently replaced the first.
 DISK_NTFY_ID="disk-full"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
@@ -45,40 +49,47 @@ ROOT_USAGE=${ROOT_PCENT%\%}
 read -r ZPOOL_USAGE ZPOOL_SIZE ZPOOL_ALLOC ZPOOL_FREE < <(zpool list -H -o capacity,size,alloc,free zpool)
 ZPOOL_USAGE=${ZPOOL_USAGE%\%}
 
-ALERT_MESSAGE=""
-# Which filesystems crossed, and how full. The TITLE is built from these rather than
-# from a literal: `Disk Space Alert` never said which one or how full, and both facts
-# were already sitting in the body you had to open to read them.
+# ONE NOTIFICATION PER FILESYSTEM OVER THRESHOLD, not one summary for both.
 #
-# The subject may not repeat the topic — this publishes to `disk` — so one filesystem
-# over names ITSELF (`zpool`, `root`), and both over fall back to a count, because two
-# subjects do not fit one subject slot. `zpool` and `root` are identifiers and keep
-# their real case: the pool is literally called `zpool`, and `Zpool` names nothing.
-OVER_NAME=(); OVER_PCT=()
+# The old shape had a `Filesystems: 2 Full` fallback title above a body of two
+# comma-joined runs, and it fails the body language two ways: a count title stands in
+# for two different subjects, and metrics get their own line rather than a run. Both
+# are the liquidroom decision restated — a run where two things happened cannot
+# honestly wear one subject. Split, each keeps its real title (`zpool: 78% Full`), its
+# own facts, and its own stable id, so neither replaces the other and neither stacks.
+#
+# Facts carry no stub label and must read as complete statements: `▪ 400G free`, never
+# `▪ Free: 400G` and never `▪ about 400G`. See ntfy/MESSAGES.md § 3.
+ALERTS=()   # "name<TAB>pct<TAB>body"
 
 if [ "$ROOT_USAGE" -ge "$ROOT_THRESHOLD" ]; then
     ROOT_DIFF=$((ROOT_USAGE - ROOT_THRESHOLD))
-    OVER_NAME+=("root"); OVER_PCT+=("$ROOT_USAGE")
-    ALERT_MESSAGE="Root partition at ${ROOT_USAGE}% — ${ROOT_USED} used of ${ROOT_SIZE} (${ROOT_AVAIL} free), ${ROOT_DIFF}% over ${ROOT_THRESHOLD}% threshold"
+    ALERTS+=("root"$'\t'"$ROOT_USAGE"$'\t'"$(body_fact \
+        "${ROOT_USED} of ${ROOT_SIZE} used" \
+        "${ROOT_AVAIL} free" \
+        "${ROOT_DIFF}% over the ${ROOT_THRESHOLD}% threshold")")
 fi
 
 if [ "$ZPOOL_USAGE" -ge "$ZPOOL_THRESHOLD" ]; then
     ZPOOL_DIFF=$((ZPOOL_USAGE - ZPOOL_THRESHOLD))
-    OVER_NAME+=("zpool"); OVER_PCT+=("$ZPOOL_USAGE")
-    new_line="Zpool at ${ZPOOL_USAGE}% — ${ZPOOL_ALLOC} used of ${ZPOOL_SIZE} (${ZPOOL_FREE} free), ${ZPOOL_DIFF}% over ${ZPOOL_THRESHOLD}% threshold"
-
-    if [ -n "$ALERT_MESSAGE" ]; then
-        ALERT_MESSAGE="${ALERT_MESSAGE}"$'\n'"${new_line}"
-    else
-        ALERT_MESSAGE="${new_line}"
-    fi
+    ALERTS+=("zpool"$'\t'"$ZPOOL_USAGE"$'\t'"$(body_fact \
+        "${ZPOOL_ALLOC} of ${ZPOOL_SIZE} used" \
+        "${ZPOOL_FREE} free" \
+        "${ZPOOL_DIFF}% over the ${ZPOOL_THRESHOLD}% threshold")")
 fi
 
-# Only publish (and log anything) if there is an alert.
-if [ -n "$ALERT_MESSAGE" ]; then
+# Only publish (and log anything) if something crossed.
+FAILED=0
+for entry in "${ALERTS[@]:-}"; do
+    [[ -n "$entry" ]] || continue
+    name="${entry%%$'\t'*}"
+    rest="${entry#*$'\t'}"
+    pct="${rest%%$'\t'*}"
+    body="${rest#*$'\t'}"
+
     # The journal gets it too, unconditionally and BEFORE the wire. If delivery
-    # fails, this line is the only surviving record of what the alert said.
-    echo "$ALERT_MESSAGE"
+    # fails, these lines are the only surviving record of what the alert said.
+    printf '%s at %s%%\n%s\n' "$name" "$pct" "$body"
 
     # A DROPPED ALERT MUST FAIL THIS UNIT.
     #
@@ -100,14 +111,13 @@ if [ -n "$ALERT_MESSAGE" ]; then
     # the watchdog reports this monitor stale within its 3h MaxAge; the inherited
     # OnFailure= fires; and `systemctl --failed` shows it. The first is what survives
     # an ntfy that is itself down.
-    if (( ${#OVER_NAME[@]} == 1 )); then
-        DISK_TITLE="$(title_state "${OVER_NAME[0]}" "${OVER_PCT[0]}% Full")"
-    else
-        DISK_TITLE="$(title_state Filesystems "${#OVER_NAME[@]} Full")"
-    fi
-    send_out="$(notify_fault "$DISK_TITLE" "$ALERT_MESSAGE" "$DISK_NTFY_ID" 2>&1)"
+    #
+    # EVERY alert is attempted before exiting. Bailing on the first failure would mean
+    # a down ntfy loses the pool alert because the root alert was queued ahead of it.
+    send_out="$(notify_fault "$(title_state "$name" "${pct}% Full")" "$body" "${DISK_NTFY_ID}-${name}" 2>&1)"
     if [[ -n "$send_out" ]]; then
-        echo "disk: ntfy publish FAILED, the alert above was not delivered: ${send_out}" >&2
-        exit 1
+        echo "disk: ntfy publish FAILED, the ${name} alert above was not delivered: ${send_out}" >&2
+        FAILED=1
     fi
-fi
+done
+(( FAILED == 0 ))
