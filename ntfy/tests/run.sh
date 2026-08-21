@@ -312,6 +312,13 @@ hdrs="$(hdr_probe)"
 hasnt "no Tags header"      "$hdrs" "Tags:"
 hasnt "no Priority header"  "$hdrs" "Priority:"
 has   "still a Title"       "$hdrs" "Title: title"
+# NTFY_MARKDOWN went the same way on 2026-08-21: a per-consumer opt-out whose five
+# users all build their bodies with the escaping renderers now, leaving a variable
+# nothing set — a slot waiting for someone to put `no` in it. Rendering must be
+# unconditional, because md_escape's whole purpose is guarding a RENDERED body.
+has   "Markdown always on"  "$hdrs" "Markdown: yes"
+is    "and cannot be turned off" \
+    "$(NTFY_MARKDOWN=no hdr_probe | grep -c 'Markdown: yes')" "1"
 
 # ------------------------------------------------------------------ bodies
 # Every device quirk below was learned on the actual phone and was being COPY-PASTED
