@@ -92,7 +92,7 @@ missing prefix is what makes that difference readable on a lock screen.
 | `Still ` | prefix | a nudge |
 
 **Every one is a past participle.** 21 end in `-ed`; `Stuck` is the single irregular and
-is listed in `NTFY_IRREGULAR_VERBS`. The gate checks this (§8).
+is listed in `NTFY_IRREGULAR_VERBS`. The gate checks this (§9).
 
 ---
 
@@ -243,7 +243,7 @@ service that exemplifies it.
 | 2 | `Abandoned` is **not** prefixed | afterimage, pigeonhole | the 7-day give-up is our timer, not the API's fault. The missing prefix carries that |
 | 3 | Rule 11 is a preference, not a rule | immich, restic | forcing a number produced `Backup: 1 Success`, counting something always exactly one, and `Changedetection: 0 Containers Running` for a container that is simply down |
 | 4 | `Flagged` `Stuck` `Refused` `Skipped` `Stranded` are shared **by choice** | several | they are situation-class, so sharing is permitted, not required. The situations genuinely match — `Flagged` means *model answered, human should look* in both pipelines |
-| 5 | The gate **is** the layering | `systemd/contract.sh` | unlike systemd there is no merge engine. Nothing at runtime stops a hand-built string. See §8 |
+| 5 | The gate **is** the layering | `systemd/contract.sh` | unlike systemd there is no merge engine. Nothing at runtime stops a hand-built string. See §10 |
 | 6 | A proposal's nudge takes **no verb** | afterimage `sweep:184` | its original title is a quotation with no verb to reuse. afterimage therefore has two nudge shapes on purpose |
 | 6b | `Flagged: Kene` carries a **Discard** button | afterimage `triage:431` | `Add` is impossible without a parsed date, so this was a button-less fault — and therefore the one message the withdrawal rule said to keep while the archive backstop removed it at seven days anyway, silently. Discard is only an archive, which is what the day-7 expiry does regardless, so giving it that one button settles the contradiction in the rule's favour rather than against it |
 | 7 | Noun follows the pipeline **stage** | afterimage | `Screenshot` until the model produces events, `Event` after. `Passed: 3 Screenshots` would be wrong — three events came from one screenshot |
@@ -255,6 +255,8 @@ service that exemplifies it.
 | 13 | The courier's **success branch is the canary** | restic | `restic.backup`, `restic.forget` and `restic.check@` wire `OnSuccess=`. Those pings are the only positive proof the `OnFailure=` path still reaches the phone — nothing watches the courier. **Only the daily backup ping is frequent enough to serve.** Do not delete it |
 | 14 | `restic.staleness` is failure-only **by design** | restic | silence is the healthy state, and `install.sh` mechanically refuses `OnSuccess=` on `Class=monitor` |
 | 15 | Boot reports failure only | host | dropped from success on 2026-08-20. Accepted consequence: after a power cut, silence no longer distinguishes *recovered* from *still dark*, and this box does not auto-restore on AC return |
+| 16 | **The courier's body is the job's own words** | `system-ntfy.sh` | one body serves every job failure and all four restic successes, and `systemctl status` spent ~18 lines on boilerplate before reaching anything a person wants. Scoped to `_SYSTEMD_INVOCATION_ID` so it cannot bleed across runs — `restic.staleness` prints one line a day, so a failure used to arrive under five previous days of "within the 48h limit" — and to `_TRANSPORT=stdout` so systemd's own Starting/Finished lines cannot fill the budget, which is what happened to `disk`, a job that prints nothing when healthy |
+| 17 | **`catallenya.service` cancels its inherited `OnFailure=`** | host | see the self-alerting rule below |
 
 ---
 
@@ -352,7 +354,45 @@ All carry `RandomizedDelaySec=3600`, hence the one-hour windows.
 
 ---
 
-## 8. Enforcement
+## 8. Self-alerting jobs
+
+Four jobs send their own notification rather than leaving it to the courier, because
+they have something better to say than "a unit failed". Three of them follow one rule:
+
+> **A job that sends its own message exits non-zero ONLY when that message could not be
+> delivered.**
+
+That is what keeps the two layers from overlapping. `host/disk.sh`, `systemd/heartbeat.sh`
+and `changedetection/changedetection.health.sh` all test the transport's *silence* —
+`curl -fsS` prints nothing on success — and exit non-zero only if it said something. So:
+
+| | alert delivered | alert NOT delivered |
+|---|---|---|
+| the job exits | `0` | `1` |
+| courier fires | no | **yes** |
+| you receive | the job's own message | `Disk: Failed` — the only way you learn |
+
+**`catallenya.service` is the one exception**, and it is declared rather than merely
+done. Its exit code reports the *boot*, not the notification: a bad boot must leave a
+failed unit or the failure stops being visible at all. So it notified *and* tripped the
+inherited `OnFailure=`, putting two messages about one event on the `host` topic seconds
+apart. It now cancels `OnFailure=` in `catallenya.service.d/30-boot.conf`.
+
+**That is not the `Condition*=` case.** A bad boot still leaves five signals minus one
+duplicate: a non-zero exit, the journal, `systemctl --failed`, the unit's own
+`Boot: N Containers Down`, and the watchdog's `ActiveState` check — `heartbeat.sh`
+raises `FAILED` for exactly this unit via `Freshness=boot`. The courier would not have
+been a working fallback anyway: it publishes through the same ntfy that just refused the
+unit's own message, seconds later, and the script already retries three times.
+
+**`systemd/install.sh` refuses an empty `OnFailure=` on any unit that has not declared
+`SelfAlerting=acknowledged`** in its `[X-Catallenya]` sticker — the same escape-hatch
+shape as `UnboundedRoot=acknowledged`. Switching off failure alerting is exactly the
+silent-failure class this repo is built to prevent, so it may be done, but never quietly.
+
+---
+
+## 9. Enforcement
 
 `systemd/contract.sh`, three rules, run by `bash systemd/install.sh --check` (no root
 needed) and by `systemd/tests/run.sh`:
@@ -383,7 +423,7 @@ four units' alerts once already.
 
 ---
 
-## 9. Traps
+## 10. Traps
 
 **There is no merge engine.** `systemd/policy/` works because systemd genuinely merges
 drop-ins — verified on this box, a unit's `RuntimeMaxSec=999` lost to a drop-in's `111` —

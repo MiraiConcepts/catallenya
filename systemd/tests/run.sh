@@ -103,6 +103,20 @@ gate_says "a root job without CapabilityBoundingSet is refused" \
     "${REPO}/host/zpool.scrub.service" '/^CapabilityBoundingSet=/d' \
     "runs as root without a CapabilityBoundingSet"
 
+# CANCELLING OnFailure= SWITCHES OFF A JOB'S FAILURE ALERTING. An empty assignment
+# resets the list systemd would otherwise append to, so one line makes a job that
+# fails do so in silence — the same class the Condition*= rule guards, reached from
+# the other direction. Legitimate for a job that sends its own message; never
+# legitimate quietly, because a later reader cannot tell an exemption from a mistake.
+#
+# Same escape-hatch shape as UnboundedRoot=acknowledged.
+gate_says "cancelling OnFailure= without declaring it is refused" \
+    "${REPO}/host/disk.service" 's/^\[Service\]$/OnFailure=\n[Service]/' \
+    "cancels its inherited OnFailure="
+gate_says "and the acknowledgement is what clears it" \
+    "${REPO}/host/disk.service" 's/^\[Service\]$/OnFailure=\n[Service]/; s/^Class=monitor$/Class=monitor\nSelfAlerting=acknowledged/' \
+    "35 units satisfy the contract"
+
 gate_says "a missing User= is refused" \
     "${REPO}/host/disk.service" '/^User=/d' "no explicit User="
 
