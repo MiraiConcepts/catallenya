@@ -35,12 +35,12 @@ NTFY_TOPIC="${HEARTBEAT_NTFY_TOPIC:-host}"
 # run the roll call against a scratch tree, and the transport must not follow it
 # there: the tree holds fixture units, not this repo's code.
 #
-# NTFY_MARKDOWN=no, the immich opt-out: findings are machine-built lines carrying
-# unit names, stamp paths and quoted sticker values. Under a renderer a pair of
-# underscores in a path would italicise the middle of a finding, and the one thing a
-# watchdog message must be is literal.
-# shellcheck disable=SC2034
-NTFY_MARKDOWN=no
+# NTFY_MARKDOWN is GONE (2026-08-21). It was `no` here for a real reason: findings
+# are machine-built lines carrying unit names, stamp paths and quoted sticker values,
+# and under a renderer a pair of underscores in a path would italicise the middle of a
+# finding — the one thing a watchdog message must be is literal. body_list() escapes
+# every line it renders, so the literalness now comes from the renderer rather than
+# from switching rendering off.
 
 # A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
 # replaced rather than a pile. Runs DAILY, and a stale job stays stale — the same finding arrived every morning until
@@ -74,8 +74,24 @@ SYSTEMCTL="${HEARTBEAT_SYSTEMCTL:-systemctl}"
 read -r -a ADOPTED <<<"${HEARTBEAT_ADOPTED-catallenya.service sanoid.service sanoid-prune.service}"
 
 FINDINGS=()
+FINDINGS_LOG=()
 NOTES=()
-finding() { FINDINGS+=("$(printf '%-13s %s' "$1" "$2")"); }
+# A FINDING IS AN ITEM AND A DETAIL: the unit is the thing, the type and explanation
+# are what happened to it. It used to be one padded line joined by an em-dash —
+# `STALE         restic.backup — 2d 4h since last run` — which the body language bans
+# twice over, and the indent does the column's job anyway.
+#
+# THE JOURNAL FORM IS UNCHANGED and kept in its own array. A log line is read in a
+# terminal, where the padded SCREAMING column is how you find the type at a glance and
+# a tab is not an indent — so the two audiences get two renderings of one call rather
+# than one rendering that suits neither.
+finding() {
+    FINDINGS+=("$2"$'\t'"$1: $3")
+    FINDINGS_LOG+=("$(printf '%-13s %s — %s' "${1^^}" "$2" "$3")")
+}
+
+# NOTES never reach the phone — they are findings explained by downtime, printed and
+# dropped — so they keep the padded terminal shape.
 note()    { NOTES+=("$(printf '%-13s %s' "$1" "$2")"); }
 
 # --- helpers ---------------------------------------------------------------
@@ -140,7 +156,7 @@ stale_or_downtime() {   # $1 unit, $2 age, $3 max, $4 literal, $5 description
     if (( UPTIME_S < grace )); then
         note "WAS OFF" "$1 — $5 $(human "$2") (max $4), but the box has only been up $(human "$UPTIME_S")"
     else
-        finding "STALE" "$1 — $5 $(human "$2") (max $4)"
+        finding "Stale" "$1" "$5 $(human "$2") (max $4)"
     fi
 }
 
@@ -183,7 +199,7 @@ candidates() {
 
 check_stamp() {          # $1 unit, $2 path, $3 max_seconds, $4 maxage_literal
     if [[ ! -e "$2" ]]; then
-        finding "NEVER RAN" "$1 — no completion stamp at $2"
+        finding "Never ran" "$1" "no completion stamp at $2"
         return
     fi
     local age=$(( $(date +%s) - $(stat -c %Y "$2") ))
@@ -193,7 +209,7 @@ check_stamp() {          # $1 unit, $2 path, $3 max_seconds, $4 maxage_literal
 
 check_unit_armed() {     # $1 job, $2 unit to check
     local st; st=$($SYSTEMCTL is-active "$2" 2>/dev/null)
-    [[ "$st" == "active" ]] || finding "UNARMED" "$1 — $2 is $st, so nothing is watching"
+    [[ "$st" == "active" ]] || finding "Unarmed" "$1" "$2 is $st, so nothing is watching"
 }
 
 # An armed watcher proves the inotify watch exists. It does NOT prove anything can
@@ -208,21 +224,21 @@ check_producer() {       # $1 job, $2 producer spec
         container:*)
             local c="${2#container:}" state
             state=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null) || {
-                finding "NO PRODUCER" "$1 — container '$c' does not exist, so nothing can ever arrive"; return; }
+                finding "No producer" "$1" "container '$c' does not exist, so nothing can ever arrive"; return; }
             [[ "$state" == "running" ]] || \
-                finding "NO PRODUCER" "$1 — container '$c' is $state, so nothing can ever arrive"
+                finding "No producer" "$1" "container '$c' is $state, so nothing can ever arrive"
             ;;
-        *) finding "BAD STICKER" "$1 — Producer='$2' is not a recognised form (expected container:<name>)" ;;
+        *) finding "Bad sticker" "$1" "Producer='$2' is not a recognised form (expected container:<name>)" ;;
     esac
 }
 
 check_zfs_snapshot() {   # $1 job, $2 dataset, $3 max_seconds, $4 literal
     local newest; newest=$(zfs list -t snapshot -H -o creation -S creation "$2" 2>/dev/null | head -1)
     if [[ -z "$newest" ]]; then
-        finding "NEVER RAN" "$1 — no snapshots exist on $2"
+        finding "Never ran" "$1" "no snapshots exist on $2"
         return
     fi
-    local ts; ts=$(date -d "$newest" +%s 2>/dev/null) || { finding "UNKNOWN" "$1 — cannot parse snapshot date '$newest'"; return; }
+    local ts; ts=$(date -d "$newest" +%s 2>/dev/null) || { finding "Unknown" "$1" "cannot parse snapshot date '$newest'"; return; }
     local age=$(( $(date +%s) - ts ))
     (( age > $3 )) && stale_or_downtime "$1" "$age" "$3" "$4" "newest snapshot is"
     return 0
@@ -231,19 +247,19 @@ check_zfs_snapshot() {   # $1 job, $2 dataset, $3 max_seconds, $4 literal
 check_zfs_scrub() {      # $1 job, $2 pool, $3 max_seconds, $4 literal
     local scan; scan=$(zpool status "$2" 2>/dev/null | sed -n 's/^[[:space:]]*scan: //p')
     if [[ -z "$scan" ]]; then
-        finding "UNKNOWN" "$1 — no scan line in zpool status $2"
+        finding "Unknown" "$1" "no scan line in zpool status $2"
         return
     fi
     # `scan:` is shared by scrub AND resilver. Matching loosely would let a disk
     # replacement's "resilvered ... on <date>" pass as a completed scrub for a
     # whole MaxAge, and would read "resilver in progress" as a healthy scrub.
     if [[ "$scan" != scrub* ]]; then
-        finding "UNKNOWN" "$1 — last ZFS scan on $2 was not a scrub ('${scan%% *}'), so scrub age is unknown"
+        finding "Unknown" "$1" "last ZFS scan on $2 was not a scrub ('${scan%% *}'), so scrub age is unknown"
         return
     fi
     [[ "$scan" == *"in progress"* ]] && return 0     # a running scrub is the best answer
     local when; when=$(sed -n 's/.* on \(.*\)$/\1/p' <<<"$scan")
-    local ts; ts=$(date -d "$when" +%s 2>/dev/null) || { finding "UNKNOWN" "$1 — cannot parse scrub date '$when'"; return; }
+    local ts; ts=$(date -d "$when" +%s 2>/dev/null) || { finding "Unknown" "$1" "cannot parse scrub date '$when'"; return; }
     local age=$(( $(date +%s) - ts ))
     (( age > $3 )) && stale_or_downtime "$1" "$age" "$3" "$4" "last scrub completed"
     return 0
@@ -259,9 +275,9 @@ check_boot() {           # $1 job
     active=$($SYSTEMCTL show "$1" -p ActiveState --value 2>/dev/null)
     load=$($SYSTEMCTL show "$1" -p LoadState --value 2>/dev/null)
     if [[ "$load" != "loaded" ]]; then
-        finding "MISSING" "$1 — LoadState=$load, so nothing orchestrates boot"
+        finding "Missing" "$1" "LoadState=$load, so nothing orchestrates boot"
     elif [[ "$active" != "active" ]]; then
-        finding "FAILED" "$1 — ActiveState=$active, so the last boot did not finish orchestrating"
+        finding "Failed" "$1" "ActiveState=$active, so the last boot did not finish orchestrating"
     fi
 }
 
@@ -286,7 +302,7 @@ while read -r unit; do
         is_ours=0
         [[ -L "${SYSTEMD_DIR}/${unit}" && "$(readlink -f "${SYSTEMD_DIR}/${unit}")" == "${REPO_DIR}"/* ]] && is_ours=1
         for a in "${ADOPTED[@]}"; do [[ "$unit" == "$a" ]] && is_ours=1; done
-        (( is_ours )) && finding "MASKED" "$unit — masked, so it cannot run at all"
+        (( is_ours )) && finding "Masked" "$unit" "masked, so it cannot run at all"
         continue
     fi
 
@@ -294,7 +310,7 @@ while read -r unit; do
     if [[ -z "$class" ]]; then
         # Adopted units MUST carry a sticker; losing one is how they'd go quiet.
         for a in "${ADOPTED[@]}"; do
-            [[ "$unit" == "$a" ]] && finding "NO STICKER" "$unit — adopted job with no Class; its sticker is gone" && break
+            [[ "$unit" == "$a" ]] && finding "No sticker" "$unit" "adopted job with no Class; its sticker is gone" && break
         done
         continue                            # anything else is plumbing or vendor
     fi
@@ -310,14 +326,14 @@ while read -r unit; do
     fi
 
     if [[ -z "$freshness" ]]; then
-        finding "NO STICKER" "$unit — Class=$class but no Freshness to check"
+        finding "No sticker" "$unit" "Class=$class but no Freshness to check"
         echo "  ?? $unit (class=$class, no freshness)"
         continue
     fi
 
     max_s=0
     if [[ -n "$maxage" ]]; then
-        max_s=$(to_seconds "$maxage") || { finding "BAD STICKER" "$unit — MaxAge='$maxage' is not a usable timespan"; continue; }
+        max_s=$(to_seconds "$maxage") || { finding "Bad sticker" "$unit" "MaxAge='$maxage' is not a usable timespan"; continue; }
     fi
 
     case "$freshness" in
@@ -326,7 +342,7 @@ while read -r unit; do
         zfs-snapshot:*) check_zfs_snapshot "$unit" "${freshness#zfs-snapshot:}" "$max_s" "$maxage" ;;
         zfs-scrub:*)    check_zfs_scrub    "$unit" "${freshness#zfs-scrub:}"    "$max_s" "$maxage" ;;
         boot)           check_boot        "$unit" ;;
-        *)              finding "BAD STICKER" "$unit — Freshness='$freshness' is not a recognised form" ;;
+        *)              finding "Bad sticker" "$unit" "Freshness='$freshness' is not a recognised form" ;;
     esac
 
     producer=$(sticker "$unit" Producer)
@@ -346,7 +362,7 @@ for t in "${SYSTEMD_DIR}"/*.timer; do
     [[ -e "$t" ]] || continue
     tname=$(basename "$t")
     tstate=$($SYSTEMCTL is-active "$tname" 2>/dev/null)
-    [[ "$tstate" == "active" ]] || finding "TIMER DEAD" "$tname — is $tstate, so its job is no longer scheduled"
+    [[ "$tstate" == "active" ]] || finding "Timer dead" "$tname" "is $tstate, so its job is no longer scheduled"
 done
 
 # --- drift: a job that escaped the contract --------------------------------
@@ -366,7 +382,7 @@ for link in "${SYSTEMD_DIR}"/*.service "${SYSTEMD_DIR}"/*.timer "${SYSTEMD_DIR}"
     [[ "$unit" == *.service ]] || continue                  # timers/paths carry no sticker
     [[ "$unit" == *@.service ]] && continue
     [[ -n "$(sticker "$unit" Class)" ]] && continue
-    finding "NO STICKER" "$unit — installed from the repo but declares no Class"
+    finding "No sticker" "$unit" "installed from the repo but declares no Class"
 done
 
 # --- report ----------------------------------------------------------------
@@ -383,9 +399,19 @@ if (( ${#FINDINGS[@]} == 0 )); then
     exit 0
 fi
 
-printf '%s\n' "${FINDINGS[@]}"
+# The journal gets the full roll call, flattened, BEFORE the wire — if delivery
+# fails these lines are the only surviving record of what was found.
+printf '%s\n' "${FINDINGS_LOG[@]}"
 
-BODY=$(printf '%s\n' "${FINDINGS[@]}")
+# --all, NOT the five-item cap.
+#
+# This is the second list in the repo that must show every member, and for the same
+# reason pigeonhole's staged batch does: a finding you cannot see is a finding you do
+# not fix, and there is no button here to make the omission obvious. The body is
+# bounded by the number of installed units, so the 4096-byte attachment threshold is
+# only reachable on a box where nearly every job has failed at once — a situation you
+# would already know about by other means.
+BODY="$(body_list --all "${FINDINGS[@]}")"
 # The transport's own mute seam, asked directly rather than re-read here, so the
 # offline suites exercise everything up to the wire without putting anything on the
 # phone. The message is this script's own: the suite pins it.
