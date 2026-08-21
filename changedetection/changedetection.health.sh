@@ -43,13 +43,12 @@ env_key() {                       # env_key <KEY>
 # shellcheck disable=SC2034  # read by ntfy.lib.sh, sourced below
 NTFY_TOPIC="$(env_key CHANGEDETECTION_NTFY_TOPIC || true)"
 
-# NTFY_MARKDOWN=no, the immich opt-out. Every line of the body carries text this box
-# does not author: a watch title chosen on someone else's website, a URL, and a
-# `last_error` string echoed back from a remote server. Under a renderer that is a
-# place a link can hide inside a notification the owner already trusts, and watch
-# titles are full of underscores that would italicise half the report.
-# shellcheck disable=SC2034
-NTFY_MARKDOWN=no
+# NTFY_MARKDOWN is GONE (2026-08-21), and this was the strongest case for it: every
+# line of the body carries text this box does not author — a watch title chosen on
+# someone else's website, a URL, and a `last_error` string echoed back from a remote
+# server. Under a renderer that is a place a live link can hide inside a notification
+# the owner already trusts. body_list() escapes every line it renders, which is the
+# only reason turning rendering back on here is safe.
 
 # A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
 # replaced rather than a pile. Runs DAILY and re-reports the same broken watch every morning until it is fixed, so a
@@ -98,27 +97,66 @@ COUNT_FILE="/zpool/catallenya/systemd/state/.changedetection-watch-count"
 # fired.
 report_title() {
     local report="$1" n line state watch
-    n="$(grep -cE '^(BROKEN|STALLED|QUIET|MUTED):' <<<"$report" || true)"
+    n="$(grep -cE '^(BROKEN|STALLED|QUIET|MUTED)'$'\t' <<<"$report" || true)"
     (( n < 1 )) && n=1
-    if (( n == 1 )) && line="$(grep -m1 -E '^(BROKEN|STALLED|QUIET|MUTED):' <<<"$report")"; then
-        state="${line%%:*}"; watch="${line#*: }"
+    if (( n == 1 )) && line="$(grep -m1 -E '^(BROKEN|STALLED|QUIET|MUTED)'$'\t' <<<"$report")"; then
+        state="${line%%$'\t'*}"
+        watch="${line#*$'\t'}"; watch="${watch%%$'\t'*}"
         # BROKEN -> Broken. Title Case, matching every other state in the contract.
         state="${state:0:1}$(tr '[:upper:]' '[:lower:]' <<<"${state:1}")"
-        # The API-level failures name no watch — "cannot reach the changedetection
-        # API (…)", "the watch list is EMPTY (…)" — so there is nothing to put in the
-        # subject slot and the count form is the honest one.
-        case "$watch" in
-            cannot\ reach* | the\ watch\ list*) title_state Watches "1 Finding" ;;
-            *)                                  title_state "$watch" "$state" ;;
-        esac
+        # An API-level failure names NO WATCH — the middle field is empty — so there
+        # is nothing to put in the subject slot and the count form is the honest one.
+        # This used to match on the prose ("cannot reach*", "the watch list*"), which
+        # meant reworing either sentence silently changed the title.
+        if [[ -z "$watch" ]]; then
+            title_state Watches "1 Finding"
+        else
+            title_state "$watch" "$state"
+        fi
     else
         title_state Watches "${n} Finding$( (( n == 1 )) || printf s )"
     fi
 }
 
+# report_body <report> -> the findings as numbered items with an indented detail.
+#
+# `BROKEN<TAB>Shop<TAB>404 Not Found` becomes an item named for the watch with a
+# `Broken: 404 Not Found` detail beneath it. --all rather than the five-item cap, for
+# the same reason the watchdog uses it: a broken watch you cannot see is one you do
+# not fix, and there is no button here to make the omission obvious.
+#
+# A line the parser does not recognise passes through WHOLE as its own item. A finding
+# that reads rough is a nuisance; a finding that disappears is the failure this whole
+# script exists to prevent.
+report_body() {
+    local -a items=()
+    local line kind watch detail
+    while IFS= read -r line; do
+        [[ -n "${line//[[:space:]]/}" ]] || continue
+        if [[ "$line" == *$'\t'*$'\t'* ]]; then
+            kind="${line%%$'\t'*}"
+            detail="${line#*$'\t'}"
+            watch="${detail%%$'\t'*}"
+            detail="${detail#*$'\t'}"
+            kind="${kind:0:1}$(tr '[:upper:]' '[:lower:]' <<<"${kind:1}")"
+            items+=("${watch:-Watches}"$'\t'"${kind}: ${detail}")
+        else
+            items+=("$line")
+        fi
+    done <<<"$1"
+    body_list --all "${items[@]}"
+}
+
+# send_alert <title> <body> [journal]
+#
+# The journal gets the findings too, unconditionally and BEFORE the wire — if delivery
+# fails, those lines are the only surviving record of what was found. It takes the RAW
+# report rather than the rendered body: a terminal wants tab-separated fields, not
+# escaped list markers and NBSP indents.
 send_alert() {
     local out
     echo "$1"
+    [[ -n "${3:-}" ]] && printf '%s\n' "${3//$'\t'/ — }"
     out="$(notify_fault "$1" "$2" "$HEALTH_NTFY_ID" 2>&1)"
     if [[ -n "$out" ]]; then
         echo "changedetection.health: ntfy publish FAILED, the report above was not delivered: ${out}" >&2
@@ -131,7 +169,7 @@ send_alert() {
 # OnFailure= would then send a systemctl dump that says nothing about watches.
 if [[ "$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo missing)" != "running" ]]; then
     send_alert "$(title_state Changedetection "Not Running")" \
-        "changedetection container is not running — no watch is being checked at all."
+        "No watch is being checked at all."
     exit 0
 fi
 
@@ -197,10 +235,19 @@ def interval_seconds(watch, default_seconds):
 now = time.time()
 problems = []
 
+# ONE LINE PER PROBLEM, three tab-separated fields: kind, watch, detail. The old
+# shape was "KIND: title" plus a two-space-indented second line, and the two-space
+# indent is exactly what the ntfy web renderer collapses — it looked right on Android
+# and lost its structure in the browser. The host turns these into body_list items,
+# where the indent is NBSPs and survives both. An empty watch field means the finding
+# is about the API rather than about any one watch.
+def problem(kind, watch, detail):
+    problems.append(f"{kind}\t{watch}\t{detail}")
+
 try:
     watches = api("/watch")
 except Exception as exc:  # noqa: BLE001 - any failure here means we cannot judge health
-    print(f"BROKEN: cannot reach the changedetection API ({exc})")
+    print(f"BROKEN\t\tcannot reach the changedetection API ({exc})")
     raise SystemExit(0)
 
 # The current count, reported on a marker line the host parses off and remembers.
@@ -228,10 +275,10 @@ except ValueError:  # not a number: treat as unknown, exactly like a first run
 
 if not watches:
     if previous:
-        problems.append(
-            f"BROKEN: the watch list is EMPTY (was {previous} last run) — "
-            "every check below has nothing to look at, and silence here would "
-            "otherwise read as all clear"
+        problem(
+            "BROKEN", "",
+            f"the watch list is EMPTY, was {previous} last run, so every check "
+            "below has nothing to look at and silence would read as all clear",
         )
     # previous 0 or unknown: a deliberate empty list, or the first run. Say nothing.
 
@@ -247,7 +294,7 @@ for uuid in watches:
         continue
 
     if w.get("last_error"):
-        problems.append(f"BROKEN: {title}\n  {str(w['last_error'])[:200]}")
+        problem("BROKEN", title, str(w["last_error"])[:200])
         continue
 
     last_checked = w.get("last_checked") or 0
@@ -258,26 +305,25 @@ for uuid in watches:
         # this branch just skips it. Allow a grace window so a watch created minutes
         # before this run is not reported before it has had a chance to fetch.
         if now - (w.get("date_created") or 0) > overdue_after:
-            problems.append(f"BROKEN: {title}\n  has NEVER been checked since it was created")
+            problem("BROKEN", title, "has NEVER been checked since it was created")
         continue
 
     age = now - last_checked
     if age > overdue_after:
-        problems.append(
-            f"STALLED: {title}\n  last checked {age / 3600:.1f}h ago — worker may be stuck"
-        )
+        problem("STALLED", title, f"last checked {age / 3600:.1f}h ago, the worker may be stuck")
         continue
 
     last_changed = w.get("last_changed") or 0
     if last_changed and (now - last_changed) > QUIET_AFTER:
         days = (now - last_changed) / 86400
-        problems.append(
-            f"QUIET: {title}\n  no change in {days:.0f}d — may be fine, or the filter may be "
-            f"returning frozen data (check the snapshot looks right)"
+        problem(
+            "QUIET", title,
+            f"no change in {days:.0f}d, may be fine or the filter may be returning "
+            "frozen data, so check the snapshot looks right",
         )
 
     if w.get("notification_muted"):
-        problems.append(f"MUTED: {title}\n  changes are detected but nothing is sent")
+        problem("MUTED", title, "changes are detected but nothing is sent")
 
 for line in problems:
     print(line)
@@ -305,5 +351,5 @@ fi
 
 # Silence is the healthy state, matching restic.staleness — no OnSuccess chatter.
 if [[ -n "${REPORT//[[:space:]]/}" ]]; then
-    send_alert "$(report_title "$REPORT")" "$REPORT"
+    send_alert "$(report_title "$REPORT")" "$(report_body "$REPORT")" "$REPORT"
 fi
