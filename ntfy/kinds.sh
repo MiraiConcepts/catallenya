@@ -349,11 +349,53 @@ body_list() {
     printf '%s' "$out"
 }
 
-# body_aside <text> -> the italic afterthought.
+# The fact marker. U+25AA BLACK SMALL SQUARE, chosen over `-` (which markdown turns
+# into a real list, the same trap the escaped `1\.` exists for) and over `•` (already
+# what the Android app renders a real list marker AS, so a fact would be
+# indistinguishable from a mangled item). It has an EMOJI PRESENTATION and some
+# Android builds may render it as a coloured square — accepted knowingly, and the
+# first thing to check on the device. Fallbacks are `■` U+25A0 or `•` U+2022.
+BODY_FACT_MARK=$'\u25aa'
+
+# body_fact <line>... -> the ▪ metric lines, one per argument.
 #
-# For what the notification CANNOT act on — a truncation count, an ETA, the sentence
-# explaining why something is parked. An afterthought to the list above rather than
-# another item in it.
+#   body_fact "1.3T of 1.7T used" "400G free"
+#
+#       ▪ 1.3T of 1.7T used
+#       ▪ 400G free
+#
+# A FACT IS SELF-DESCRIBING AND CARRIES NO STUB LABEL. `▪ Free: 400G` names a
+# category; `▪ 400G free` states something. The distinction is not decoration — a
+# detail hangs off the item above it, so a label says WHICH ASPECT of that item,
+# while a fact stands alone and therefore has to describe itself.
+#
+# The failure mode this invites is dropping context to keep the line short:
+# `▪ about 70m` is terse and means nothing. Where prose reads badly, the answer is a
+# FULL DESCRIPTIVE PHRASE — `▪ Estimated time left: 70m` — never a stub. A fact must
+# read as a complete statement; how many words that takes is not the constraint.
+#
+# No full stop, on any body line (settled 2026-08-21). A stop after a path reads as
+# part of the filename, and one rule beats remembering which line type you are on.
+#
+# No hard break between lines: the ntfy renderer breaks on a single newline, which is
+# why body_list's items need none either. (The hard break body_list puts above a
+# DETAIL is belt-and-braces from the day the indent was worked out; harmless, kept.)
+body_fact() {
+    local out="" line
+    for line in "$@"; do
+        [[ -n "$line" ]] || continue
+        out+="${BODY_FACT_MARK} $(md_escape "$line")"$'\n'
+    done
+    printf '%s' "$out"
+}
+
+# body_aside <text> -> the italic truncation count.
+#
+# ITALIC MEANS "THIS IS NOT THE WHOLE STORY", and nothing else. It marks the three
+# forms of truncation and no other text: `… and 3 more` (the list was cut at five),
+# `3 more still queued` (work is waiting for the next run), `3 more events not sent`
+# (data was dropped and is gone). An ETA or a parked reason is a FACT — use body_fact.
+# The scope was narrowed on 2026-08-21: italics that mean several things mean nothing.
 #
 # Escaped like everything else, then wrapped: the underscores that make it italic are
 # added AFTER md_escape, so a name inside the text cannot break out of the emphasis.
