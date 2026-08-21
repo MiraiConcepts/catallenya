@@ -167,6 +167,12 @@ filename arriving over Syncthing could hide a live `[tap here](https://evil)` in
 notification you already trust. Escaping in one place is what makes rendering safe
 everywhere.
 
+**Markdown is now unconditional.** With all five opt-outs converted, `NTFY_MARKDOWN` was
+a variable nothing set — a slot waiting for someone to put `no` in it, exactly what
+priority was. It was removed on 2026-08-21 and the header is always sent. This matters
+beyond tidiness: `md_escape` exists to guard a *rendered* body, so a consumer that could
+switch rendering off could also switch off the reason the escaping is there.
+
 ```bash
 body_list [--all] <item>...   items, numbered, capped at five; "name<TAB>detail"
 body_fact <line>...           the ▪ lines

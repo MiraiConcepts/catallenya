@@ -26,7 +26,6 @@
 #
 # CONTRACT for anything sourcing this file:
 #   - Set NTFY_TOPIC before calling notify() or retract().
-#   - Set NTFY_MARKDOWN=no if your bodies are plain text; see below.
 #   - curl must exist. Assert that in the entrypoint script, not here — a missing
 #     binary should fail the run loudly and once, not per-notification.
 #   - Source this near the TOP of your own lib, before your own log(). The
@@ -42,19 +41,19 @@ declare -F log >/dev/null || log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M
 # shellcheck source=/zpool/catallenya/ntfy/kinds.sh
 source "$(dirname "${BASH_SOURCE[0]}")/kinds.sh"
 
-# Markdown rendering, per consumer. The three intake pipelines write bodies FOR
-# rendering — italic asides, numbered lists — and escape anything untrusted on the
-# way in. immich does not: its bodies are lines like
+# MARKDOWN IS ALWAYS ON, and NTFY_MARKDOWN is gone (2026-08-21).
 #
-#     IMG_1234.jpg — rotated 90°
-#     photo_2026_08_01.jpg — needs a look (SKIP_NO_EXIF)
+# It was a per-consumer opt-out with five users, and every one of them had the same
+# reason: their bodies were machine-built from text this box does not author — camera
+# filenames that are mostly underscores, unit names and stamp paths, a `last_error`
+# echoed back from someone else's server. Under a renderer that eats the underscores
+# and italicises the middle of a name, and a filename arriving over Syncthing could
+# hide a live `[tap here](https://evil)` inside a notification already trusted.
 #
-# straight from a photo library, unescaped, and camera filenames are mostly
-# underscores. Rendering those would eat the underscores and italicise the middle of
-# every name; worse, an unescaped body under a renderer is somewhere a filename can
-# hide a real link. Off is both correct and safer for that caller — but it is opt-out
-# rather than opt-in, so a new consumer gets the escaping-aware default.
-NTFY_MARKDOWN="${NTFY_MARKDOWN:-yes}"
+# All five now build their bodies with the renderers in kinds.sh, which escape every
+# line they emit. That is what makes rendering safe everywhere rather than switched
+# off in the five places it was dangerous — and with nothing setting it, the variable
+# was a slot waiting for someone to put `no` in it, exactly what priority was.
 
 # Only the three keys the transport needs, extracted rather than sourced. `source`
 # on the root .env pulls in every database credential and service token the stack
@@ -118,7 +117,7 @@ hdr_safe() {
 }
 
 # md_escape <string> — neutralise Markdown in caller-derived text.
-# Bodies are sent with Markdown rendering on (see NTFY_MARKDOWN), so a
+# Bodies are always sent with Markdown rendering on, so a
 # `[tap here](https://evil.example)` lifted out of a document or a screenshot would
 # otherwise become a REAL link inside a notification the user already trusts — the
 # same class as the header injection above, arriving through a renderer that was
@@ -166,8 +165,7 @@ ntfy_id_safe() { tr -cd 'A-Za-z0-9._-' <<<"$1" | sed 's/^\.*//'; }
 notify() {
     _ntfy_env || { log "skipping notify"; return 0; }
     local url="https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${NTFY_REVERSE_PROXY_PORT}"
-    local -a hdr=(-H "Title: $(hdr_safe "$1")")
-    [[ "$NTFY_MARKDOWN" == "yes" ]] && hdr+=(-H "Markdown: yes")
+    local -a hdr=(-H "Title: $(hdr_safe "$1")" -H "Markdown: yes")
     # Sanitised here, not left to callers. Every current caller whitelists the
     # strings it splices in, but see hdr_safe above for what a CR/LF reaching this
     # particular header does.

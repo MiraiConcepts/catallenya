@@ -287,11 +287,11 @@ notify_receipt() {
 
 # --- bodies ------------------------------------------------------------------
 # WHY THESE EXIST. Bodies were hand-assembled strings, which is the only reason
-# NTFY_MARKDOWN exists: five publishers turned rendering OFF because their bodies
+# NTFY_MARKDOWN existed because five publishers turned rendering OFF: their bodies
 # carry raw filenames, and a camera name like photo_2026_08_01.jpg comes out with its
 # middle italicised — or worse, a filename arriving over Syncthing could hide a live
 # `[tap here](https://evil)` inside a notification you already trust. Escaping in one
-# place is what makes rendering safe everywhere, and the flag can then go.
+# place is what makes rendering safe everywhere, so the flag went (2026-08-21).
 #
 # The DEVICE QUIRKS below were learned on the actual phone, and they were being
 # copy-pasted: pigeonhole discovered them, then liquidroom copied the `1\.` trick with
