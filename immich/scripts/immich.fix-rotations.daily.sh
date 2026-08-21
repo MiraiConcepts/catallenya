@@ -16,15 +16,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # three of them — which the intake pipelines each stopped doing separately. ntfy.lib.sh
 # extracts only the three keys it needs.
 #
-# NTFY_MARKDOWN=no is deliberate and must stay. The bodies below are lines like
-# "IMG_1234.jpg — rotated 90°" taken straight from the library and never escaped, and
-# camera filenames are mostly underscores: rendered as Markdown they would lose the
-# underscores and italicise the middle of every name. Unescaped text under a renderer
-# is also where a filename could hide a real link.
-# shellcheck disable=SC2034  # both are read by ntfy.lib.sh, sourced below
+# MARKDOWN IS ON, and the flag that used to turn it off here is gone (2026-08-20).
+# It was set because these bodies are camera filenames — "IMG_1234.jpg — rotated 90°"
+# straight from the library, never escaped, and mostly underscores. A renderer ate
+# them: underscores vanished and the middle of every name went italic. Worse,
+# unescaped text under a renderer is where a filename could hide a live link.
+#
+# body_list() in ntfy/kinds.sh escapes every item, so the reason no longer holds. This
+# was the file the whole opt-out was written for.
+# shellcheck disable=SC2034  # read by ntfy.lib.sh, sourced below
 NTFY_TOPIC="immich"
-# shellcheck disable=SC2034
-NTFY_MARKDOWN=no
 
 # A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
 # replaced rather than a pile. Runs DAILY, and whatever breaks a bake usually breaks the next one too.
@@ -34,6 +35,9 @@ NTFY_MARKDOWN=no
 # ambiguous — fixed, mis-swiped, or never sent — and a stale one is not. See
 # ntfy/MESSAGES.md.
 BAKE_NTFY_ID="immich-bake-failed"
+# And one for the photos a run could not settle. Same argument: this runs daily, and
+# the same unreadable photo is flagged every morning until someone looks at it.
+FLAGGED_NTFY_ID="immich-flagged"
 # shellcheck source=/zpool/catallenya/ntfy/ntfy.lib.sh
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
@@ -51,38 +55,64 @@ CONCERNS="$(grep -E '^  (SKIP|FAIL) ' <<<"${OUT}" | grep -vE 'SKIP_NON_ROTATE|SK
 # systemd killed it at TimeoutStartSec=1h and reported failure for a bake that had
 # already succeeded — and no hdr_safe on the title. Both come free with the move.
 # Human-readable summaries: "photo.jpg — rotated 90°" / "photo.jpg — needs a look (...)"
-BAKED_LINES="$(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1 — rotated \2°/p' <<<"${OUT}")"
+# --- what happened, as items --------------------------------------------------
+# TWO DIFFERENT THINGS come out of a run and they used to share one message: photos
+# that were rotated, and photos the run could not settle. The title counted only the
+# first, so `Baked: 2 Rotations` could sit above three lines. They are different kinds
+# — one is a receipt with nothing owed, the other wants a human — and both pigeonhole
+# and liquidroom already split exactly this way.
+#
+# Items are "name<TAB>detail", which is what body_list() renders indented.
+BAKED_ITEMS=()
+while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    BAKED_ITEMS+=("$line")
+done < <(sed -n 's/^  DONE \(.*[^ ]\)  *net= *\([0-9]*\).*/\1\trotated \2°/p' <<<"${OUT}")
 
-# Every line that made CONCERNS non-empty must reach the notification body.
-# Three shapes come out of immich.fix-rotations.sh:
+# Every line that made CONCERNS non-empty must reach a notification. Three shapes come
+# out of immich.fix-rotations.sh:
 #   "  SKIP <fn> net=90 ori=6 SKIP_AMBIGUOUS(...)"   verdict form (has net=)
-#   "  SKIP <fn>       original missing"             no net= (fix-rotations.sh)
-#   "  FAIL <fn>       exiftool failed"              no net= (fix-rotations.sh)
-# A single sed requiring " net=" handled only the first, so the other two
-# vanished: an empty body when they were the only findings, and — worse —
-# silent omission in mixed runs. The fallback splits filename from reason on
-# the %-20s padding gap; a line neither pattern understands (e.g. a filename
-# long enough to swallow the padding, or a future concern shape) passes
-# through raw, so a concern can read rough but can never disappear.
-concern_lines() {
-    local line pretty
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] || continue
-        pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2 — needs a look (\3)/p' <<<"${line}")"
-        if [[ -z "${pretty}" ]]; then
-            pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\) \{2,\}\([^ ].*\)$/\2 — needs a look (\3)/p' <<<"${line}")"
-        fi
-        printf '%s\n' "${pretty:-${line}}"
-    done <<<"${CONCERNS}"
-}
-CONCERN_LINES="$(concern_lines)"
+#   "  SKIP <fn>       original missing"             no net=
+#   "  FAIL <fn>       exiftool failed"              no net=
+# A single sed requiring " net=" handled only the first, so the other two vanished:
+# an empty body when they were the only findings, and — worse — silent omission in
+# mixed runs. The fallback splits filename from reason on the %-20s padding gap; a
+# line neither pattern understands passes through whole, so a concern can read rough
+# but can never disappear.
+FLAG_ITEMS=()
+while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\)  *net=.* \([A-Z_]*[A-Z_(].*\)$/\2\t\3/p' <<<"${line}")"
+    if [[ -z "${pretty}" ]]; then
+        pretty="$(sed -n 's/^  \(SKIP\|FAIL\) \(.*[^ ]\) \{2,\}\([^ ].*\)$/\2\t\3/p' <<<"${line}")"
+    fi
+    FLAG_ITEMS+=("${pretty:-${line}}")
+done <<<"${CONCERNS}"
 
+# --- notify --------------------------------------------------------------------
+# THE FAILURE BODY NO LONGER REPEATS THE OUTPUT. It carried `tail -n 8` of the run
+# plus a pointer to the journal — and since 2026-08-20 the COURIER's message, which
+# arrives alongside this one because a failed worker always trips OnFailure=, is
+# exactly the job's last eight lines of stdout. Two messages saying the same thing is
+# worse than one saying it and one adding what the other cannot: the parsed counts.
 if [[ ${RC} -ne 0 ]]; then
-    notify_fault "$(title_state "Rotation Bake" Failed)" \
-        "$(tail -n 8 <<<"${OUT}")"$'\n\n'"Full log: journalctl -u immich.fix-rotations.service" \
-        "$BAKE_NTFY_ID"
-elif [[ -n "${BAKED}" && "${BAKED}" -gt 0 ]] || [[ -n "${CONCERNS}" ]]; then
-    notify_receipt "$(title_count Baked "${BAKED:-0}" Rotation)" \
-        "${BAKED_LINES}${BAKED_LINES:+$'\n'}${CONCERN_LINES}"
+    fail_body=""
+    (( ${#FLAG_ITEMS[@]} )) && fail_body="$(body_list "${FLAG_ITEMS[@]}")"$'\n'
+    fail_body+="$(body_aside "Baked ${BAKED:-0} before the run stopped. Output is in the alert beside this one.")"
+    notify_fault "$(title_state "Rotation Bake" Failed)" "$fail_body" "$BAKE_NTFY_ID"
+else
+    # A receipt for the rotations that landed. Silent when there were none — a bake
+    # that did nothing is not news.
+    if (( ${#BAKED_ITEMS[@]} )); then
+        notify_receipt "$(title_count Baked "${#BAKED_ITEMS[@]}" Rotation)" \
+            "$(body_list "${BAKED_ITEMS[@]}")"
+    fi
+    # ...and a FAULT for the photos it could not settle, separately, because that is a
+    # different kind: this one wants a human. A stable id, so the same unreadable photo
+    # replaces itself each morning rather than stacking.
+    if (( ${#FLAG_ITEMS[@]} )); then
+        notify_fault "$(title_count Flagged "${#FLAG_ITEMS[@]}" Rotation)" \
+            "$(body_list "${FLAG_ITEMS[@]}")" "$FLAGGED_NTFY_ID"
+    fi
 fi
 exit "${RC}"

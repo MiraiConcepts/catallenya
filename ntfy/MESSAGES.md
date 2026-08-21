@@ -126,6 +126,42 @@ title_quote "Kene" "$(title_age 31)"                # Kene [1d]
 name — a hand-typed track filename, a model-written event title — is handled at the same
 boundary as every other title. Two copies of a CR/LF strip is how the two drift.
 
+### Bodies
+
+```bash
+body_list [--all] <item>...   the numbered list every body is built from
+body_aside <text>             the italic afterthought
+```
+
+An item may carry a **detail after a TAB**, rendered indented beneath its name:
+
+```bash
+body_list "IMG_1234.jpg"$'\t'"rotated 90°"
+
+    1\. IMG_1234.jpg
+        rotated 90°
+```
+
+Three device facts are baked in, all learned on the actual phone and all previously
+copy-pasted between pipelines:
+
+| | Why |
+|---|---|
+| `1\.` is **escaped** | the Android app renders genuine markdown ordered-list markers as unnumbered **dots**, so the numbers vanish — and the numbers are what let you check a list against the count in the title |
+| the indent is **NBSP+space pairs** | the ntfy **web** renderer collapses ordinary leading whitespace, so a plain-space indent looks right on Android and disappears in the browser |
+| the name line ends in **two spaces** | a markdown hard break; without it the detail joins the name into one paragraph |
+
+**`body_list` escapes every item, and that is what retires `NTFY_MARKDOWN`.** The flag
+existed because bodies were hand-assembled strings carrying raw filenames — a camera
+name is mostly underscores, which a renderer eats, and an unescaped filename off
+Syncthing is somewhere a live `[tap here](https://evil)` could hide.
+
+**The cap is five**, except `--all` for pigeonhole's staged batch, whose Accept files
+every member: showing 5 of 12 above a button that acts on 12 means approving seven
+documents you never saw. The cap also guards a limit nothing in the body can see —
+ntfy silently converts a body over **4096 bytes** into an attachment, whose content
+expires in three hours.
+
 ---
 
 ## 4. The kinds
@@ -324,8 +360,18 @@ actions, nothing to retract — so multiplying them adds no lifecycle logic.
 
 | When | Title |
 |---|---|
-| something baked, or a concern | `Baked: 3 Rotations` |
-| the run failed | `Rotation Bake: Failed` |
+| rotations landed | `Baked: 3 Rotations` |
+| photos it could not settle | `Flagged: 2 Rotations` — stable id `immich-flagged` |
+| the run failed | `Rotation Bake: Failed` — stable id `immich-bake-failed` |
+
+**Split on 2026-08-21.** One message used to carry both the rotations that landed and
+the photos wanting a human, under a title counting only the first — so
+`Baked: 2 Rotations` could sit above three lines. They are different kinds, and both
+pigeonhole and liquidroom already split this way.
+
+The failure body no longer repeats `tail -n 8` of the run: immich is a **worker**, so
+the courier's message arrives beside it carrying exactly the job's last eight lines of
+stdout (§ 8). This one adds the parsed counts instead, which the courier cannot know.
 
 ### restic — topic `restic`, via the courier
 
