@@ -284,3 +284,80 @@ notify_fault() {
 notify_receipt() {
     notify "${1:?notify_receipt: title}" "${2:?notify_receipt: body}"
 }
+
+# --- bodies ------------------------------------------------------------------
+# WHY THESE EXIST. Bodies were hand-assembled strings, which is the only reason
+# NTFY_MARKDOWN exists: five publishers turned rendering OFF because their bodies
+# carry raw filenames, and a camera name like photo_2026_08_01.jpg comes out with its
+# middle italicised — or worse, a filename arriving over Syncthing could hide a live
+# `[tap here](https://evil)` inside a notification you already trust. Escaping in one
+# place is what makes rendering safe everywhere, and the flag can then go.
+#
+# The DEVICE QUIRKS below were learned on the actual phone, and they were being
+# copy-pasted: pigeonhole discovered them, then liquidroom copied the `1\.` trick with
+# a comment citing pigeonhole as the precedent. That is the same drift signature that
+# produced four copies of notify(). One renderer means one place to fix them.
+
+# The item indent. NBSP+space pairs, NOT four ordinary spaces: the ntfy web renderer
+# collapses ordinary leading whitespace, so a plain-space indent vanishes there while
+# looking correct on Android. Copied byte-for-byte from pigeonhole's batch_list, where
+# it was arrived at empirically alongside hard breaks, an ASCII tree, a fenced block
+# and inline code spans — all tried the same day and rejected on the device.
+BODY_INDENT=$'        '
+
+# How many items before summarising. Five is what the paused summary already used, so
+# it is a shape the owner has read before. The cap also matters for a reason nothing
+# in the body can see: ntfy silently converts a body over 4096 bytes into an
+# ATTACHMENT, whose content expires in three hours.
+BODY_LIST_MAX="${BODY_LIST_MAX:-5}"
+
+# body_list [--all] <item>... -> the numbered list every body is built from.
+#
+# An item may carry a DETAIL after a TAB, rendered indented beneath its name:
+#
+#   body_list "IMG_1234.jpg"$'\t'"rotated 90°"
+#
+#       1\. IMG_1234.jpg
+#           rotated 90°
+#
+# `1\.` is ESCAPED and therefore not a real ordered list. It has to be: the Android
+# app renders genuine markdown list markers as unnumbered dots, so the numbers — the
+# thing that lets you check a list against the count in the title — silently vanish.
+#
+# The trailing two spaces are a markdown HARD BREAK, without which the detail line
+# joins the name line into one paragraph.
+#
+# --all disables the cap, for the one list that must show every member: pigeonhole's
+# staged batch, whose Accept files ALL of them. Showing 5 of 12 above a button that
+# acts on 12 means approving seven documents you never saw.
+body_list() {
+    local all=0
+    [[ "${1:-}" == "--all" ]] && { all=1; shift; }
+    local -a items=("$@")
+    local n=${#items[@]} shown i out="" name detail
+    shown=$n
+    (( all )) || (( shown <= BODY_LIST_MAX )) || shown=$BODY_LIST_MAX
+    for (( i = 0; i < shown; i++ )); do
+        name="${items[$i]%%$'\t'*}"
+        detail=""
+        [[ "${items[$i]}" == *$'\t'* ]] && detail="${items[$i]#*$'\t'}"
+        out+="$(( i + 1 ))\\. $(md_escape "$name")"
+        [[ -n "$detail" ]] && out+="  "$'\n'"${BODY_INDENT}$(md_escape "$detail")"
+        out+=$'\n'
+    done
+    (( n > shown )) && out+="… and $(( n - shown )) more"$'\n'
+    printf '%s' "$out"
+}
+
+# body_aside <text> -> the italic afterthought.
+#
+# For what the notification CANNOT act on — a truncation count, an ETA, the sentence
+# explaining why something is parked. An afterthought to the list above rather than
+# another item in it.
+#
+# Escaped like everything else, then wrapped: the underscores that make it italic are
+# added AFTER md_escape, so a name inside the text cannot break out of the emphasis.
+body_aside() {
+    [[ -n "${1:-}" ]] || return 0
+    printf '_%s_' "$(md_escape "$1")"
+}

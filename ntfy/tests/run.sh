@@ -313,5 +313,53 @@ hasnt "no Tags header"      "$hdrs" "Tags:"
 hasnt "no Priority header"  "$hdrs" "Priority:"
 has   "still a Title"       "$hdrs" "Title: title"
 
+# ------------------------------------------------------------------ bodies
+# Every device quirk below was learned on the actual phone and was being COPY-PASTED
+# between pipelines before it lived here — the same drift signature that produced four
+# copies of notify(). These pin the bytes, because that is what the quirks are about.
+echo "body_list"
+one="$(body_list "a.txt")"
+is    "a bare item is numbered"     "$one" "1\\. a.txt"
+# NOT a real markdown list: the Android app renders genuine ordered-list markers as
+# unnumbered dots, so the numbers — the thing that lets you check a list against the
+# count in the title — silently vanish.
+has   "the marker is escaped"       "$one" '1\. '
+hasnt "and is not a real list"      "$one" $'\n1. '
+
+pair="$(body_list "IMG_1234.jpg"$'\t'"rotated 90°")"
+has   "a detail is indented"        "$pair" "rotated 90"
+# NBSP+space pairs, NOT ordinary spaces: the ntfy web renderer collapses ordinary
+# leading whitespace, so a plain-space indent vanishes there while looking right on
+# Android.
+has   "with NBSPs, not spaces"      "$pair" $'\u00a0'
+hasnt "no four-space indent"        "$pair" $'\n    '
+# A markdown HARD BREAK, without which the detail joins the name into one paragraph.
+has   "and a hard break above it"   "$pair" "  "$'\n'
+
+# Untrusted text reaches these: a camera filename is mostly underscores, and a name
+# arriving over Syncthing could carry a live link. This is the whole reason
+# NTFY_MARKDOWN existed, and why it can now go.
+esc="$(body_list "photo_2026_08_01.jpg" "[tap here](https://evil.example)")"
+has   "underscores are escaped"     "$esc" 'photo\_2026\_08\_01.jpg'
+hasnt "and a link cannot render"    "$esc" '](https://evil.example)'
+
+capped="$(body_list a b c d e f g)"
+has   "capped at five"              "$capped" "5\\. e"
+hasnt "the sixth is not listed"     "$capped" "6\\. f"
+has   "and the rest are counted"    "$capped" "… and 2 more"
+# --all is for the one list that must show everything: pigeonhole's staged batch,
+# whose Accept files ALL of them. Showing 5 of 12 above a button that acts on 12
+# means approving seven documents you never saw.
+allof="$(body_list --all a b c d e f g)"
+has   "--all shows every item"      "$allof" "7\\. g"
+hasnt "and counts nothing off"      "$allof" "and 2 more"
+
+echo "body_aside"
+is    "wrapped in italics"          "$(body_aside "3 more still queued")" "_3 more still queued_"
+is    "empty text yields nothing"   "$(body_aside "")" ""
+# Escaped BEFORE the wrapping underscores are added, so a name inside cannot break out
+# of the emphasis and leave the rest of the body italic.
+has   "text is escaped inside"      "$(body_aside "a_b_c")" 'a\_b\_c'
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
