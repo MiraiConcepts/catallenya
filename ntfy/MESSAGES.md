@@ -246,6 +246,32 @@ item. **It has an emoji presentation and some Android builds may render it as a 
 square** — accepted deliberately, and the first thing to check on the device. The safe
 fallbacks are `■` U+25A0 or `•` U+2022, neither of which is emoji-capable.
 
+#### The one text no rule can reach
+
+**afterimage's `reason` is model-written prose and stays that way.** The plan was to
+replace it with a code, the way pigeonhole returns `PDF_UNREADABLE_OR_ENCRYPTED` and
+`reason_text()` turns that into a sentence — after which "no em-dashes" is a grep over
+`case` arms rather than something anyone must remember.
+
+Measured against the archive instead of assumed, and the archive says no. In 115
+records the one stored `needs_human` reason reads:
+
+> The screenshot shows an Instagram post for a bar's Cupid event ("magic at 10pm",
+> free entry, 9 Bras Basah Road) and a group chat planning to walk in around 10pm, but
+> no specific calendar date for the outing is shown anywhere, only a note that
+> reservation slots open 1 August onwards.
+
+No enum produces that, and `NO_RESOLVABLE_DATE` → "No date could be resolved." throws
+away everything that made it actionable. **The two pipelines differ in what the reason
+is ABOUT**: pigeonhole's describes a failure to read a FILE, and the ways a file can
+fail to be read are finite; afterimage's describes what a SCREENSHOT SHOWED, which is
+not. The enum is right in one and wrong in the other for the same reason.
+
+So the style rules are carried in the PROMPT — full stops, no em-dashes, no rhetorical
+questions, no Markdown, and be specific rather than brief. That is weaker than a gate
+and is the honest place for it: nothing static can check a sentence a model has not
+written yet.
+
 #### One thing kept that looks inconsistent
 
 **afterimage keeps record ids** — `(id 3f2a9c1b)` — because a screenshot has no name
