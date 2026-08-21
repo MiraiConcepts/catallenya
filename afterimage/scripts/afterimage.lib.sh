@@ -100,6 +100,14 @@ BUTTON_LABEL_MAX=20
 # Separator between an event's detail and the alternative on offer. The word "or"
 # used to sit here ("19:15  ·  or 20:15"); the bullet alone says the same thing in
 # a line that has to survive a phone's wrapping.
+# " • " and NOT " or " — a decision made on 2026-07-27 (8ede8b7) by reading real
+# notifications on a phone rather than in a terminal: the bullet says the same thing
+# in a line that has to survive wrapping on a narrow screen.
+#
+# It now sits beside the ▪ that marks a fact line, and the two are adjacent in shape.
+# Kept anyway, because POSITION separates them: ▪ is always line-initial and • is
+# always inline. If the phone ever proves otherwise, the fact marker has fallbacks
+# (■ U+25A0) and this does not — a separator has to be narrow.
 ALT_SEP=" • "
 RENOTIFY_AFTER_HOURS=24   # one nudge, in case the first ntfy was never seen
 IGNORE_AFTER_HOURS=168    # 7 days untouched -> archive with outcome "ignored"

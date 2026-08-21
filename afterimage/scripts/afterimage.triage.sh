@@ -187,47 +187,56 @@ notify_event() {
     # tour differs by date AND venue: the button can only label one axis, but a body
     # that showed Kuala Lumpur while offering the Seoul date would be lying about
     # what the second button writes.
-    body="$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")"
+    # FACTS, one per line: the date, the time, the venue. Unlabelled deliberately —
+    # each announces what it is, and a fact carries no stub label. This is the body
+    # the no-label rule was written for. See ntfy/MESSAGES.md § 3.
+    local -a facts=()
+    facts=("$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")")
     # A span reads with an en dash, deliberately NOT the bullet: the bullet means
     # "or" everywhere else in this body, and a run of days is not a choice.
     [[ -n "$ev_end_date" ]] \
-        && body+=" – $(date -d "$ev_end_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_end_date")"
+        && facts[0]+=" – $(date -d "$ev_end_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_end_date")"
     [[ -n "$alt_date_h" && "$alt_date_h" != "$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null)" ]] \
-        && body+="${ALT_SEP}${alt_date_h}"
+        && facts[0]+="${ALT_SEP}${alt_date_h}"
     if [[ "$all_day" == "true" ]]; then
-        body+=$'\n'"All day"
+        facts+=("All day")
     elif [[ -n "$ev_start" ]]; then
-        [[ -n "$ev_end" ]] && body+=$'\n'"${ev_start} - ${ev_end}" || body+=$'\n'"${ev_start}"
-        [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] && body+="${ALT_SEP}${alt_time_h}"
+        [[ -n "$ev_end" ]] && facts+=("${ev_start} - ${ev_end}") || facts+=("${ev_start}")
+        [[ -n "$alt_time_h" && "$alt_time_h" != "$ev_start" ]] \
+            && facts[-1]+="${ALT_SEP}${alt_time_h}"
     fi
-    # Venues come from the screenshot, so they are escaped before reaching a body
-    # that ntfy now renders as Markdown.
+    # Venues come from the screenshot. NOT md_escape'd here — body_fact escapes every
+    # line it renders, and doing both turns a venue called `Bar_Bar` into `Bar\\_Bar`.
     if [[ -n "$ev_loc" ]]; then
-        body+=$'\n'"$(md_escape "$ev_loc")"
-        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && body+="${ALT_SEP}$(md_escape "$alt_loc_h")"
+        facts+=("$ev_loc")
+        [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && facts[-1]+="${ALT_SEP}${alt_loc_h}"
     fi
     # The calendar name is NOT shown. It read "General" on almost everything,
     # which told the user nothing they had not already assumed, and the one case
     # it was informative for — a birthday — announces itself in the title. Routing
     # is unaffected: the container reads .calendar from proposal.json to pick the
     # Radicale collection (server.ts), and never looks at this body.
-    # Everything the notification CANNOT act on, in one italic aside — an
-    # afterthought to the event above rather than two more facts about it:
+    # Everything the notification CANNOT act on, as truncation counts — which is the
+    # one thing italics mean here, and both of these are literally that: they count
+    # what is MISSING rather than what is present. Neither is the position, which
+    # lives in the title.
     #
-    #   1 more date not offered • 3 more events not sent
+    #   1 more date not offered      only the FIRST alternative becomes a button
+    #                                (ntfy allows three actions and Discard takes
+    #                                one), so the rest sit in proposal.json with no
+    #                                way to act on them.
+    #   3 more events not sent       MAX_EVENTS_PER_CAPTURE discarded these outright:
+    #                                no notification, no record, no button. `dropped`
+    #                                counts only what the cap really cut. The line it
+    #                                replaced compared against the page TOTAL, so it
+    #                                fired on any multi-event capture with something
+    #                                in the past and called those events "not shown"
+    #                                while showing them in their own note.
     #
-    # Both count what is missing, not what is present, so they share a shape and
-    # read as one thought. Neither is the position, which lives in the title.
-    #
-    #   ...not offered — only the FIRST alternative becomes a button (ntfy allows
-    #      three actions and Discard takes one), so the rest sit in proposal.json
-    #      with no way to act on them.
-    #   ...not sent — MAX_EVENTS_PER_CAPTURE discarded these outright: no
-    #      notification, no record, no button. `dropped` counts only what the cap
-    #      really cut. The line it replaced compared against the page TOTAL, so it
-    #      fired on any multi-event capture with something in the past and called
-    #      those events "not shown" while showing them in their own note.
-    local n_alt n_hidden mi joined noun
+    # BOTH ON ONE ITALIC LINE, joined by ALT_SEP — deliberate (f68e458), because they
+    # share a shape and read as one thought. The bullet is a separator in both its
+    # uses here, not a word standing in for "or".
+    local n_alt n_hidden mi joined noun aside=""
     local -a meta=()
     n_alt="$(jq -r '.alternatives | length' <<<"$ev")"
     if [[ "$n_alt" =~ ^[0-9]+$ ]] && (( n_alt > 1 )); then
@@ -242,8 +251,10 @@ notify_event() {
     if (( ${#meta[@]} )); then
         joined="${meta[0]}"
         for (( mi = 1; mi < ${#meta[@]}; mi++ )); do joined+="${ALT_SEP}${meta[$mi]}"; done
-        body+=$'\n'"_${joined}_"
+        aside="$(body_aside "$joined")"
     fi
+
+    body="$(body_join "$(body_fact "${facts[@]}")" "$aside")"
 
     if ! base="$(capture_base_url)"; then
         # A FAULT, not a proposal. This used to read "Kene (no buttons)" — a
@@ -333,8 +344,11 @@ for png in "${pngs[@]}"; do
         FAILED=$((FAILED + 1))
         # A stable id, so the twelve identical alarms one full pool used to produce
         # collapse into one message that keeps being replaced.
+        # `Disk full?` was a rhetorical question — banned, because a question in a
+        # notification reads as one the reader is expected to answer. State it.
         notify_fault "$(title_count Stuck 1 Screenshot)" \
-               "Could not move a screenshot out of incoming/ (id ${id:0:8}). Disk full? The trigger will keep retrying until this is cleared." \
+               "$(body_join "$(body_list "${id:0:8}")" \
+                   "Could not move it out of incoming/. The disk may be full. The trigger will keep retrying until this is cleared.")" \
                "$STUCK_NTFY_ID"
         continue
     fi
@@ -378,7 +392,9 @@ for png in "${pngs[@]}"; do
         # right for a 401 and actively misleading for the commonest case — the model
         # declining to read a screenshot. ai_reason() names what actually happened.
         notify_fault "$(title_count "Model Failed" 1 Screenshot)" \
-               "Could not read that screenshot (id ${id:0:8}). $(ai_reason "$ask_rc") — not a temporary error."
+               "$(body_join "$(body_list "${id:0:8}")" \
+                   "$(body_fact "$(ai_reason "$ask_rc")" "Not a temporary error")" \
+                   "Could not read it.")"
         continue
     fi
 
@@ -440,7 +456,10 @@ for png in "${pngs[@]}"; do
             #
             # The record id is what lets the sweep's nudge replace this message
             # rather than arrive beside it.
-            nh_body="$(md_escape "${reason:-Time or date unclear — not adding.}")"
+            # NOT md_escape'd here: this is prose, and the only untrusted part of it
+            # is the model's own `reason`, which body_join passes through unchanged —
+            # so the escaping happens where the string is BUILT, above.
+            nh_body="$(md_escape "${reason:-The time or date is unclear, so nothing was added.}")"
             if nh_base="$(capture_base_url)"; then
                 notify_proposal "$(title_count Flagged 1 Event "${nh_title}")" \
                        "$nh_body" "$(discard_action "$nh_base" "$id")" "$id"
@@ -503,11 +522,12 @@ for png in "${pngs[@]}"; do
 
     # past_note <record-or-empty> — one notification covering everything already over.
     past_note() {
-        local body t
-        body="$(printf '%s event%s already passed:' \
-                "$n_past" "$( (( n_past == 1 )) || printf s )")"
-        for t in "${past_titles[@]:0:5}"; do body+=$'\n'"• $(md_escape "$t")"; done
-        (( n_past > 5 )) && body+=$'\n'"• … and $(( n_past - 5 )) more"
+        # ITEMS, not bullets. This built its own "• name" list with its own five-item
+        # cap and its own "… and N more" tail — a third copy of what body_list does,
+        # differing only in the marker. The heading went with it: the title already
+        # says `Passed: 3 Events`, and a heading above a numbered list says it twice.
+        local body
+        body="$(body_list "${past_titles[@]}")"
         notify_receipt "$(title_count Passed "$n_past" Event)" "$body"
     }
 
