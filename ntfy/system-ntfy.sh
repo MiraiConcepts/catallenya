@@ -151,7 +151,51 @@ else
 fi
 
 # Get systemctl status output
-message=$(systemctl status "${service_name}.service" || true)
+# THE BODY IS THE JOB'S OWN WORDS, not `systemctl status` (changed 2026-08-20).
+#
+# This one body serves every job failure in the fleet plus the four restic successes,
+# and a status dump spent ~18 lines on Loaded=/Active=/Process= boilerplate before
+# reaching anything a person wants. The useful sentence was in the journal excerpt at
+# the bottom, if it fitted at all: restic.staleness prints exactly
+#
+#     Newest snapshot is 402h old, over the 48h limit (2026-07-15T00:31:02Z).
+#
+# and that arrived buried under systemd's own scaffolding. `-o cat` strips the
+# timestamp and unit prefix, leaving the script's lines and systemd's own
+# start/stop/result lines — which is the whole of what the notification is for.
+#
+# Nothing is lost: journalctl -u <unit> still holds the complete record, and the
+# title already carries the outcome, so the exit code the dump provided is redundant.
+#
+# The fallback is not decoration. This is the alarm of last resort, and an EMPTY body
+# would be worse than a verbose one — if the journal cannot be read (this runs as
+# User=carrein, which is in `adm` today, but that is a property of the host rather
+# than of this file) the status dump is still better than nothing.
+inv=$(systemctl show "${service_name}.service" -p InvocationID --value 2>/dev/null)
+message=""
+if [[ -n "$inv" ]]; then
+    # THIS RUN ONLY, and only what the job PRINTED.
+    #
+    # _SYSTEMD_INVOCATION_ID scopes it to the invocation that just ended. Without it,
+    # `-n 8` reaches back across runs: restic.staleness runs daily and prints one
+    # line, so a failure arrived under five previous days of "within the 48h limit"
+    # — the notification for a broken thing led with five reassurances.
+    #
+    # _TRANSPORT=stdout drops systemd's own Starting/Deactivated/Finished/Consumed/
+    # Triggering lines, which otherwise fill the whole budget: `disk` prints nothing
+    # when healthy, so every one of its eight lines was systemd talking about itself.
+    message=$(journalctl "_SYSTEMD_INVOCATION_ID=${inv}" _TRANSPORT=stdout \
+                  -n 8 --no-pager -o cat 2>/dev/null || true)
+    # A job that printed nothing at all still has systemd's own verdict for this run,
+    # and "Failed with result 'exit-code'" beats an empty notification.
+    [[ -n "${message//[[:space:]]/}" ]] || \
+        message=$(journalctl "_SYSTEMD_INVOCATION_ID=${inv}" -n 8 --no-pager -o cat 2>/dev/null || true)
+fi
+# Last resort. This is the alarm of last resort, and an EMPTY body would be worse
+# than a verbose one — if the journal cannot be read at all (this runs as
+# User=carrein, in `adm` today, but that is a property of the host rather than of
+# this file) the old status dump is still better than nothing.
+[[ -n "${message//[[:space:]]/}" ]] || message=$(systemctl status "${service_name}.service" || true)
 
 # Same guard the intake libs and the heartbeat carry, placed immediately before
 # the curl so everything up to the wire — ownership, topic routing, title and
