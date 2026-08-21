@@ -258,6 +258,18 @@ a fact stands alone and has to describe itself. **No full stop on any line but p
 **Italics mean a truncation count and nothing else** — three forms, all from
 `body_aside`. Full contract in `ntfy/MESSAGES.md` § 3.
 
+**afterimage's `reason` stays model-written prose — the planned phase 4 was measured
+and declined, do not re-raise.** The plan was to have the model return a CODE, as
+pigeonhole does (`reason_text`, `flag_clause`), which would make "no em-dashes" a grep
+over `case` arms. Checked against the archive rather than assumed: across 115 records
+the one stored `needs_human` reason is a specific paragraph naming what the screenshot
+showed, what was missing and what it said instead, and `NO_RESOLVABLE_DATE` → "No date
+could be resolved." throws all of that away. **The two pipelines differ in what the
+reason is ABOUT** — pigeonhole's describes a failure to read a FILE, and those failure
+modes are finite; afterimage's describes what a SCREENSHOT SHOWED, which is not. The
+style rules live in the prompt instead, which is weaker than a gate and is the honest
+place for them: nothing static can check a sentence the model has not written yet.
+
 **The envelope, phase 2.** There are **no tags and no priority** anywhere — both left
 `notify()`'s signature on 2026-08-20. Priority had exactly one legal value, so it was a
 slot waiting for someone to put `high` in it; tags were twelve glyphs of which four meant
