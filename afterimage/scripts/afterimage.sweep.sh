@@ -98,11 +98,16 @@ for rec in "${records[@]}"; do
             # pending/ — afterwards this path names nothing.
             gave_up=""
             [[ -f "${rec}/paused_reason" ]] && gave_up="$(cat "${rec}/paused_reason")"
-            if [[ -n "$gave_up" ]]; then
-                give_up_body="${gave_up} — that screenshot (id ${id:0:8}) went unanswered for ${age_d} days. Take it again once things are healthy."
-            else
-                give_up_body="Could not reach the API for that screenshot (id ${id:0:8}) in ${age_d} days. Take it again once things are healthy."
-            fi
+            # ITEM, FACT, PROSE. It used to be one sentence with the reason welded
+            # to the front by an em-dash — "Out of credits — that screenshot (id
+            # 3f2a9c1b) went unanswered for 7 days." The id is what identifies the
+            # record, so it is the item; the reason is a state of the run, so it is a
+            # fact; and the instruction is prose, which is the only shape here that
+            # takes a full stop.
+            give_up_body="$(body_join \
+                "$(body_list "${id:0:8}")" \
+                "$(body_fact "${gave_up:-The API could not be reached}" "Unanswered for ${age_d} days")" \
+                "Take it again once things are healthy.")"
             archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
                 && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
             notify_fault "$(title_count Abandoned 1 Screenshot)" "$give_up_body"
@@ -151,7 +156,9 @@ for rec in "${records[@]}"; do
             nh_act=""
             nh_base="$(capture_base_url)" && nh_act="$(discard_action "$nh_base" "$id")"
             notify_nudge "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" \
-                   "$(md_escape "${nh_r:-Time or date unclear — not adding.}") — still waiting after ${nh_age_h}h." \
+                   "$(body_join \
+                       "$(md_escape "${nh_r:-The time or date is unclear, so nothing was added.}")" \
+                       "$(body_fact "Still waiting after ${nh_age_h}h")")" \
                    "$id" "$nh_act"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
@@ -188,7 +195,8 @@ for rec in "${records[@]}"; do
             # retract-then-publish and not an in-place update: an update may be
             # applied silently, and a nudge that does not alert is not a nudge.
             notify_nudge "$(title_quote "$title" "$(title_age "$age_h")")" \
-                   "${when} — proposed ${age_h}h ago, no action yet." "$id" "$actions"
+                   "$(body_fact "$when" "Proposed ${age_h}h ago, no action yet")" \
+                   "$id" "$actions"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
             log "re-notified ${id:0:8} (${age_h}h)"
@@ -300,10 +308,11 @@ if (( ${#strays[@]} )); then
     if (( DRY )); then
         log "would report ${#strays[@]} stray file(s) in incoming/: ${strays[*]}"
     else
-        body="incoming/ holds ${#strays[@]} file$( (( ${#strays[@]} == 1 )) || printf s ) the pipeline cannot see:"
-        for s in "${strays[@]:0:5}"; do body+=$'\n'"• $(md_escape "$s")"; done
-        (( ${#strays[@]} > 5 )) && body+=$'\n'"• … and $(( ${#strays[@]} - 5 )) more"
-        body+=$'\n'"Only *.png is triaged. Rename it to <uuid>.png to queue it, or remove it."
+        # ITEMS then PROSE. This built its own "• name" list with its own five-item
+        # cap and its own "… and N more" tail, which is what body_list does — and the
+        # heading above it said what the title already says.
+        body="$(body_join "$(body_list "${strays[@]}")" \
+            "Only .png files are triaged. Rename one to a UUID ending in .png to queue it, or remove it.")"
         notify_fault "$(title_count Stranded "${#strays[@]}" File)" "$body" "$STRANDED_NTFY_ID"
         log "reported ${#strays[@]} stray file(s) in incoming/"
     fi

@@ -405,6 +405,14 @@ body_fact() {
 #
 # An EMPTY section is dropped rather than joined, so a body with no items does not
 # open with a blank line and a body with no prose does not end with one.
+#
+# IT ESCAPES NOTHING, and must not: its arguments are already-rendered sections whose
+# own renderer escaped them, and escaping twice turns `1\.` into `1\\.`. The one
+# argument that is not pre-rendered is the PROSE, which is therefore the caller's to
+# escape — trivially true when the sentence is ours, and mandatory when any part of it
+# came from a model or a filename. Prose is also the only place markdown syntax can
+# reach a body by accident: `Only *.png is triaged` puts a live emphasis marker in an
+# otherwise literal sentence, so write around it rather than relying on it not pairing.
 body_join() {
     local out="" section
     for section in "$@"; do
