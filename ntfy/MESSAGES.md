@@ -157,6 +157,33 @@ explanation into bullets: `Could not move it out of incoming/. The disk may be f
 reads better than three fragments, and three fragments is what the rule exists to
 prevent.
 
+#### The renderers
+
+**No body is built by hand.** Four functions in `ntfy/kinds.sh` produce the four shapes,
+and every one of them escapes its input — which is what let `NTFY_MARKDOWN` go. Five
+publishers had turned rendering off because their bodies carry raw filenames, and a
+camera name like `photo_2026_08_01.jpg` comes out with its middle italicised, or worse, a
+filename arriving over Syncthing could hide a live `[tap here](https://evil)` inside a
+notification you already trust. Escaping in one place is what makes rendering safe
+everywhere.
+
+```bash
+body_list [--all] <item>...   items, numbered, capped at five; "name<TAB>detail"
+body_fact <line>...           the ▪ lines
+body_aside <text>             the italic truncation count, and nothing else
+body_join <section>...        the blank lines between sections, empties dropped
+```
+
+`body_join` exists because the order rule is a rule and not a habit: `$( )` strips
+trailing newlines, so a section boundary needs two literal newlines and looks like a typo
+with one. That is the kind of thing that is right the first time and wrong the third.
+
+```bash
+BODY="$(body_join \
+    "$(body_list "${ERRORS[@]}")" \
+    "$(body_fact "24/26 containers running" "15/15 timers active")")"
+```
+
 #### The rules
 
 | | Rule | Example |

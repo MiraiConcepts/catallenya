@@ -19,12 +19,12 @@ LOG_TAG="catallenya-boot"
 # Sourced FIRST, before this script's own log(): the library's definition is guarded
 # (`declare -F log || log() {...}`), so the one below wins and stays authoritative.
 #
-# NTFY_MARKDOWN=no, the immich opt-out: the body is a built report of counts and
-# error strings, never authored as Markdown.
-# shellcheck disable=SC2034  # both are read by ntfy.lib.sh, sourced below
+# NTFY_MARKDOWN is GONE (2026-08-21). It was `no` here because the body is a built
+# report of counts and error strings, never authored as Markdown. body_list() and
+# body_fact() escape every line they render, which is what made the opt-out
+# unnecessary — escaping in one place is what makes rendering safe everywhere.
+# shellcheck disable=SC2034  # read by ntfy.lib.sh, sourced below
 NTFY_TOPIC="host"
-# shellcheck disable=SC2034
-NTFY_MARKDOWN=no
 
 # A STABLE SEQUENCE ID, so a condition that persists is ONE message that keeps being
 # replaced rather than a pile. A box that fails to come up cleanly, is power-cycled and fails again should read as
@@ -39,7 +39,10 @@ BOOT_NTFY_ID="boot-failed"
 source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
 log() { echo "[${LOG_TAG}] $*"; }
-fail() { log "FAIL: $*"; ERRORS+=("$*"); }
+# An error is a BODY ITEM, so it may carry a detail after a TAB — that is the shape
+# body_list() renders indented beneath the name. The journal flattens the tab, because
+# a log line is read in a terminal rather than by a markdown renderer.
+fail() { log "FAIL: ${*//$'\t'/ }"; ERRORS+=("$*"); }
 
 ERRORS=()
 
@@ -74,7 +77,7 @@ for unit in "${SYSTEMD_DIR}"/*.timer "${SYSTEMD_DIR}"/*.path; do
     esac
 done
 if [[ ${#TIMERS[@]} -eq 0 ]]; then
-    fail "No project timers found under ${SYSTEMD_DIR} (expected symlinks into ${COMPOSE_DIR})"
+    fail "No project timers found under ${SYSTEMD_DIR}"$'\t'"Expected: symlinks into ${COMPOSE_DIR}"
 else
     log "  Found ${#TIMERS[@]} timer(s): ${TIMERS[*]}"
 fi
@@ -111,12 +114,12 @@ RUNNING=0
 # result is a finding too, because "no containers at all" is never a healthy boot.
 PS_OUT=""
 if ! PS_OUT="$(runuser -u carrein -- docker compose -f "${COMPOSE_DIR}/docker-compose.yml" ps --all --format '{{.Name}} {{.State}}')"; then
-    fail "docker compose ps failed (stderr is in the journal above)"
+    fail "docker compose ps failed"$'\t'"Reason: stderr is in the journal above"
     PS_OUT=""
 fi
 
 if [[ -z "${PS_OUT//[[:space:]]/}" ]]; then
-    fail "docker compose ps listed no containers at all — the stack is not up"
+    fail "The stack is not up"$'\t'"Reason: docker compose ps listed no containers at all"
 else
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
@@ -125,13 +128,16 @@ else
         if [[ "$state" == "running" ]]; then
             RUNNING=$((RUNNING + 1))
         else
-            NOT_RUNNING+=("${name}(${state})")
+            NOT_RUNNING+=("${name}"$'\t'"State: ${state}")
         fi
     done <<<"$PS_OUT"
 fi
 
+# ONE FINDING PER CONTAINER, not one line listing them all. `Containers not running:
+# a(exited) b(exited) c(created)` was a comma-joined run in a body that now numbers its
+# items, and the numbers are what let you check a list against the count in the title.
 if [[ ${#NOT_RUNNING[@]} -gt 0 ]]; then
-    fail "Containers not running: ${NOT_RUNNING[*]}"
+    for entry in "${NOT_RUNNING[@]}"; do fail "$entry"; done
 fi
 
 # Both counts come from the ONE read above rather than a second `ps -q`. Two reads
@@ -210,11 +216,18 @@ else
     # zero containers down on a run that plainly failed.
     TITLE="$(title_state Boot "${#ERRORS[@]} Error$( (( ${#ERRORS[@]} == 1 )) || printf s )")"
 fi
-BODY="Errors:
-$(printf '  - %s\n' "${ERRORS[@]}")
-Timers: ${TIMER_COUNT}/${#TIMERS[@]} active
-Paths: ${PATH_COUNT}/${#PATHS[@]} active
-Containers: ${RUNNING}/${CONTAINER_TOTAL} running"
+# Findings as ITEMS, then the run's counts as FACTS. The `Errors:` heading is gone —
+# the title already says how many, and a heading above a numbered list says it twice.
+#
+# Facts are self-describing and carry no stub label: `▪ 24/26 containers running`,
+# never `▪ Containers: 24/26`. A fact stands alone, so it has to describe itself,
+# where a detail can lean on the item above it. See ntfy/MESSAGES.md § 3.
+BODY="$(body_join \
+    "$(body_list "${ERRORS[@]}")" \
+    "$(body_fact \
+        "${RUNNING}/${CONTAINER_TOTAL} containers running" \
+        "${TIMER_COUNT}/${#TIMERS[@]} timers active" \
+        "${PATH_COUNT}/${#PATHS[@]} paths active")")"
 
 # No priority argument: an empty one sends no Priority header, which is the same
 # weight the explicit "default" used to ask for. Nothing in this repo shouts.

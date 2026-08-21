@@ -345,7 +345,10 @@ body_list() {
         [[ -n "$detail" ]] && out+="  "$'\n'"${BODY_INDENT}$(md_escape "$detail")"
         out+=$'\n'
     done
-    (( n > shown )) && out+="… and $(( n - shown )) more"$'\n'
+    # ITALIC, because this is a truncation count and that is the one thing italics
+    # mean here. body_aside is the renderer for all three forms; using it rather than
+    # a literal is what stops this line drifting away from the other two.
+    (( n > shown )) && out+="$(body_aside "… and $(( n - shown )) more")"$'\n'
     printf '%s' "$out"
 }
 
@@ -385,6 +388,29 @@ body_fact() {
     for line in "$@"; do
         [[ -n "$line" ]] || continue
         out+="${BODY_FACT_MARK} $(md_escape "$line")"$'\n'
+    done
+    printf '%s' "$out"
+}
+
+# body_join <section>... -> the body, with the blank lines between sections.
+#
+#   body_join "$(body_list "${ITEMS[@]}")" "$(body_fact "${FACTS[@]}")" "$prose"
+#
+# THE ORDER RULE IS ITEMS, BLANK, FACTS, BLANK, PROSE, and it exists because a body
+# read on a lock screen is scanned rather than read: what happened, then the numbers,
+# then the explanation. Callers used to write that blank line themselves, inside a
+# quoted string, which is the kind of thing that is right the first time and wrong the
+# third — `$( )` strips trailing newlines, so a section boundary needs TWO literal
+# newlines and looks like a typo with one.
+#
+# An EMPTY section is dropped rather than joined, so a body with no items does not
+# open with a blank line and a body with no prose does not end with one.
+body_join() {
+    local out="" section
+    for section in "$@"; do
+        [[ -n "${section//[[:space:]]/}" ]] || continue
+        [[ -z "$out" ]] || out+=$'\n\n'
+        out+="${section%$'\n'}"
     done
     printf '%s' "$out"
 }
