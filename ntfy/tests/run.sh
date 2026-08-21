@@ -68,22 +68,29 @@ is "zero is plural"      "$(paused_title 0 Document)"   "Model Paused: 0 Documen
 is "noun is the caller's" "$(paused_title 2 Screenshot)" "Model Paused: 2 Screenshots"
 
 echo "paused_body"
-b="$(paused_body "Out of credits" "moved to bin/ in 7 days" one two three)"
+b="$(paused_body "Out of credits" "Moved to bin/ in 7 days." one two three)"
 has "numbers the items"      "$b" '1\. one'
 has "and keeps going"        "$b" '3\. three'
 hasnt "no summary under cap" "$b" "more"
-has "reason then outcome"    "$b" "_Out of credits. Retrying daily — moved to bin/ in 7 days._"
+# ITEMS, then FACTS, then PROSE. It used to be one italic line reading
+# "_Out of credits. Retrying daily — moved to bin/ in 7 days._": three separate facts
+# run together, whispered, and joined by an em-dash. Italics mean truncation here and
+# nothing else, so nothing in this body is italic any more.
+has "the reason is a fact"   "$b" $'\u25aa Out of credits'
+has "so is the cadence"      "$b" $'\u25aa Retrying daily'
+has "the outcome is prose"   "$b" "Moved to bin/ in 7 days."
+hasnt "and nothing whispers" "$b" "_Out of credits"
 # REGRESSION: `local n=... shown="$n"` reads the OUTER n, because bash expands every
 # right-hand side in one `local` before assigning any of them. That shipped for
 # exactly one run of this file and printed the summary line with no items at all.
 has "items actually render"  "$b" '2\. two'
 
-b8="$(paused_body "Out of credits" "x" a b c d e f g h)"
+b8="$(paused_body "Out of credits" "Binned in 7 days." a b c d e f g h)"
 has "caps the list at five"  "$b8" '5\. e'
 hasnt "and stops there"      "$b8" '6\.'
 has "counts what it omitted" "$b8" "… and 3 more"
 
-bx="$(paused_body "Out of credits" "x" 'lab_report.pdf' '[tap](https://evil)')"
+bx="$(paused_body "Out of credits" "Binned in 7 days." 'lab_report.pdf' '[tap](https://evil)')"
 has "escapes an item"        "$bx" 'lab\_report.pdf'
 has "an item cannot inject a link" "$bx" '\[tap\]\(https://evil\)'
 
@@ -93,11 +100,11 @@ has "an item cannot inject a link" "$bx" '\[tap\]\(https://evil\)'
 # from ai_reason() so no consumer can author its own.
 echo "identical across pipelines"
 r="$(ai_reason 3)"
-pig="$(paused_body "$r" "moved to bin/ in 7 days, nothing is deleted" a)"
-aft="$(paused_body "$r" "archived in 7 days, and the screenshots go with them" a)"
+pig="$(paused_body "$r" "Moved to bin/ in 7 days. Nothing is deleted." a)"
+aft="$(paused_body "$r" "Archived in 7 days, and the screenshots go with them." a)"
 is "same reason clause" \
-   "$(grep -o 'Out of credits\. Retrying daily' <<<"$pig")" \
-   "$(grep -o 'Out of credits\. Retrying daily' <<<"$aft")"
+   "$(grep -o $'\u25aa Out of credits' <<<"$pig")" \
+   "$(grep -o $'\u25aa Out of credits' <<<"$aft")"
 is "reason is not the caller's to write" "$r" "Out of credits"
 is "a timeout reads differently"         "$(ai_reason 2)" "The API is unreachable"
 
@@ -120,14 +127,14 @@ sync_trace() {
 
 # The CAUSE is the fourth argument, between the reason and the outcome clause: it
 # becomes the bracket on the title, while the reason stays in the body sentence.
-t="$(sync_trace pause-1 Document "Out of credits" Unpaid "moved to bin/ in 7 days" a.pdf b.pdf)"
+t="$(sync_trace pause-1 Document "Out of credits" Unpaid "Moved to bin/ in 7 days." a.pdf b.pdf)"
 is  "retract fires first, before any publish" "$(head -n1 <<<"$t")" "RETRACT pause-1"
 has "then the summary, count and noun threaded" "$t" "title=[Model Paused: 2 Documents [Unpaid]]"
 has "no buttons on a summary"            "$t" "actions=[]"
 has "replacement rides the SAME id"      "$t" "id=[pause-1]"
 has "items reach paused_body"            "$t" '1\. a.pdf'
-has "reason and outcome too, in its own arg order" "$t" \
-    "_Out of credits. Retrying daily — moved to bin/ in 7 days._"
+has "reason reaches the body, in its own arg order" "$t" $'\u25aa Out of credits'
+has "and so does the outcome"            "$t" "Moved to bin/ in 7 days."
 
 # THE RUN THAT ENDS AN OUTAGE DOES NOTHING, and that is a DELIBERATE REVERSAL of the
 # 2026-08-19 behaviour rather than a regression — see paused_sync's own comment.

@@ -208,7 +208,7 @@ if (( DRY )); then
 else
     paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
                 "$(parked_cause "$PENDING_DIR")" \
-                "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
+                "Archived in 7 days, and the screenshots go with them." "${paused_items[@]}"
 fi
 
 # --- withdraw notifications for resolved records ---------------------------

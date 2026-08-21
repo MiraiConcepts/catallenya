@@ -587,7 +587,7 @@ done
 mapfile -t paused_items < <(parked_ids "$PENDING_DIR")
 paused_sync "$PAUSED_NTFY_ID" Screenshot "$(parked_reason "$PENDING_DIR")" \
             "$(parked_cause "$PENDING_DIR")" \
-            "archived in 7 days, and the screenshots go with them" "${paused_items[@]}"
+            "Archived in 7 days, and the screenshots go with them." "${paused_items[@]}"
 (( ${#paused_items[@]} )) && log "paused: ${#paused_items[@]} waiting on the API"
 
 log "done: ${OK} ok, ${FAILED} failed"
