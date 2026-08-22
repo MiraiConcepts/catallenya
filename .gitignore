@@ -83,6 +83,11 @@
 # public and watchtower/config.json beside it held a registry token until 2026-06-15.
 !watchtower/
 !watchtower/notification.tmpl
+
+# ZED's notification path, vendored from /etc/zfs/zed.d/ with local fixes. Per-file:
+# host/ also holds job scripts, and a `!host/**` would auto-track whatever lands there.
+!host/zed-functions.sh
+!host/zed.install.sh
 !cloudflared/cloudflared.md
 
 # Immich Public Proxy config (non-secret, stack-defining; mirrors caddy/Caddyfile).
