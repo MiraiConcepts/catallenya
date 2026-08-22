@@ -156,9 +156,12 @@ for rec in "${records[@]}"; do
             nh_act=""
             nh_base="$(capture_base_url)" && nh_act="$(discard_action "$nh_base" "$id")"
             notify_nudge "$(title_count "Still Flagged" 1 Event "${nh_t}" "$(title_age "$nh_age_h")")" \
+                   # FACT then PROSE. The order rule is items, facts, prose, and
+                   # this had the last two the wrong way round — the explanation
+                   # above the number it explains.
                    "$(body_join \
-                       "$(md_escape "${nh_r:-The time or date is unclear, so nothing was added.}")" \
-                       "$(body_fact "Still waiting after ${nh_age_h}h")")" \
+                       "$(body_fact "Still waiting after ${nh_age_h}h")" \
+                       "$(md_escape "${nh_r:-The time or date is unclear, so nothing was added.}")")" \
                    "$id" "$nh_act"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))

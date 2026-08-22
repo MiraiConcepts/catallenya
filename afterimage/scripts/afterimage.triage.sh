@@ -267,9 +267,14 @@ notify_event() {
         # Tagged even though it has no buttons: the record IS left pending, so the
         # sweep will nudge it and eventually archive it, and both of those want to
         # withdraw this message rather than leave it beside their own.
+        # The event's NAME is the item, the facts are already rendered, and the
+        # explanation is prose. This was hand-built until 2026-08-21 — the title, a
+        # raw newline, then `$body` with a full stop welded onto its end, which put
+        # `▪ Candlenut. Could not build callback URL` on one line: a stop and a
+        # sentence glued to a fact.
         notify_fault "$(title_count Unlinked 1 Event)" \
-               "$(md_escape "$title")
-$body. Could not build callback URL; record ${eid:0:8} left pending." \
+               "$(body_join "$(body_list "$title")" "$body" \
+                   "Could not build the callback URL. Record ${eid:0:8} is left pending.")" \
                "$eid"
         log "  !! could not build capture base url"
         return
