@@ -63,6 +63,11 @@ fi
 declare -A SYMLINKS=(
     # --- Timers ---
     ["disk.timer"]="${REPO_DIR}/host/disk.timer"
+    # The two pool members are IDENTICAL parts taking identical writes, so they
+    # wear out on the same schedule and the mirror does not protect against it.
+    # SMART is the only place that trend is visible; ZED sees a disk that has
+    # already failed, scrub sees corruption, neither sees flash near its limit.
+    ["smart.timer"]="${REPO_DIR}/host/smart.timer"
     # changedetection cannot self-report a broken watch — every fetch error just
     # sets last_error and notifies nobody. This is the only thing that looks.
     ["changedetection.health.timer"]="${REPO_DIR}/changedetection/changedetection.health.timer"
@@ -94,6 +99,7 @@ declare -A SYMLINKS=(
 
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/host/disk.service"
+    ["smart.service"]="${REPO_DIR}/host/smart.service"
     ["changedetection.health.service"]="${REPO_DIR}/changedetection/changedetection.health.service"
     ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"

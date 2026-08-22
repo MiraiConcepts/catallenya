@@ -1,0 +1,17 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Check SMART wear and defects daily
+
+[Timer]
+# Daily, and daily is generous: flash wear moves over MONTHS, and the defect
+# counters this also watches are the kind a human has to act on anyway, so noticing
+# sooner buys nothing.
+#
+# 08:05 SGT is chosen against the other morning jobs rather than arbitrarily: after
+# changedetection.health at 08:00 so the morning batch arrives together, and — with
+# five minutes of jitter, so at the latest 08:10 — comfortably BEFORE the 08:15
+# watchdog, meaning the roll call always reads a stamp from the same morning rather
+# than yesterday's.
+OnCalendar=*-*-* 08:05:00 Asia/Singapore
+RandomizedDelaySec=5min
