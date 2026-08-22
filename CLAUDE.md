@@ -430,8 +430,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   | `pigeonhole` | `MiraiConcepts/pigeonhole` | same |
   | **`systemd`** | **`MiraiConcepts/controlplane`** | **mismatch** |
   | **`ai`** | **`MiraiConcepts/inference`** | **mismatch** |
+  | **`ntfy`** | **`MiraiConcepts/dispatch`** | **mismatch** |
 
-  Three of five match, so **do not assume a mirror's name is its directory** — read
+  Three of six match, so **do not assume a mirror's name is its directory** — read
   the matrix. `systemd/` is deliberately not renamed: unlike `capture`/`documents`,
   which were generic words standing in for one specific thing, `systemd/` accurately
   names what it holds, and renaming it would also collapse that mirror's 67 commits
