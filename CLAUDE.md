@@ -506,7 +506,7 @@ installing into the wrong directory leaves a hook that looks installed and never
 | `pre-push` | `ci/pre-push` | runs `ci/shellcheck.sh`, the same check CI runs |
 
 **The split between them is the point, not an accident.** Secrets are stopped at
-COMMIT time because this repo is public and force-pushes to five mirrors — CI runs
+COMMIT time because this repo is public and force-pushes to every mirror — CI runs
 after the push, which is after the leak, so CI cannot help at all. A shell fault is
 reversible and costs only a red build, so it is checked once per PUSH; a check that
 fires on every docs typo teaches `--no-verify`, and that is the same flag that would

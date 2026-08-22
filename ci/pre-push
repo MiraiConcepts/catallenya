@@ -7,7 +7,7 @@
 #
 # pre-PUSH rather than pre-commit, deliberately. audit/pre-commit guards secrets,
 # which are irreversible the moment they are pushed to a public repo that force-
-# pushes to five mirrors — those must be stopped at commit time. A shell fault
+# pushes to every mirror — those must be stopped at commit time. A shell fault
 # is reversible and costs only a red build, so it is checked once per push
 # rather than on every commit. A check that fires on every docs typo is a check
 # people learn to skip with --no-verify, which would cost the secret guard its
