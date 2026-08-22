@@ -606,12 +606,12 @@ contract listing only what it governs reads as though it governs everything.
 |---|---|---|
 | **watchtower** | `docker-compose.yml`, shoutrrr | **in the contract, hand-matched** |
 | **changedetection** (the watches) | Apprise, set in its **UI** | **reshaped, but unenforceable** |
-| **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/zed.rc` on the host | outside |
+| **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/` on the host | **in the contract, hand-matched** |
 
-Neither of the first two can call `ntfy/kinds.sh` — one is a Go binary, the other a
-Python app — so both match the grammar **by hand**, exactly as `ntfy/system-ntfy.sh`
-does. That is three hand-matched publishers now, and the number should not grow: each is
-a place the gate cannot reach.
+None of the three can call `ntfy/kinds.sh` — a Go binary, a Python app and a POSIX
+shell function outside the repo — so all three match the grammar **by hand**, exactly as
+`ntfy/system-ntfy.sh` does. That is **four hand-matched publishers**, and the number
+should not grow: each is a place the gate cannot reach.
 
 ### watchtower
 
@@ -633,6 +633,41 @@ path is indistinguishable from a template that never emits.
 **The title is not ours and cannot be.** shoutrrr's ntfy service does not let the sender
 set one, so it stays `Watchtower updates on <hostname>`. `hostname: watchtower` in compose
 fixes the half that could be fixed — it read `…on 6729304e71db`, the container id.
+
+### zed
+
+Titles are built in `zed_ntfy_title()`, a local addition to
+`/etc/zfs/zed.d/zed-functions.sh`. The file is vendored at **`host/zed-functions.sh`**
+and installed by `sudo bash host/zed.install.sh`.
+
+| Event | Title |
+|---|---|
+| `scrub_finish` | `Scrub: Finished` |
+| `resilver_finish` | `Resilver: Finished` |
+| `data` | `Data: Errors Found` |
+| `statechange` FAULTED/DEGRADED/REMOVED/UNAVAIL | `Device: Faulted` / `Degraded` / `Removed` / `Unavailable` |
+| anything else | zed's own subject, unchanged |
+
+The mapping is exhaustive for the four enabled zedlets and is built from `ZEVENT_*`
+rather than by parsing the subject — there are five subject shapes across the zedlets,
+so a regex over the prose would be matching wording upstream is free to change.
+
+**The pool cannot be the subject**: the topic is `zpool` and the pool is literally named
+`zpool`, so it would repeat the topic. The EVENT is the subject instead.
+
+**Bodies are left verbatim**, and that is not laziness — a `zpool status` dump is what
+you want when a disk is failing, for the same reason `system-ntfy.sh` sends a raw
+journal excerpt.
+
+**Four defects were fixed in the same edit**, all of them ones this repo had already
+fixed elsewhere on 2026-08-19: no `-f` (an HTTP error returned 0 and the alert vanished
+while zed recorded success — on the channel that reports a dying disk), no `--max-time`,
+`-d` instead of `--data-raw`, and no CR/LF strip on the `Title:` header. `Priority: high`
+was hardcoded and is gone.
+
+Each is verified rather than assumed: an HTTP error now returns 1, an unreachable host is
+bounded at exactly 15s, and a real publish lands as `Scrub: Finished` with no priority
+and no tags.
 
 ### changedetection
 
