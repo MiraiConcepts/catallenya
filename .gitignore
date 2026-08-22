@@ -78,6 +78,11 @@
 
 # Explicit includes inside caddy and cloudflared subfolders
 !caddy/Caddyfile
+
+# watchtower's notification body. Per-file, never `!watchtower/**` — this repo is
+# public and watchtower/config.json beside it held a registry token until 2026-06-15.
+!watchtower/
+!watchtower/notification.tmpl
 !cloudflared/cloudflared.md
 
 # Immich Public Proxy config (non-secret, stack-defining; mirrors caddy/Caddyfile).

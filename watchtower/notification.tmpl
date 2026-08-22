@@ -1,0 +1,39 @@
+{{/*
+  watchtower's notification body — the one message on this box that is NOT built by
+  ntfy/kinds.sh, because watchtower is a container and cannot source a bash library.
+  It matches the contract by hand, exactly as ntfy/system-ntfy.sh does. See
+  ntfy/MESSAGES.md § 8b.
+
+  SILENT UNLESS SOMETHING FAILED. Every other job here is silent when healthy, and
+  before this watchtower sent a notification on every run that changed anything —
+  which meant one a day, because tomsquest/docker-radicale:latest is rebuilt
+  upstream daily. A notification you receive every day and never act on is how a
+  topic gets muted, after which the one that mattered is the first thing lost.
+  A successful update is deliberately invisible; `docker ps` and the image tags say
+  what is running.
+
+  THE OUTER `if .Report` IS LOAD-BEARING. watchtower renders this template for its
+  STARTUP message too, where .Report is nil — without the guard that is a nil-pointer
+  error in the log on every restart.
+
+  A template that fails to parse does NOT silence watchtower: it logs
+  "Could not use configured notification template, falling back to default" and
+  sends the old format. Verified on this box 2026-08-22. That is the safe direction,
+  but it means a broken template shows up as the OLD message rather than as no
+  message — check the log if the format ever reverts.
+
+  Plain text, not Markdown: shoutrrr's ntfy service sends without the Markdown
+  header, so the escaped "1\." trick would show its backslash and is not used.
+  Same reasoning as system-ntfy.sh, the other hand-matched message.
+*/ -}}
+{{- if .Report -}}
+{{- if .Report.Failed -}}
+{{- range .Report.Failed }}
+{{ .Name }}
+    Image: {{ .ImageName }}
+    Reason: {{ .Error }}
+{{- end }}
+
+▪ {{ len .Report.Failed }} of {{ len .Report.Scanned }} containers failed
+{{- end -}}
+{{- end -}}

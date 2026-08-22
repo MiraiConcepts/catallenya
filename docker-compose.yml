@@ -892,10 +892,26 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${ZPOOL_VOLUME}/watchtower/config.json:/config.json:ro
+      - ${ZPOOL_VOLUME}/watchtower/notification.tmpl:/notification.tmpl:ro
+    # So the notification title reads "Watchtower updates on watchtower" rather than
+    # "…on 6729304e71db". watchtower builds that title from the HOSTNAME, which in a
+    # container is the container id — a hex string identifying nothing to a human.
+    # The title is the one part of its message shoutrrr's ntfy service will not let
+    # us set, so this is the whole of the fix available for it.
+    hostname: watchtower
     environment:
       - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_NOTIFICATION_URL=${NTFY_PROTOCOL_URL}/${WATCHTOWER_NTFY_TOPIC}
+      # THE BODY FOLLOWS ntfy/MESSAGES.md, by hand — watchtower is a container and
+      # cannot source ntfy/kinds.sh, so it matches the contract the same way
+      # ntfy/system-ntfy.sh does. REPORT=true swaps the template's data from a list
+      # of log lines to the structured session report, which is what makes an
+      # item/detail body possible at all. See watchtower/notification.tmpl for why
+      # it is silent unless something failed, and § 8b of MESSAGES.md for why this
+      # publisher was outside the contract until 2026-08-22.
+      - WATCHTOWER_NOTIFICATION_REPORT=true
+      - WATCHTOWER_NOTIFICATION_TEMPLATE_FILE=/notification.tmpl
       - WATCHTOWER_CLEANUP=true
       # WATCHTOWER_REMOVE_VOLUMES removed 2026-08-10. It deletes a container's
       # ANONYMOUS volumes on update. Safe today only by accident: every
