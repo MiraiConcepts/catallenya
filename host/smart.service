@@ -1,0 +1,70 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type=oneshot, journal
+# logging, the base hardening, and from the monitor class the read-only sandbox,
+# the 10-minute bound and the writable stamp directory.
+#
+# Why monitor rather than scheduled: this job only LOOKS and REPORTS. `smartctl -a`
+# is a read of the drive's own log pages and changes nothing on disk.
+
+[Unit]
+Description=SMART Disk Health Monitor
+
+[Service]
+# Root is genuinely required, verified rather than assumed: as carrein,
+# `smartctl -a /dev/sda` exits with bit 1 set — device open failed. SMART data comes
+# from an ATA passthrough (SATA) or admin passthru (NVMe) ioctl on the raw device,
+# and there is no group or ACL that grants those without privilege.
+User=root
+
+# Root is allowed; UNBOUNDED root is not — install.sh refuses it. Three
+# capabilities, and the third is not obvious:
+#   CAP_SYS_RAWIO      SG_IO ATA passthrough, for the two SATA pool members
+#   CAP_SYS_ADMIN      NVMe admin passthru ioctl, for the root drive
+#   CAP_DAC_OVERRIDE   to write its own completion stamp
+# The other ~38 are dropped.
+#
+# WHY THE THIRD IS NEEDED, learned by the first live run rather than by reading:
+# ROOT'S POWER OVER FILE PERMISSIONS *IS* CAP_DAC_OVERRIDE. Bound the capability set
+# without it and root becomes, for every DAC check, an ordinary user. The stamp
+# directory is drwxr-xr-x carrein:carrein — mode 755, no write for "other" — so
+# 10-base.conf's `ExecStartPost=-/usr/bin/touch .../state/%N` failed with EACCES
+# while the job itself succeeded.
+#
+# That failure is SILENT by design: the `-` prefix means a failed stamp cannot fail
+# the unit, so the job would have reported success every day while the watchdog
+# reported it stale forever — a job that looks healthy to systemd and dead to the
+# watchdog, which is the worst of both readings.
+#
+# It widens nothing that matters. CAP_SYS_RAWIO already permits reading and writing
+# arbitrary blocks on the raw devices, which bypasses file permissions far more
+# comprehensively than DAC_OVERRIDE does. The capability that reads any file is
+# strictly weaker than the one already granted to read any BLOCK.
+#
+# THE SAME SHAPE IS LATENT IN zpool.scrub.service — root with
+# CapabilityBoundingSet=CAP_SYS_ADMIN, so its stamp write fails identically, and
+# /zpool/catallenya/systemd/state has no `zpool.scrub` file while every other
+# registered job has one. It is harmless only because that unit declares
+# Freshness=zfs-scrub:zpool and the watchdog never reads its stamp. Any future root
+# job that relies on a stamp needs this capability.
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+
+# PrivateDevices= MUST NEVER BE ADDED HERE, and the reason is the same one the base
+# policy gives for ProtectClock=: it implies DeviceAllow entries, which collapse
+# DevicePolicy=auto into a closed allowlist of null/zero/full/random/urandom/ptys.
+# /dev/sda, /dev/sdb and /dev/nvme0n1 are not in it — so the job would lose the exact
+# devices it exists to read, and would fail on every drive at once. Issue #15 names
+# this as one of two landmines in the hardening set; this is the unit it lands on.
+ExecStart=/zpool/catallenya/host/smart.sh
+
+[X-Catallenya]
+Class=monitor
+# Daily. 36h allows one missed run before the watchdog complains, matching
+# restic.staleness — the same reasoning, since both are daily and both are silent
+# when healthy, which makes a stopped run indistinguishable from a clean one without
+# the watchdog.
+MaxAge=36h
+# Freshness is implied for the monitor class — its own completion stamp at
+# /zpool/catallenya/systemd/state/smart. Declaring it here is redundant and the gate
+# rejects it.

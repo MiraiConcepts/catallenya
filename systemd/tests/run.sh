@@ -115,7 +115,7 @@ gate_says "cancelling OnFailure= without declaring it is refused" \
     "cancels its inherited OnFailure="
 gate_says "and the acknowledgement is what clears it" \
     "${REPO}/host/disk.service" 's/^\[Service\]$/OnFailure=\n[Service]/; s/^Class=monitor$/Class=monitor\nSelfAlerting=acknowledged/' \
-    "34 units satisfy the contract"
+    "36 units satisfy the contract"
 
 gate_says "a missing User= is refused" \
     "${REPO}/host/disk.service" '/^User=/d' "no explicit User="
@@ -237,7 +237,7 @@ gate_says "Condition*= on a .path unit is refused" \
 
 # A committed-but-unregistered unit validates nothing, installs nothing, and is
 # invisible to the watchdog — a rogue with six violations once sailed past as
-# "OK 34 units". Not gate_says: the mutation is a NEW file, not a sed.
+# "OK 36 units". Not gate_says: the mutation is a NEW file, not a sed.
 restore_tree
 printf '%s\n' "[Service]" "ExecStart=/bin/true" > "${CHECK_TREE}/host/zzrogue.service"
 out="$(INSTALL_CHECK_REPO="$CHECK_TREE" bash "$INSTALL" --check 2>&1)"
