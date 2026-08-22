@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Runs the CI shell check BEFORE the push instead of after it. Convenience only
+# — CI remains the authority, and removing it would be a mistake: a hook can be
+# bypassed with --no-verify, is absent on a fresh clone until installed, never
+# sees a dependabot PR, and cannot gate the mirror publish the way CI's
+# `needs:` does. This saves the round trip; it does not replace the gate.
+#
+# pre-PUSH rather than pre-commit, deliberately. audit/pre-commit guards secrets,
+# which are irreversible the moment they are pushed to a public repo that force-
+# pushes to five mirrors — those must be stopped at commit time. A shell fault
+# is reversible and costs only a red build, so it is checked once per push
+# rather than on every commit. A check that fires on every docs typo is a check
+# people learn to skip with --no-verify, which would cost the secret guard its
+# credibility too, since that is the same flag.
+#
+# The tracked master is this file; install it with audit/install-hooks.sh, and
+# audit.sh section 17 reports it missing, non-executable or drifted.
+set -euo pipefail
+
+# git passes the remote name and URL as $1/$2 and the refs on stdin. None of it
+# changes what is checked: the scope is every tracked *.sh, same as CI.
+ROOT="$(git rev-parse --show-toplevel)"
+exec "${ROOT}/ci/shellcheck.sh"

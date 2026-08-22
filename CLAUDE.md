@@ -26,6 +26,14 @@ docker compose logs -f <service-name>
 # Run the security audit
 bash audit/audit.sh
 
+# The CI shell check, run locally. Same script and same pinned shellcheck CI runs,
+# so a clean result here means a clean result there. ci/pre-push runs this too.
+bash ci/shellcheck.sh
+
+# Install the tracked git hooks into this clone (idempotent). audit.sh §17 fails
+# if either is missing, non-executable, or drifted from its tracked master.
+bash audit/install-hooks.sh
+
 # control plane — validate the job contract without installing (no root needed).
 # Run this before committing any unit change; it is the same check install.sh runs.
 bash systemd/install.sh --check
@@ -411,13 +419,35 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
 - **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
   guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
   adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`
-- **shellcheck**: all tracked `*.sh` at `-S warning` (preinstalled runner binary, no
-  action). **Verify locally against `koalaman/shellcheck:latest`, never `:stable`** —
-  the runner's binary is newer and raises rules `stable` does not. A `:stable` run
-  came back clean on a file where CI then found twelve SC2218 errors (a function
-  called before a same-named definition later in the file), which cost a red build
-  and a round trip:
-  `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:latest -S warning $(git ls-files '*.sh')`
+- **shellcheck**: all tracked `*.sh` at `-S warning`, **pinned to
+  `koalaman/shellcheck:v0.11.0`** (2026-08-22). The check is **defined once**, in
+  **`ci/shellcheck.sh`**, and both callers run that file — the CI job and the
+  `ci/pre-push` hook — so version, severity and file list have nowhere to drift
+  apart. Run it by hand with `bash ci/shellcheck.sh`; that IS the CI check, not an
+  approximation of it. **Do not inline the command back into either caller.** It
+  fails loudly when docker is missing rather than passing quietly, because a check
+  that reports success without running is the same fault as a dropped alert with the
+  run stamped healthy. Until 2026-08-22 CI used the runner's **preinstalled** binary
+  — a version nothing here
+  chose and GitHub can move with no commit in the diff. **The drift ran OLDER, and
+  the entry here said the opposite for four days**: measured 2026-08-22, the
+  ubuntu-24.04 runner ships **0.9.0** while `:stable` and `:latest` are both
+  **0.11.0**, so the local image was two releases AHEAD, not behind. 0.11.0 fixed an
+  SC2218 false positive that 0.9.0 still raises — a call flagged as preceding its
+  definition even when an earlier definition of that name already covers it — which
+  is the whole reason a local run came back clean while CI raised thirteen. SC2218
+  is alive in 0.11.0; only the false positive is gone. **The four SC2068 failures
+  were never version skew at all**: every version from 0.8.0 up flags an unquoted
+  `$@`, and this box has no shellcheck binary — nothing ran it locally, which is a
+  different problem from running the wrong one. Both live on in what SC2218 surfaced
+  by accident: `systemd/tests/run.sh` had **two** functions named `fixture` 184 lines
+  apart, one building a unit and one writing a script. Runtime was correct, so 0.11.0
+  is right to be quiet — but a unit-style call added below the second definition
+  would silently write a one-line script and pass having tested nothing, in the suite
+  whose whole job is catching that. The rename to `contract_fixture` stands on its own.
+  Changing the pin is a deliberate edit: bump it, run the command above, fix what the
+  new version raises. **A local run that disagrees with CI means the versions differ
+  — check that before believing either.**
 - **mirror**: publishes a feature directory to its own standalone repo via
   `git subtree split`, so a feature can be linked, described and pinned on its own —
   GitHub pins are repo-level, you cannot pin a directory. **Five matrix entries, and
@@ -461,6 +491,28 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   tailnet ntfy is unreachable from runners) when any job fails; skips gracefully if unset.
   `mirror` is in its `needs:` deliberately — a mirror that silently stops syncing looks
   identical to one that is current
+
+**Git hooks — two, both tracked, installed by `bash audit/install-hooks.sh`.**
+`.git/hooks/` is never tracked, so each hook exists twice: a tracked master that
+survives a rebuild and an installed copy that actually runs. `audit.sh` §17 reports
+either one missing, non-executable or drifted from its master, and **fails the
+audit** — a hook believed present and absent is worse than none. The installer is
+idempotent and resolves `core.hooksPath` rather than assuming `.git/hooks`, because
+installing into the wrong directory leaves a hook that looks installed and never runs.
+
+| hook | master | guards |
+|---|---|---|
+| `pre-commit` | `audit/pre-commit` | secret-shaped paths — the **second lock** on `.gitignore` |
+| `pre-push` | `ci/pre-push` | runs `ci/shellcheck.sh`, the same check CI runs |
+
+**The split between them is the point, not an accident.** Secrets are stopped at
+COMMIT time because this repo is public and force-pushes to five mirrors — CI runs
+after the push, which is after the leak, so CI cannot help at all. A shell fault is
+reversible and costs only a red build, so it is checked once per PUSH; a check that
+fires on every docs typo teaches `--no-verify`, and that is the same flag that would
+disarm the secret guard. **Neither hook replaces CI**, which stays the authority: a
+hook can be bypassed, is absent on a fresh clone until installed, never sees a
+dependabot PR, and cannot gate the mirror publish the way `needs:` does.
 
 Conventions: third-party actions are pinned to full commit SHAs with a `# vX.Y.Z`
 comment (a trivy-action tag deletion once broke CI for 5 weeks); `.github/dependabot.yml`
