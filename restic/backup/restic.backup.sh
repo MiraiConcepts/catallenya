@@ -2,6 +2,13 @@
 set -euo pipefail
 
 . /zpool/catallenya/restic/restic.conf
+# shellcheck source=/zpool/catallenya/restic/restic.lib.sh
+. /zpool/catallenya/restic/restic.lib.sh
+
+# restic's output goes to STDERR (the journal keeps it); a short receipt goes to
+# STDOUT, which is what system-ntfy.sh sends to the phone. See restic.lib.sh.
+RESTIC_CAPTURE="$(mktemp)"
+trap 'rm -f "$RESTIC_CAPTURE"' EXIT
 
 # Dump Memoka's PostgreSQL database to a compressed SQL file before restic runs.
 # Raw postgres data dirs (memoka/postgres, memoka/redis) are excluded from restic
@@ -13,9 +20,9 @@ mkdir -p ${MEMOKA_BACKUP_DIR}
 # the script, and NOTHING was backed up that night — Immich, Syncthing and
 # Radicale included. One minor container should cost its own dump, not 1.5 TiB.
 if ! docker ps --format '{{.Names}}' | grep -qx memoka_postgresql; then
-    echo "Memoka postgres container not running; skipping database dump."
+    echo "Memoka postgres container not running; skipping database dump." >&2
 else
-    echo "Dumping Memoka database..."
+    echo "Dumping Memoka database..." >&2
     # Write to .tmp and move on success: the old `> …dump.sql.gz` truncated the
     # previous good dump before pg_dump was known to work, so a failure midway
     # left a corrupt archive where a stale-but-valid one had been.
@@ -23,10 +30,10 @@ else
         | gzip > ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp; then
         mv ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp \
            ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz
-        echo "Memoka database dump complete."
+        echo "Memoka database dump complete." >&2
     else
         rm -f ${MEMOKA_BACKUP_DIR}/memoka.dump.sql.gz.tmp
-        echo "Memoka dump FAILED; keeping the previous dump and continuing."
+        echo "Memoka dump FAILED; keeping the previous dump and continuing." >&2
     fi
 fi
 
@@ -38,9 +45,9 @@ fi
 UPVOTES_DUMP_DIR=/zpool/catallenya/upvotes/dump
 mkdir -p ${UPVOTES_DUMP_DIR}
 if ! docker ps --format '{{.Names}}' | grep -qx upvotes; then
-    echo "Upvotes container not running; skipping SQLite backup."
+    echo "Upvotes container not running; skipping SQLite backup." >&2
 else
-    echo "Backing up upvotes SQLite database..."
+    echo "Backing up upvotes SQLite database..." >&2
     # Overwrite any stale dump first — VACUUM INTO refuses to write over an existing file.
     rm -f ${UPVOTES_DUMP_DIR}/votes.db
     docker exec upvotes bun -e '
@@ -49,7 +56,7 @@ else
         db.exec("VACUUM INTO ?", ["/dump/votes.db"]);
         db.close();
     '
-    echo "Upvotes SQLite backup complete."
+    echo "Upvotes SQLite backup complete." >&2
 fi
 
 # Build --exclude flags — one per path (restic requires a separate flag each time).
@@ -57,7 +64,7 @@ EXCLUDES=""
 for target in ${RESTIC_EXCLUDE_TARGETS}; do
     EXCLUDES="$EXCLUDES --exclude $target"
 done
-echo "Exclude targets: ${RESTIC_EXCLUDE_TARGETS}"
+echo "Exclude targets: ${RESTIC_EXCLUDE_TARGETS}" >&2
 
 # Clear a stale lock left by a run killed mid-flight — SIGKILL, an OOM kill,
 # power loss. restic >=0.17.0 releases on SIGINT and SIGTERM (#4703), so the
@@ -72,8 +79,24 @@ restic -r "${RESTIC_DRIVER}:${RESTIC_RCLONE_REMOTE}:${RESTIC_BACKUP_LOCATION}" \
 # Backup target folders to repository. --retry-lock waits out a LIVE lock (another
 # job mid-run); the unlock above clears a DEAD one. Different cases, neither
 # substitutes for the other.
-restic -r ${RESTIC_DRIVER}:${RESTIC_RCLONE_REMOTE}:${RESTIC_BACKUP_LOCATION} \
+# shellcheck disable=SC2086  # EXCLUDES and TARGETS are deliberately word-split
+restic_run "$RESTIC_CAPTURE" \
+    -r ${RESTIC_DRIVER}:${RESTIC_RCLONE_REMOTE}:${RESTIC_BACKUP_LOCATION} \
     ${EXCLUDES} \
     --retry-lock=30m \
     --verbose backup ${RESTIC_BACKUP_TARGETS} \
     --password-file ${RESTIC_PASSWORD_FILE}
+
+# --- the receipt ------------------------------------------------------------
+# Reached only on success: `set -e` aborts above if restic failed, leaving stdout
+# empty so the courier falls back to the full journal and shows restic's error.
+_processed="$(first_match "$RESTIC_CAPTURE" 's/^processed ([0-9]+ files, [0-9.]+ [KMGT]i?B) in .*/\1/p')"
+_took="$(first_match "$RESTIC_CAPTURE"      's/^processed .* in ([0-9:]+)$/\1/p')"
+_added="$(first_match "$RESTIC_CAPTURE"     's/^Added to the repository: ([0-9.]+ [KMGT]i?B) \(([0-9.]+ [KMGT]i?B) stored\)$/\1 added, \2 stored/p')"
+_snap="$(first_match "$RESTIC_CAPTURE"      's/.*snapshot ([a-f0-9]+) saved.*/\1/p')"
+
+[[ -n "$_processed" ]] && fact "${_processed} processed"
+[[ -n "$_added"     ]] && fact "$_added"
+[[ -n "$_took"      ]] && fact "Took ${_took}"
+[[ -n "$_snap"      ]] && fact "Snapshot ${_snap}"
+exit 0

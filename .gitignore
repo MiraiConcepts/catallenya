@@ -20,6 +20,7 @@
 !rclone/
 !ntfy/
 !restic/
+!restic/restic.lib.sh
 !sanoid/
 !systemd/
 !.github/
