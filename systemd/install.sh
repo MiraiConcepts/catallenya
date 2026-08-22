@@ -71,7 +71,6 @@ declare -A SYMLINKS=(
     ["pigeonhole.backstop.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.backstop.timer"
     ["immich.fix-rotations.timer"]="${REPO_DIR}/immich/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
-    ["restic.check-data.timer"]="${REPO_DIR}/restic/check/restic.check-data.timer"
     ["restic.check-subset.timer"]="${REPO_DIR}/restic/check/restic.check-subset.timer"
     ["restic.forget.timer"]="${REPO_DIR}/restic/forget/restic.forget.timer"
     ["restic.staleness.timer"]="${REPO_DIR}/restic/staleness/restic.staleness.timer"
@@ -127,13 +126,16 @@ declare -A PLUMBING=(
 #
 # systemd ignores the [X-Catallenya] section entirely, which means %i is never
 # expanded inside it — a template physically cannot carry per-instance metadata.
-# restic.check@subset runs monthly and restic.check@data yearly, so one shared
-# MaxAge would either miss eleven skipped subset checks or cry wolf about the
-# yearly one. Instance drop-in directories are searched before the template's own,
-# so these win.
+# Instance drop-in directories are searched before the template's own, so these win.
+#
+# There is only one instance since the yearly restic.check@data was retired
+# (2026-08-22), which does not make this map redundant: check@subset still needs a
+# MaxAge and a Freshness, and the template still cannot express either. check@data
+# remains runnable BY HAND and deliberately has no sticker — an on-demand job has
+# no cadence to be stale against, so giving it one would page about a run nobody
+# scheduled.
 declare -A INSTANCE_DROPINS=(
     ["restic.check@subset.service"]="${REPO_DIR}/restic/check/instance-subset.conf"
-    ["restic.check@data.service"]="${REPO_DIR}/restic/check/instance-data.conf"
 )
 
 # =============================================================================
@@ -862,8 +864,10 @@ echo "  OK  sanoid-prune.service.d/sticker.conf"
 # The old rule was "seed any missing stamp", and the set of missing stamps is
 # exactly the set of jobs that have NOT completed successfully since the last run.
 # Since this script advertises itself as idempotent, every later re-run bought the
-# broken set another full MaxAge of silence — and for restic.check@data that is
-# 400 days. Seeding is a statement that the contract starts now, which is true once.
+# broken set another full MaxAge of silence — up to 40 days for restic.check@subset
+# or zpool.scrub, and it was 400 for the yearly restic.check@data this rule was
+# written against (retired 2026-08-22; the argument survives its example).
+# Seeding is a statement that the contract starts now, which is true once.
 echo "Seeding completion stamps..."
 seeded=0
 if (( ! STATE_DIR_IS_NEW )); then

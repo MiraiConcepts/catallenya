@@ -461,7 +461,7 @@ service that exemplifies it.
 | 13 | The courier's **success branch is the canary** | restic | `restic.backup`, `restic.forget` and `restic.check@` wire `OnSuccess=`. Those pings are the only positive proof the `OnFailure=` path still reaches the phone — nothing watches the courier. **Only the daily backup ping is frequent enough to serve.** Do not delete it |
 | 14 | `restic.staleness` is failure-only **by design** | restic | silence is the healthy state, and `install.sh` mechanically refuses `OnSuccess=` on `Class=monitor` |
 | 15 | Boot reports failure only | host | dropped from success on 2026-08-20. Accepted consequence: after a power cut, silence no longer distinguishes *recovered* from *still dark*, and this box does not auto-restore on AC return |
-| 16 | **The courier's body is the job's own words** | `system-ntfy.sh` | one body serves every job failure and all four restic successes, and `systemctl status` spent ~18 lines on boilerplate before reaching anything a person wants. Scoped to `_SYSTEMD_INVOCATION_ID` so it cannot bleed across runs — `restic.staleness` prints one line a day, so a failure used to arrive under five previous days of "within the 48h limit" — and to `_TRANSPORT=stdout` so systemd's own Starting/Finished lines cannot fill the budget, which is what happened to `disk`, a job that prints nothing when healthy |
+| 16 | **The courier's body is the job's own words** | `system-ntfy.sh` | one body serves every job failure and all three scheduled restic successes, and `systemctl status` spent ~18 lines on boilerplate before reaching anything a person wants. Scoped to `_SYSTEMD_INVOCATION_ID` so it cannot bleed across runs — `restic.staleness` prints one line a day, so a failure used to arrive under five previous days of "within the 48h limit" — and to `_TRANSPORT=stdout` so systemd's own Starting/Finished lines cannot fill the budget, which is what happened to `disk`, a job that prints nothing when healthy |
 | 17 | **`catallenya.service` cancels its inherited `OnFailure=`** | host | see the self-alerting rule below |
 
 ---
@@ -550,10 +550,18 @@ stdout (§ 8). This one adds the parsed counts instead, which the courier cannot
 | `restic.backup` | daily, 00:00–01:00 | `Backup: Succeeded` | `Backup: Failed` |
 | `restic.forget` | weekly, Mon 06:00–07:00 | `Forget: Succeeded` | `Forget: Failed` |
 | `restic.check@subset` | monthly, 1st 03:00–04:00 | `Check Data Subset: Succeeded` | `Check Data Subset: Failed` |
-| `restic.check@data` | yearly, 2nd Tue of May | `Check Data: Succeeded` | `Check Data: Failed` |
 | `restic.staleness` | daily 09:00 | *(none — see nuance 14)* | `Staleness: Failed` |
 
 All carry `RandomizedDelaySec=3600`, hence the one-hour windows.
+
+Two check modes are **manual-only** and so have no cadence row: `check@meta`
+(structural pass alone, unscheduled 2026-08-07) and `check@data` (full `--read-data`,
+unscheduled 2026-08-22 — the monthly `n/6` rotation reads the whole repository twice
+a year and supersedes it). Both still emit through the courier when run by hand, as
+`Check Metadata: Succeeded` / `Failed` and `Check Data: Succeeded` / `Failed`; the
+branches that spell those out are in `system-ntfy.sh`, which is why a manual run does
+not title itself `Check@meta`. They are listed here because this file is the record
+of *every* title the system can produce, not only the scheduled ones.
 
 ### host / disk / changedetection / watchdog
 
