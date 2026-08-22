@@ -374,6 +374,16 @@ hasnt "and counts nothing off"      "$allof" "and 2 more"
 # notification the reader already trusts. A BARE URL is deliberately left alone — it
 # shows where it goes, escaping one would mean mangling `:` and `/`, and
 # changedetection's body ends with a real one on purpose.
+# THE ONE DUPLICATED CONSTANT IN THE SYSTEM, pinned here because a second copy is
+# how two things that must agree stop agreeing. restic/restic.lib.sh defines its own
+# RESTIC_FACT_MARK: those jobs do not notify (the courier does), so sourcing the whole
+# ntfy transport to read one character would be the mistake liquidroom made when it
+# sourced the entire AI layer to reach two functions about ntfy.
+echo "the marker restic copies"
+is "restic's copy matches BODY_FACT_MARK" \
+   "$(sed -nE "s/^RESTIC_FACT_MARK='(.*)'$/\\1/p" /zpool/catallenya/restic/restic.lib.sh)" \
+   "$BODY_FACT_MARK"
+
 echo "escaping boundary"
 evil="$(body_list "[tap here](https://evil.example)")"
 has   "link syntax is inert"        "$evil" '\[tap here\]'

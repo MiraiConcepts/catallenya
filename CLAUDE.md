@@ -140,6 +140,25 @@ Restic backs up to cloud storage via Rclone (configured in `restic/restic.conf`)
 
 **Locks.** The 2026-08-07 outage: a `timeout 25 … check --read-data-subset` probe was SIGTERM'd 15s after taking an **exclusive** lock, and 0.16.4 registered its cleanup handler for **SIGINT only**, so it died without releasing — three nights of backups then failed at `lock repository`. Upstream fixed this in 0.17.0 (Bugfix #4703) and the 0.19.1 upgrade closes it; verified side-by-side on this box, SIGTERM leaves 0 locks on 0.19.1 and 1 on 0.16.4. **The mitigations stay anyway** — SIGKILL, OOM and power loss still orphan a lock, and this host [has no UPS](.claude/memory/power-loss-hard-off-no-ups.md). `backup.sh`, `check.sh` and `forget.sh` each prepend `restic unlock` and pass `--retry-lock=30m`; the two cover different failures and neither substitutes for the other — **`unlock` deletes a DEAD lock, `--retry-lock` waits out a LIVE one.** A live run is never collected: restic refreshes its own lock every 5 min and self-aborts at 22.5 min if it cannot, so a running job's lock can never reach the 30 min staleness threshold. The staleness rule is age-**first** (`Stale()` returns true on age alone, before hostname or PID are consulted) — the PID probe only decides locks younger than 30 min, so PID reuse cannot strand an old one. Known gap: `unlock` runs once at the start and the retry loop never re-runs it, so a lock going stale *during* a wait costs one cycle and self-heals on the next run.
 
+**The restic jobs print a RECEIPT, not restic's output** (2026-08-22). All three wire
+`OnSuccess=`/`OnFailure=` to `ntfy/system-ntfy.sh`, whose body is the job's own stdout
+for that invocation — and restic writes for an 80-column terminal, so at phone width
+every line wrapped mid-content and the padding became noise. `forget` was the worst:
+its stdout is the entire keep/remove table across all 18 groups, **8,238 lines** in the
+capture used to build this. `restic/restic.lib.sh` holds the plumbing: restic's output
+goes to **stderr** (the journal keeps every word) and a short `•`-marked receipt goes to
+**stdout**. **The failure path is unchanged, which is why this is done by redirecting
+rather than trimming** — `set -euo pipefail` aborts before the receipt, leaving stdout
+empty, and `system-ntfy.sh`'s existing fallback re-queries the journal *without* the
+transport filter, so a failure still shows restic's raw error. Verified both ways with a
+stubbed `restic`. `pipefail` is load-bearing: without it `tee` returns 0 and a failed
+backup reports success. Counts are **summed across groups**, never read from the first
+block — `keep N snapshots:` appears once per group, and reading the first is the same
+mistake `restic.staleness` made with `--latest 1`. `RESTIC_FACT_MARK` duplicates
+`BODY_FACT_MARK` deliberately (these jobs do not notify, the courier does, so sourcing
+the whole ntfy transport for one character would be liquidroom's mistake); `ntfy/tests/run.sh`
+asserts the two agree.
+
 **Database backup strategy:**
 - **Memoka**: `pg_dump` runs before restic on each backup, writing to `memoka/backup/memoka.dump.sql.gz`. Raw `memoka/postgres` and `memoka/redis` dirs are excluded from restic (unsafe to copy live). On restore, start `memoka_postgresql` first, load the dump via `psql`, then start remaining services (see `restic/misc/restic.restore.sh` for exact commands).
 - **Immich**: Handles its own DB backup internally — dumps are written to `immich/data/backups/` which restic picks up automatically.
