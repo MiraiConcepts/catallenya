@@ -105,6 +105,7 @@
 !ntfy/ntfy.lib.sh
 !ntfy/kinds.sh
 !ntfy/MESSAGES.md
+!ntfy/README.md
 !ntfy/tests/
 !ntfy/tests/run.sh
 !ntfy/system-ntfy.sh

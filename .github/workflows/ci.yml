@@ -99,8 +99,9 @@ jobs:
       fail-fast: false # One broken mirror must not cancel the others.
       matrix:
         include:
-          # `prefix` is the DIRECTORY, `repo` is its published name. Three of the five
-          # match; systemd -> controlplane and ai -> inference do not, deliberately —
+          # `prefix` is the DIRECTORY, `repo` is its published name. Three of the six
+          # match; systemd -> controlplane, ai -> inference and ntfy -> dispatch do
+          # not, deliberately —
           # renaming a directory to match would reset the mirror's history the way
           # capture->afterimage and documents->pigeonhole reset theirs.
           - { prefix: liquidroom, repo: MiraiConcepts/liquidroom, key: LIQUIDROOM_DEPLOY_KEY }
@@ -114,6 +115,11 @@ jobs:
           # the Anthropic API. Its consumers live in the parent repo too; the
           # mirror's README says so and links the two that are themselves mirrored.
           - { prefix: ai,         repo: MiraiConcepts/inference,    key: INFERENCE_DEPLOY_KEY }
+          # ntfy/ publishes the message layer — the contract, the constructors, the
+          # body renderers and the courier. Its directory keeps the name three
+          # consumers source it by; the repo cannot, because MiraiConcepts/ntfy would
+          # read as a fork of binwiederhier/ntfy rather than as a grammar for it.
+          - { prefix: ntfy,       repo: MiraiConcepts/dispatch,     key: DISPATCH_DEPLOY_KEY }
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
