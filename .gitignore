@@ -14,6 +14,7 @@
 # Except these folders (include everything inside)
 !audit/
 !caddy/
+!ci/
 !changedetection/
 !cloudflared/
 !host/
@@ -34,6 +35,15 @@
 # — absent after a rebuild-and-restore, which is exactly when the corpus it guards
 # has just been put back. Section 17 of audit.sh reports the two drifting apart.
 !audit/pre-commit
+# Installs both tracked hooks into .git/hooks (or core.hooksPath).
+!audit/install-hooks.sh
+
+# The shell check, defined once and run by BOTH .github/workflows/ci.yml and
+# the pre-push hook, plus that hook's tracked master. Per-file, never `ci/**`:
+# this directory is where a checker's credentials would land if one ever
+# needed them.
+!ci/shellcheck.sh
+!ci/pre-push
 
 # Docs are per-file: docs/remote-luks-unlock.md is host-local ON PURPOSE (it is a
 # recovery runbook naming real hosts and slots) and must never gain a `**` here.
