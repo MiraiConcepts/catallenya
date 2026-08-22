@@ -3,15 +3,16 @@
 # Base:             (see systemd/policy/10-base.conf)
 #
 # NAMING TRAP: despite being called "check", this is NOT the monitor class. A
-# monitor only looks and reports and is bounded at ten minutes; check@data holds an
-# EXCLUSIVE repository lock for roughly 8h30m. Classified as a monitor, systemd
-# would kill the yearly integrity pass a few minutes in, every year, and the only
+# monitor only looks and reports and is bounded at ten minutes; check@subset holds
+# an EXCLUSIVE repository lock for roughly 1h25m. Classified as a monitor, systemd
+# would kill the monthly integrity pass ten minutes in, every month, and the only
 # symptom would be a failure notification nobody connects to the cause.
 #
-# MaxAge and Freshness are per-INSTANCE and live in the instance drop-ins beside
-# this file (restic/check/instance-{subset,data}.conf), because the two instances
-# run a month and a year apart. A template cannot express that: systemd ignores the
-# [X-Catallenya] section entirely, so %i is never expanded inside it.
+# MaxAge and Freshness are per-INSTANCE and live in the instance drop-in beside
+# this file (restic/check/instance-subset.conf). A template cannot express them:
+# systemd ignores the [X-Catallenya] section entirely, so %i is never expanded
+# inside it. check@data carries no sticker ON PURPOSE — it is manual-only since
+# 2026-08-22, and an on-demand job has no cadence to be stale against.
 
 [Unit]
 Description=Restic Check %i
@@ -20,12 +21,16 @@ OnSuccess=system-ntfy@restic.check@%i.service
 [Service]
 User=carrein
 
-# Was `infinity`. Sized for the larger instance: the 2026-05-01 full read-data run
-# took 8h34m, matching the documented ~8h30m. Twelve hours leaves headroom for a
-# slower B2 without letting a genuinely hung run continue indefinitely while
-# holding the exclusive lock that blocks every nightly backup.
+# Was `infinity`. Still sized for the MANUAL data instance rather than the
+# scheduled one: the 2026-05-01 full read-data run took 8h34m, matching the
+# documented ~8h30m, and `systemctl start restic.check@data` has to be able to
+# finish. Twelve hours leaves headroom for a slower B2 without letting a genuinely
+# hung run continue indefinitely while holding the exclusive lock that blocks every
+# nightly backup.
 #
-# The subset instance finishes far sooner and is unaffected by the larger bound.
+# The scheduled subset instance needs ~1h25m and is unaffected by the larger bound.
+# Do NOT shrink this to fit the subset: that would silently cap the manual full read
+# at a figure it is already known to exceed.
 TimeoutStartSec=12h
 
 ExecStart=/zpool/catallenya/restic/check/restic.check.sh %i

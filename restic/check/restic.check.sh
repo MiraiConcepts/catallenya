@@ -40,21 +40,35 @@ case "$check_type" in
             --password-file "${RESTIC_PASSWORD_FILE}"
         ;;
     subset)
-        # One twelfth of the pack data per month, rotating by calendar month so a
-        # year covers the whole repository. The month number is what makes it
-        # rotate: a hardcoded 1/12 would re-read the SAME twelfth every month and
-        # never touch the other eleven, which looks like it is working while
-        # verifying 8% of the repo forever.
+        # One SIXTH of the pack data per month, rotating by calendar month so the
+        # whole repository is read twice a year. The month number is what makes it
+        # rotate: a hardcoded 1/6 would re-read the SAME sixth every month and
+        # never touch the other five, which looks like it is working while
+        # verifying 17% of the repo forever. The `% 6 + 1` is what folds months
+        # 7-12 back onto buckets 1-6; without it they would ask for buckets that
+        # do not exist and restic would read ZERO packs and still exit 0.
+        #
+        # No 10# guard is needed because %-m is already unpadded. A weekly variant
+        # keyed on `date +%V` WOULD need one — that pads, and 08/09 are invalid
+        # octal, so the check would hard-fail two weeks a year.
         #
         # check always does the full structural pass (indexes, snapshots, trees,
         # every referenced blob), so this supersedes the old quarterly meta check —
-        # same verification, monthly instead. The yearly --read-data stays: it is
-        # the only thing that closes the gap where n/12 is recomputed each month
-        # against a pack set that keeps changing.
+        # same verification, monthly instead.
+        #
+        # THE YEARLY --read-data IS GONE (removed 2026-08-22) and this is why.
+        # Bucket membership is `pack[0] % t` on the pack ID — selectPacksByBucket
+        # in restic's cmd/restic/cmd_check.go — so it is a pure function of a byte
+        # that never changes. Nothing is recomputed between runs and nothing
+        # drifts: a completed rotation reads every pack that survived it, which is
+        # exactly what a full read promises. The old comment here claimed the
+        # opposite and was the sole justification for an 8h30m exclusive lock.
+        # n/6 rather than n/12 preserves the two sweeps a year the pair used to
+        # give, and halves the worst case a corrupt pack sits unseen: 12mo -> 6mo.
         restic_run "$RESTIC_CAPTURE" \
             -r "${RESTIC_DRIVER}:${RESTIC_RCLONE_REMOTE}:${RESTIC_BACKUP_LOCATION}" \
             --retry-lock=30m \
-            --verbose check --read-data-subset="$(date +%-m)/12" \
+            --verbose check --read-data-subset="$(( ($(date +%-m) - 1) % 6 + 1 ))/6" \
             --password-file "${RESTIC_PASSWORD_FILE}"
         ;;
     *)

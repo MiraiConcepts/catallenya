@@ -115,7 +115,7 @@ gate_says "cancelling OnFailure= without declaring it is refused" \
     "cancels its inherited OnFailure="
 gate_says "and the acknowledgement is what clears it" \
     "${REPO}/host/disk.service" 's/^\[Service\]$/OnFailure=\n[Service]/; s/^Class=monitor$/Class=monitor\nSelfAlerting=acknowledged/' \
-    "35 units satisfy the contract"
+    "34 units satisfy the contract"
 
 gate_says "a missing User= is refused" \
     "${REPO}/host/disk.service" '/^User=/d' "no explicit User="
@@ -237,7 +237,7 @@ gate_says "Condition*= on a .path unit is refused" \
 
 # A committed-but-unregistered unit validates nothing, installs nothing, and is
 # invisible to the watchdog — a rogue with six violations once sailed past as
-# "OK 35 units". Not gate_says: the mutation is a NEW file, not a sed.
+# "OK 34 units". Not gate_says: the mutation is a NEW file, not a sed.
 restore_tree
 printf '%s\n' "[Service]" "ExecStart=/bin/true" > "${CHECK_TREE}/host/zzrogue.service"
 out="$(INSTALL_CHECK_REPO="$CHECK_TREE" bash "$INSTALL" --check 2>&1)"
@@ -391,11 +391,11 @@ hasnt "…and raises no findings"       "$CLEAR" "STALE"
 
 # --- the WAS OFF window is min(MaxAge, 24h), not MaxAge ----------------------
 #
-# The first version compared uptime against MaxAge, so restic.check@data
-# (MaxAge=400d) could never page on a box that ever reboots, and any reboot muted
-# every long-cadence job for its whole MaxAge. Two fixtures pin both halves: the
-# grace still suppresses right after boot, and it caps at a day instead of
-# scaling with MaxAge.
+# The first version compared uptime against MaxAge, so the then-yearly
+# restic.check@data (MaxAge=400d, retired 2026-08-22) could never page on a box
+# that ever reboots, and any reboot muted every long-cadence job for its whole
+# MaxAge. The fixtures below pin that behaviour, not that unit: the grace still
+# suppresses right after boot, and it caps at a day instead of scaling with MaxAge.
 fixture "zzhb-shortoff.service" \
     "[Service]" "Type=oneshot" "ExecStart=/bin/true" \
     "" "[X-Catallenya]" "Class=scheduled" "MaxAge=1h" "Freshness=stamp:${STATE}/shortoff"

@@ -103,9 +103,9 @@ note()    { NOTES+=("$(printf '%-13s %s' "$1" "$2")"); }
 UPTIME_S=${HEARTBEAT_UPTIME_S:-$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null || echo 0)}
 
 # How long after boot a stale artifact is still explained by catch-up rather than
-# reported. 24h: the longest legitimate catch-up run (restic.check@data) is
-# bounded at TimeoutStartSec=12h, and the roll call is daily, so one full cycle
-# of grace covers every job that is going to self-heal. See stale_or_downtime.
+# reported. 24h: no scheduled job can run longer than restic.check@subset's
+# TimeoutStartSec=12h, and the roll call is daily, so one full cycle of grace
+# covers every job that is going to self-heal. See stale_or_downtime.
 BOOT_GRACE_S=${HEARTBEAT_BOOT_GRACE_S:-86400}
 
 # systemd's own time parser, so MaxAge accepts anything a timer would — but the
@@ -143,13 +143,15 @@ human() {
 #
 # The window is min(MaxAge, BOOT_GRACE_S), NOT MaxAge alone. The first version
 # compared uptime against MaxAge, which muted exactly the jobs this check matters
-# most for: restic.check@data (MaxAge=400d) could never page unless the box
-# stayed up 400 days straight, and any reboot muted every long-cadence job for
-# its whole MaxAge — a disabled zpool.scrub.timer would have stayed silent
-# forever on a box that reboots more often than every 40 days (2026-08-13
-# audit). A day of grace is enough for every catch-up that is going to happen,
-# and a catch-up that FAILS already pages through the inherited OnFailure=. The
-# min() keeps the old, tighter window for jobs whose MaxAge is under a day.
+# most for: the then-yearly restic.check@data (MaxAge=400d, retired 2026-08-22)
+# could never page unless the box stayed up 400 days straight, and any reboot
+# muted every long-cadence job for its whole MaxAge — a disabled zpool.scrub.timer
+# would have stayed silent forever on a box that reboots more often than every 40
+# days (2026-08-13 audit). 40d is now the longest MaxAge in the repo, so the
+# motivating example is gone but the failure it describes is one 40d job away.
+# A day of grace is enough for every catch-up that is going to happen, and a
+# catch-up that FAILS already pages through the inherited OnFailure=. The min()
+# keeps the old, tighter window for jobs whose MaxAge is under a day.
 stale_or_downtime() {   # $1 unit, $2 age, $3 max, $4 literal, $5 description
     local grace=$3
     (( grace > BOOT_GRACE_S )) && grace=${BOOT_GRACE_S}
