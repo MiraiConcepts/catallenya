@@ -76,8 +76,8 @@ hasnt "no summary under cap" "$b" "more"
 # "_Out of credits. Retrying daily — moved to bin/ in 7 days._": three separate facts
 # run together, whispered, and joined by an em-dash. Italics mean truncation here and
 # nothing else, so nothing in this body is italic any more.
-has "the reason is a fact"   "$b" $'\u25aa Out of credits'
-has "so is the cadence"      "$b" $'\u25aa Retrying daily'
+has "the reason is a fact"   "$b" $'\u2022 Out of credits'
+has "so is the cadence"      "$b" $'\u2022 Retrying daily'
 has "the outcome is prose"   "$b" "Moved to bin/ in 7 days."
 hasnt "and nothing whispers" "$b" "_Out of credits"
 # REGRESSION: `local n=... shown="$n"` reads the OUTER n, because bash expands every
@@ -103,8 +103,8 @@ r="$(ai_reason 3)"
 pig="$(paused_body "$r" "Moved to bin/ in 7 days. Nothing is deleted." a)"
 aft="$(paused_body "$r" "Archived in 7 days, and the screenshots go with them." a)"
 is "same reason clause" \
-   "$(grep -o $'\u25aa Out of credits' <<<"$pig")" \
-   "$(grep -o $'\u25aa Out of credits' <<<"$aft")"
+   "$(grep -o $'\u2022 Out of credits' <<<"$pig")" \
+   "$(grep -o $'\u2022 Out of credits' <<<"$aft")"
 is "reason is not the caller's to write" "$r" "Out of credits"
 is "a timeout reads differently"         "$(ai_reason 2)" "The API is unreachable"
 
@@ -133,7 +133,7 @@ has "then the summary, count and noun threaded" "$t" "title=[Model Paused: 2 Doc
 has "no buttons on a summary"            "$t" "actions=[]"
 has "replacement rides the SAME id"      "$t" "id=[pause-1]"
 has "items reach paused_body"            "$t" '1\. a.pdf'
-has "reason reaches the body, in its own arg order" "$t" $'\u25aa Out of credits'
+has "reason reaches the body, in its own arg order" "$t" $'\u2022 Out of credits'
 has "and so does the outcome"            "$t" "Moved to bin/ in 7 days."
 
 # THE RUN THAT ENDS AN OUTAGE DOES NOTHING, and that is a DELIBERATE REVERSAL of the
@@ -370,15 +370,21 @@ hasnt "and counts nothing off"      "$allof" "and 2 more"
 
 echo "body_fact"
 facts="$(body_fact "1.3T of 1.7T used" "400G free")"
-is    "one line per fact"           "$facts" $'\u25aa 1.3T of 1.7T used\n\u25aa 400G free'
-# Chosen over `-`, which markdown turns into a real list — the same trap the escaped
-# `1\.` exists for — and over `•`, which is what the Android app renders a real list
-# marker AS, so a fact would be indistinguishable from a mangled item.
-hasnt "not a markdown list marker"  "$facts" $'\n- '
-hasnt "and not a bullet"            "$facts" $'\n\u2022 '
+is    "one line per fact"           "$facts" $'\u2022 1.3T of 1.7T used\n\u2022 400G free'
+# U+2022 BULLET since 2026-08-22. It replaced U+25AA BLACK SMALL SQUARE, which has an
+# EMOJI PRESENTATION — some Android builds drew it as a coloured square, and a marker
+# that renders as an emoji on the device it is read on is not a marker.
+#
+# The bullet's whole advantage is that it needs NO ESCAPE: `-`, `*` and `+` are real
+# markdown list markers and would be restyled, which is the trap the escaped `1\.`
+# exists for. These pin that the marker never becomes one of those and never acquires
+# a backslash, which would show literally on a device honouring the escape differently.
+hasnt "never a hyphen list"         "$facts" $'\n- '
+hasnt "never an asterisk list"      "$facts" $'\n* '
+hasnt "and needs no escaping"       "$facts" '\\'
 # No full stop on any line but prose (settled 2026-08-21): a stop after a path reads
 # as part of the filename, and one rule beats remembering which line you are on.
-is    "no trailing full stop"       "$(body_fact "400G free")" $'\u25aa 400G free'
+is    "no trailing full stop"       "$(body_fact "400G free")" $'\u2022 400G free'
 is    "empty args yield nothing"    "$(body_fact "")" ""
 has   "text is escaped"             "$(body_fact "a_b_c")" 'a\_b\_c'
 
@@ -387,8 +393,8 @@ echo "body_join"
 # newlines, so a section boundary needs TWO literal newlines and looks like a typo
 # with one — which is exactly why callers do not write it themselves any more.
 joined="$(body_join "1\\. a" "$(body_fact "400G free")" "It may be full.")"
-is    "sections separated by a blank" "$joined" $'1\\. a\n\n▪ 400G free\n\nIt may be full.'
-is    "an empty section is dropped"   "$(body_join "" "$(body_fact "400G free")" "")" $'\u25aa 400G free'
+is    "sections separated by a blank" "$joined" $'1\\. a\n\n• 400G free\n\nIt may be full.'
+is    "an empty section is dropped"   "$(body_join "" "$(body_fact "400G free")" "")" $'\u2022 400G free'
 is    "nothing at all yields nothing" "$(body_join "" "" "")" ""
 has   "one section is left alone"     "$(body_join "just this")" "just this"
 hasnt "and gains no blank line"       "$(body_join "just this")" $'\n'

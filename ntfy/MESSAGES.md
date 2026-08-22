@@ -140,7 +140,7 @@ written today.
 1. IMG_1234.jpg                    ITEM      a thing — file, document, track, job
     Rotated: 90°                   DETAIL    what happened to it, indented
 
-▪ 400G free                        FACT      a metric or a state about the run
+• 400G free                        FACT      a metric or a state about the run
 
 Only *.png is triaged.             PROSE     one explanation, in sentences
 
@@ -175,7 +175,7 @@ switch rendering off could also switch off the reason the escaping is there.
 
 ```bash
 body_list [--all] <item>...   items, numbered, capped at five; "name<TAB>detail"
-body_fact <line>...           the ▪ lines
+body_fact <line>...           the • lines
 body_aside <text>             the italic truncation count, and nothing else
 body_join <section>...        the blank lines between sections, empties dropped
 ```
@@ -197,10 +197,10 @@ BODY="$(body_join \
 | 1 | Items are numbered `1\.`, capped at five | `1. scan_20260820.pdf` |
 | 2 | A detail is `Label: value`, **labelled only when the value alone is ambiguous** | `Rotated: 90°` but a bare `09_receipts-…/Acme.pdf` |
 | 3 | **No full stop on any line but prose** — a stop after a path reads as part of the filename, and one rule beats remembering which line you are on | `Reason: PDF is locked or unreadable` |
-| 4 | A fact is **self-describing and carries no stub label** | `▪ 400G free`, never `▪ Free: 400G` |
-| 5 | A fact is a **complete statement**; where prose reads badly use a full descriptive phrase, never a stub | `▪ Estimated time left: 70m`, never `▪ about 70m` |
-| 6 | Facts are **capitalised** | `▪ Out of credits` · `▪ Retrying daily` |
-| 7 | Metrics get their own line, never a comma-joined run | `▪ 15/15 timers active` |
+| 4 | A fact is **self-describing and carries no stub label** | `• 400G free`, never `• Free: 400G` |
+| 5 | A fact is a **complete statement**; where prose reads badly use a full descriptive phrase, never a stub | `• Estimated time left: 70m`, never `• about 70m` |
+| 6 | Facts are **capitalised** | `• Out of credits` · `• Retrying daily` |
+| 7 | Metrics get their own line, never a comma-joined run | `• 15/15 timers active` |
 | 8 | Prose is capitalised sentences **with** full stops, as many as it needs | `Could not reach the API for 7d. Take it again once things are healthy.` |
 | 9 | A body **may instruct** where there is a next step | `Take it again once things are healthy.` |
 | 10 | **No rhetorical questions** — state it as a possibility | `The disk may be full.` not `Disk full?` |
@@ -217,15 +217,15 @@ It looks arbitrary and is not. **A detail hangs off the item above it**, so a la
 *which aspect of that item* you are being told — `Rotated: 90°` under a filename. **A fact
 stands alone**, so it has no context to lean on and must describe itself.
 
-The failure this invites is dropping context to keep the line short. `▪ about 70m` obeys
+The failure this invites is dropping context to keep the line short. `• about 70m` obeys
 the letter of "no label" and means nothing. Where plain prose reads badly, the answer is a
 **full descriptive phrase**, never a stub:
 
 | stub label | terse prose | correct |
 |---|---|---|
-| `▪ Estimated: 70m` | `▪ about 70m` | `▪ Estimated time left: 70m` |
-| `▪ Not found: 1` | `▪ 1 not found` | `▪ 1 track not found` |
-| `▪ Free: 400G` | — | `▪ 400G free` |
+| `• Estimated: 70m` | `• about 70m` | `• Estimated time left: 70m` |
+| `• Not found: 1` | `• 1 not found` | `• 1 track not found` |
+| `• Free: 400G` | — | `• 400G free` |
 
 #### Truncation keeps three meanings
 
@@ -237,14 +237,26 @@ _3 more still queued._       work is waiting for the next run
 _3 more events not sent._    data was dropped and is gone
 ```
 
-#### The `▪` marker
+#### The `•` marker
 
-U+25AA BLACK SMALL SQUARE. Chosen over `-`, which markdown turns into a real list — the
-same trap the escaped `1\.` exists for — and over `•`, which is already what the Android
-app renders a real list marker AS, so a fact would be indistinguishable from a mangled
-item. **It has an emoji presentation and some Android builds may render it as a coloured
-square** — accepted deliberately, and the first thing to check on the device. The safe
-fallbacks are `■` U+25A0 or `•` U+2022, neither of which is emoji-capable.
+**U+2022 BULLET**, since 2026-08-22. It replaced **U+25AA BLACK SMALL SQUARE**, which
+shipped first and had one defect that mattered: U+25AA has an **emoji presentation**, and
+some Android builds draw it as a coloured square. A marker that renders as an emoji on
+the device it is read on is not a marker.
+
+Also rejected: `-`, `*` and `+`, which markdown turns into real list markers — the same
+trap the escaped `1\.` exists for — and which would therefore need escaping to survive.
+`-` fails a second way on the body it appears in most: `- 19:30 - 21:00` puts three
+hyphens on one line meaning two different things.
+
+**The bullet needs no escape** (it carries no markdown meaning) and is not emoji-capable.
+That is the whole of why it wins.
+
+It collided with exactly one thing: afterimage used `" • "` as the separator between
+alternative times, so the proposal would have read `• 19:30 - 21:00 • 20:15`. That
+separator moved to `" / "` the same day — narrow enough to keep the phone-width reason it
+was chosen for in the first place. **Do not restore `" • "` there without moving the
+marker.**
 
 #### The one text no rule can reach
 
@@ -283,9 +295,9 @@ each announce what they are, so a label would only repeat them.
 
 ```
 Kene [2/4]
-▪ Thursday, 27 August 2026
-▪ 19:30 - 21:00
-▪ Candlenut
+• Thursday, 27 August 2026
+• 19:30 - 21:00
+• Candlenut
 ```
 
 ---

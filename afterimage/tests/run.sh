@@ -401,7 +401,7 @@ WITHALT='{"calendar":"general","title":"Film","date":"'"$FUT1"'","start_time":"1
           "alternatives":[{"date":"'"$FUT1"'","start_time":"20:15","location":null}]}'
 out="$(ne_run "$WITHALT")"; rc=$?
 is  "with an alternative still works" "$rc" 0
-has  "and offers the other time"      "$out" "• 20:15"
+has  "and offers the other time"      "$out" "/ 20:15"
 hasnt "with no 'or' in the body"      "$out" " or "
 
 # The alt tap writes proposal.alt.json, and its end_time must be the OCCASION'S
