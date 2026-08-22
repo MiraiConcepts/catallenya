@@ -585,6 +585,37 @@ but never quietly.
 
 ---
 
+## 8b. What this contract does NOT cover
+
+**Three things publish to this ntfy that are not this repo's code**, so nothing here
+constrains them and no gate can see them. Named because a contract that lists only what
+it governs reads as though it governs everything.
+
+| Publisher | How it is wired | What it sends today |
+|---|---|---|
+| **watchtower** | `WATCHTOWER_NOTIFICATION_URL` in `docker-compose.yml`, shoutrrr | `Watchtower updates on 6729304e71db` over four lines of image hashes |
+| **changedetection** (the app) | Apprise URL set in its **UI**, not in the repo | `yellowpaige shop changed` over a diff |
+| **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/zed.rc` on the host | pool events on the `zpool` topic |
+
+`changedetection` is the confusing one: the topic has **two** publishers by design — the
+watches themselves (above) and `changedetection/changedetection.health.sh`, which IS in
+the contract. Sharing one topic is deliberate; an unsubscribed monitoring topic swallows
+alerts with a 200 OK.
+
+**All three are reformattable, and none has been reformatted.** watchtower takes a Go
+template (`WATCHTOWER_NOTIFICATION_TEMPLATE`); changedetection takes a title and body per
+notification in its settings; zed's is shell. Two arguments cut against doing it: their
+messages are *reports of their own work*, not this system's, so a foreign grammar is
+arguably honest — and changedetection's lives in a UI rather than in the repo, so any
+rule written here could be silently changed by a click and nothing would notice.
+
+Left as an open decision rather than an omission. The one observation worth acting on
+either way is not about format: watchtower fires **daily** for
+`tomsquest/docker-radicale:latest`, which is rebuilt upstream every day, so that is one
+notification a day saying nothing actionable.
+
+---
+
 ## 9. Enforcement
 
 `systemd/contract.sh`, eight rules, run by `bash systemd/install.sh --check` (no root
