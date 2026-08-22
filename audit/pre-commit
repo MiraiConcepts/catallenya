@@ -5,7 +5,7 @@
 # in one line. Two locks, no shared key: this list is hardcoded here and is not
 # derived from .gitignore, so a mistake in that file cannot also disarm this.
 #
-# Why a hook and not CI: this repo is public and pushes to five mirrors. A CI
+# Why a hook and not CI: this repo is public and pushes to every mirror. A CI
 # check runs AFTER the push, which is after the secret is already public and
 # already indexed. The only useful place to stop it is before the commit exists.
 #
@@ -63,7 +63,7 @@ printf '\n  COMMIT REFUSED — %d staged path(s) belong where secrets live:\n\n'
 printf '    %s\n' "${blocked[@]}" >&2
 cat >&2 <<'MSG'
 
-  This repository is PUBLIC and mirrors to five more. Pushing is publishing,
+  This repository is PUBLIC and mirrors to standalone repos. Pushing is publishing,
   and git history keeps what it is given.
 
   If this is a mistake, unstage it:      git restore --staged <path>

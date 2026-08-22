@@ -286,7 +286,7 @@ echo "--- 17. The tracked git hooks are installed ---"
 # the guard has not. Both are reported because they fail differently:
 #
 #   pre-commit  the second lock on secrets, and the only one acting BEFORE a
-#               push. This repo is public and force-pushes to five mirrors, so
+#               push. This repo is public and force-pushes to every mirror, so
 #               CI cannot help — it runs after the push, which is after the leak.
 #   pre-push    runs ci/shellcheck.sh, the same check CI runs. Losing it costs a
 #               round trip, not a secret, so it is the less severe of the two —
