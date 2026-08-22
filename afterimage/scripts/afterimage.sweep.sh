@@ -184,8 +184,28 @@ for rec in "${records[@]}"; do
     if (( age_h >= RENOTIFY_AFTER_HOURS )) && [[ ! -f "${rec}/renotified" ]]; then
         (( DRY )) && { log "would re-notify ${id:0:8} (${age_h}h)"; continue; }
         title="$(jq -r '.title // "Capture"' "${rec}/proposal.json")"
-        when="$(jq -r 'if .all_day then .date + " (all day)" else .date + " " + (.start_time // "") end' \
-                "${rec}/proposal.json")"
+        # THE NUDGE REPLACES THE PROPOSAL under the same id, so it must not read
+        # worse than what it withdrew. This built one fact by string-concatenating
+        # the raw ISO date onto the raw start time — `▪ 2026-08-26 16:00` — where the
+        # triage had sent `▪ Wednesday, 26 August 2026` and `▪ 16:00` on lines of
+        # their own. Both rules it broke are the same rule: a fact is a complete
+        # statement, and metrics get their own line rather than a joined run.
+        #
+        # `date -d` falls back to the raw value, so an unparseable date still shows
+        # something rather than an empty line.
+        nudge_date="$(jq -r '.date // ""' "${rec}/proposal.json")"
+        nudge_start="$(jq -r 'if .all_day then "" else (.start_time // "") end' "${rec}/proposal.json")"
+        nudge_end="$(jq -r 'if .all_day then "" else (.end_time // "") end' "${rec}/proposal.json")"
+        nudge_loc="$(jq -r '.location // ""' "${rec}/proposal.json")"
+        nudge_facts=()
+        [[ -n "$nudge_date" ]] && nudge_facts+=("$(date -d "$nudge_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$nudge_date")")
+        if [[ "$(jq -r '.all_day' "${rec}/proposal.json")" == "true" ]]; then
+            nudge_facts+=("All day")
+        elif [[ -n "$nudge_start" ]]; then
+            [[ -n "$nudge_end" ]] && nudge_facts+=("${nudge_start} - ${nudge_end}") || nudge_facts+=("$nudge_start")
+        fi
+        [[ -n "$nudge_loc" ]] && nudge_facts+=("$nudge_loc")
+        nudge_facts+=("Proposed ${age_h}h ago, no action yet")
         if base="$(capture_base_url)" && actions="$(record_actions "$base" "$id" "$rec")"; then
             # The nudge used to hardcode [Add] [Discard], which dropped the
             # ALTERNATIVE button — while event.alt.ics sat on disk and the ?alt=1
@@ -198,7 +218,7 @@ for rec in "${records[@]}"; do
             # retract-then-publish and not an in-place update: an update may be
             # applied silently, and a nudge that does not alert is not a nudge.
             notify_nudge "$(title_quote "$title" "$(title_age "$age_h")")" \
-                   "$(body_fact "$when" "Proposed ${age_h}h ago, no action yet")" \
+                   "$(body_fact "${nudge_facts[@]}")" \
                    "$id" "$actions"
             : > "${rec}/renotified"
             renotified=$((renotified + 1))
