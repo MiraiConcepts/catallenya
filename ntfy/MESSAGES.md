@@ -716,8 +716,32 @@ not in git**:
 | watch `0710e790` | `Spliffy T-Shirt: Changed` |
 | watch `2e19ad86` | `YellowPaige Shop: Changed` |
 
+Both also carry a `click=` URL (above), which is stored in the same unenforceable place.
+
 Bodies are left alone: `{{diff}}` is changedetection's own diff format and there is
 nothing to reshape it with.
+
+**`notification_format` stays `text`, and that is a SECURITY setting rather than a
+cosmetic one.** The cost is visible: a URL in the body is not tappable, because ntfy
+autolinks nothing in a message it was not told to render. The temptation is to switch to
+`markdown`, and it must be resisted — changedetection escapes untrusted page content
+**only for HTML formats** (`if 'html' in requested_output_format` in
+`notification/handler.py`), which is the fix for GHSA-q8xq-qg4x-wphg. Markdown is not
+covered. Under it, a watched shop whose product name contained `[click here](https://evil)`
+would put a live phishing link in a notification the operator already trusts — the exact
+threat the renderers guard against everywhere else, in the one place this repo cannot do
+the escaping itself.
+
+**The tappability is bought back with ntfy's `click` header instead**, set per watch in
+its Apprise URL:
+
+```
+ntfy://ntfy/changedetection?click=https%3A%2F%2Fwww.yellowpaige.com%2F
+```
+
+Tapping the notification opens the page; the body stays unrendered. It has to be
+per-watch because changedetection runs Jinja over the body and title but **not** over the
+notification URL, so `{{watch_url}}` there would arrive literally.
 
 **This is the one part of the contract that cannot be enforced, and the reason is worth
 understanding.** A watch's own `notification_title` **overrides** the global default, and
