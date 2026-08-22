@@ -368,6 +368,26 @@ allof="$(body_list --all a b c d e f g)"
 has   "--all shows every item"      "$allof" "7\\. g"
 hasnt "and counts nothing off"      "$allof" "and 2 more"
 
+# WHAT THE ESCAPING STOPS, AND WHAT IT DOES NOT. Markdown is on for every body, so
+# these are the boundary, not a detail. Link SYNTAX is neutralised in everything the
+# box did not author, because it HIDES its destination behind friendly text inside a
+# notification the reader already trusts. A BARE URL is deliberately left alone — it
+# shows where it goes, escaping one would mean mangling `:` and `/`, and
+# changedetection's body ends with a real one on purpose.
+echo "escaping boundary"
+evil="$(body_list "[tap here](https://evil.example)")"
+has   "link syntax is inert"        "$evil" '\[tap here\]'
+hasnt "and cannot render a link"    "$evil" '](https://evil.example)'
+has   "bold is inert too"           "$(body_list '**bold**')" '\*\*bold\*\*'
+has   "and a heading"               "$(body_list '# heading')" '\# heading'
+has   "and a code span"             "$(body_list '`code`')"    '\`code\`'
+is    "a bare URL passes through"   "$(body_fact "see https://example.com/x")" \
+      $'\u2022 see https://example.com/x'
+# body_join escapes NOTHING — its arguments are already rendered, and escaping twice
+# turns `1\.` into `1\\.`. That makes PROSE the caller's to escape, which is why the
+# gate refuses hand-written link syntax.
+is    "prose reaches the wire as written" "$(body_join "" "" "**not escaped**")" "**not escaped**"
+
 echo "body_fact"
 facts="$(body_fact "1.3T of 1.7T used" "400G free")"
 is    "one line per fact"           "$facts" $'\u2022 1.3T of 1.7T used\n\u2022 400G free'

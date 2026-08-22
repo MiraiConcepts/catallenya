@@ -137,6 +137,17 @@ intake_contract() {
                 err "${label}: ${base} builds an italic line by hand — italics mark a truncation count and nothing else, and body_aside is what emits them. See ntfy/MESSAGES.md § 3."
             fi
 
+            # 4e. NO MARKDOWN LINK SYNTAX in a body. The renderers escape it out of
+            # everything untrusted — a filename off Syncthing, a model's sentence, a
+            # remote server's last_error — but PROSE reaches body_join unescaped, so
+            # a hand-authored link is the one way a live one could reach a
+            # notification. Matches `](http` deliberately: link SYNTAX, which hides
+            # its destination behind friendly text, and not a bare URL, which shows
+            # where it goes and is load-bearing in changedetection's body.
+            if grep -qE '\]\(https?://' <<<"$code"; then
+                err "${label}: ${base} writes a markdown link into a body — link syntax hides its destination inside a notification the reader already trusts. A bare URL is fine. See ntfy/MESSAGES.md § 3."
+            fi
+
             while IFS= read -r call; do
                 [[ -n "$call" ]] || continue
                 # Inline constructor — the common shape.
