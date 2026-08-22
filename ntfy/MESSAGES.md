@@ -585,34 +585,74 @@ but never quietly.
 
 ---
 
-## 8b. What this contract does NOT cover
+## 8b. The publishers this repo does not own
 
-**Three things publish to this ntfy that are not this repo's code**, so nothing here
-constrains them and no gate can see them. Named because a contract that lists only what
-it governs reads as though it governs everything.
+**Three things publish to this ntfy that are not this repo's code.** Named because a
+contract listing only what it governs reads as though it governs everything.
 
-| Publisher | How it is wired | What it sends today |
+| Publisher | Wired via | Status |
 |---|---|---|
-| **watchtower** | `WATCHTOWER_NOTIFICATION_URL` in `docker-compose.yml`, shoutrrr | `Watchtower updates on 6729304e71db` over four lines of image hashes |
-| **changedetection** (the app) | Apprise URL set in its **UI**, not in the repo | `yellowpaige shop changed` over a diff |
-| **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/zed.rc` on the host | pool events on the `zpool` topic |
+| **watchtower** | `docker-compose.yml`, shoutrrr | **in the contract, hand-matched** |
+| **changedetection** (the watches) | Apprise, set in its **UI** | **reshaped, but unenforceable** |
+| **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/zed.rc` on the host | outside |
 
-`changedetection` is the confusing one: the topic has **two** publishers by design — the
-watches themselves (above) and `changedetection/changedetection.health.sh`, which IS in
-the contract. Sharing one topic is deliberate; an unsubscribed monitoring topic swallows
-alerts with a 200 OK.
+Neither of the first two can call `ntfy/kinds.sh` — one is a Go binary, the other a
+Python app — so both match the grammar **by hand**, exactly as `ntfy/system-ntfy.sh`
+does. That is three hand-matched publishers now, and the number should not grow: each is
+a place the gate cannot reach.
 
-**All three are reformattable, and none has been reformatted.** watchtower takes a Go
-template (`WATCHTOWER_NOTIFICATION_TEMPLATE`); changedetection takes a title and body per
-notification in its settings; zed's is shell. Two arguments cut against doing it: their
-messages are *reports of their own work*, not this system's, so a foreign grammar is
-arguably honest — and changedetection's lives in a UI rather than in the repo, so any
-rule written here could be silently changed by a click and nothing would notice.
+### watchtower
 
-Left as an open decision rather than an omission. The one observation worth acting on
-either way is not about format: watchtower fires **daily** for
-`tomsquest/docker-radicale:latest`, which is rebuilt upstream every day, so that is one
-notification a day saying nothing actionable.
+Body in `watchtower/notification.tmpl`, a Go template. **It is silent unless something
+FAILED**, which is what every other job here does. Before 2026-08-22 it fired on every
+run that changed anything, which meant **every night** — `tomsquest/docker-radicale:latest`
+is rebuilt upstream daily, and three consecutive days of it sat in the ntfy cache.
+
+`WATCHTOWER_NOTIFICATION_REPORT=true` is what makes a contract-shaped body possible: it
+swaps the template's data from a list of log lines to the structured session report.
+
+Three things learned on the box and recorded in the template's own header: a template
+that fails to parse **falls back to the default** and logs it, so a broken one surfaces
+as the OLD message rather than as silence; the outer `if .Report` guard is load-bearing
+because watchtower renders the template for its **startup** message too, where `.Report`
+is nil; and the failure branch must be proven to RENDER, since testing only the silent
+path is indistinguishable from a template that never emits.
+
+**The title is not ours and cannot be.** shoutrrr's ntfy service does not let the sender
+set one, so it stays `Watchtower updates on <hostname>`. `hostname: watchtower` in compose
+fixes the half that could be fixed — it read `…on 6729304e71db`, the container id.
+
+### changedetection
+
+Its topic has **two publishers by design**: the watches themselves, and
+`changedetection/changedetection.health.sh`, which IS in the contract. Sharing one topic
+is deliberate — an unsubscribed monitoring topic swallows alerts with a 200 OK.
+
+Titles were reshaped on 2026-08-22 and the values are recorded here **because they are
+not in git**:
+
+| Scope | Title |
+|---|---|
+| global default | `{{watch_title}}: Changed` |
+| watch `0710e790` | `Spliffy T-Shirt: Changed` |
+| watch `2e19ad86` | `YellowPaige Shop: Changed` |
+
+Bodies are left alone: `{{diff}}` is changedetection's own diff format and there is
+nothing to reshape it with.
+
+**This is the one part of the contract that cannot be enforced, and the reason is worth
+understanding.** A watch's own `notification_title` **overrides** the global default, and
+it lives in `changedetection/data/<uuid>/watch.json` — root-owned, gitignored, and
+unreadable by `--check`, which must run without docker. Retype a title in the UI and no
+diff, no gate and no test will notice.
+
+The inheritance runs the safe way, though: a **new** watch left with empty notification
+fields takes the global default, so the shape propagates on its own. It is the explicit
+per-watch override that escapes — which is what both existing watches were doing.
+
+Global settings have no API endpoint (v1 is watch-only), so changing that default means
+stopping the container, editing `changedetection.json`, and starting it again. A backup
+sits at `changedetection.json.bak.pre-contract`.
 
 ---
 
