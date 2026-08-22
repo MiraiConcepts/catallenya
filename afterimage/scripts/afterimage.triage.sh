@@ -193,8 +193,8 @@ notify_event() {
     # the no-label rule was written for. See ntfy/MESSAGES.md § 3.
     local -a facts=()
     facts=("$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_date")")
-    # A span reads with an en dash, deliberately NOT the bullet: the bullet means
-    # "or" everywhere else in this body, and a run of days is not a choice.
+    # A span reads with an en dash, deliberately NOT the separator: " / " means "or"
+    # everywhere else in this body, and a run of days is not a choice.
     [[ -n "$ev_end_date" ]] \
         && facts[0]+=" – $(date -d "$ev_end_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$ev_end_date")"
     [[ -n "$alt_date_h" && "$alt_date_h" != "$(date -d "$ev_date" '+%A, %-d %B %Y' 2>/dev/null)" ]] \
@@ -235,8 +235,8 @@ notify_event() {
     #                                while showing them in their own note.
     #
     # BOTH ON ONE ITALIC LINE, joined by ALT_SEP — deliberate (f68e458), because they
-    # share a shape and read as one thought. The bullet is a separator in both its
-    # uses here, not a word standing in for "or".
+    # share a shape and read as one thought. ALT_SEP is a plain separator in this one
+    # use, not the "or" it means between alternative times.
     local n_alt n_hidden mi joined noun aside=""
     local -a meta=()
     n_alt="$(jq -r '.alternatives | length' <<<"$ev")"

@@ -352,13 +352,21 @@ body_list() {
     printf '%s' "$out"
 }
 
-# The fact marker. U+25AA BLACK SMALL SQUARE, chosen over `-` (which markdown turns
-# into a real list, the same trap the escaped `1\.` exists for) and over `•` (already
-# what the Android app renders a real list marker AS, so a fact would be
-# indistinguishable from a mangled item). It has an EMOJI PRESENTATION and some
-# Android builds may render it as a coloured square — accepted knowingly, and the
-# first thing to check on the device. Fallbacks are `■` U+25A0 or `•` U+2022.
-BODY_FACT_MARK=$'\u25aa'
+# The fact marker. U+2022 BULLET, chosen 2026-08-22 over U+25AA BLACK SMALL SQUARE,
+# which shipped first and had one defect that mattered: it has an EMOJI PRESENTATION,
+# so some Android builds draw it as a COLOURED SQUARE. A marker that renders as an
+# emoji on the device it is read on is not a marker.
+#
+# Also rejected: `-`, `*` and `+`, which markdown turns into a real list — the same
+# trap the escaped `1\.` exists for — and which would then need escaping to survive.
+# `-` fails a second way, on the body it appears in most: `- 19:30 - 21:00` puts
+# three hyphens on one line meaning two different things.
+#
+# The bullet needs NO escape (it has no markdown meaning) and is not emoji-capable,
+# which is the whole of why it wins. It DID collide with one thing — afterimage used
+# " • " as its "or" separator between alternative times — so that moved to " / " on
+# the same day. See ALT_SEP in afterimage/scripts/afterimage.lib.sh.
+BODY_FACT_MARK=$'\u2022'
 
 # body_fact <line>... -> the ▪ metric lines, one per argument.
 #
