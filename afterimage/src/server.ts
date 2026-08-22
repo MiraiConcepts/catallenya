@@ -44,6 +44,8 @@ const NTFY_ORIGIN = process.env.NTFY_ORIGIN ?? "";
 // and what keeps this optional rather than load-bearing.
 const NTFY_URL = process.env.NTFY_URL ?? "";
 const NTFY_TOPIC = process.env.NTFY_TOPIC ?? "afterimage";
+// How long to wait before the SECOND retract on a tap. See retractResolved().
+const REDRAW_GRACE_MS = Number(process.env.REDRAW_GRACE_MS ?? 5000);
 const CAL: Record<string, string> = {
   general: process.env.CAL_GENERAL ?? "",
   birthday: process.env.CAL_BIRTHDAY ?? "",
@@ -86,7 +88,7 @@ async function archive(id: string, outcome: string, note = ""): Promise<void> {
     }
     throw e;
   }
-  await retract(id);
+  await retractResolved(id);
 }
 
 // Take this record's notification off the phone. ntfy has no message expiry and no
@@ -111,6 +113,34 @@ async function retract(id: string): Promise<void> {
   } catch (e: any) {
     console.log(`[retract failed] ${id} — ${e?.message ?? e} (sweep will clear it)`);
   }
+}
+
+// Withdraw a RESOLVED record's notification: once now, and once after the tapping
+// app has had time to redraw. Both calls are needed, and this is why.
+//
+// A DELETE issued before this handler answers is raced by the ntfy Android app's own
+// redraw. The app fires the button's HTTP request, receives our 200, and then re-posts
+// the notification to stamp the action done (the tick). That re-post lands AFTER our
+// message_delete, so the notification the delete removed comes straight back — and
+// re-tapping cannot clear it, because the record is resolved and the callback now
+// answers 409/404. Only the nightly sweep does, up to ten hours later.
+//
+// Measured on the live topic 2026-08-22, three probes: a delete with no tap cleared
+// the notification; a delete sent 52s after a tap cleared it; the real Discard, which
+// deletes inside the request, did not. Every one of the 80 tap-resolved records in
+// archive/ took the losing path and was cleaned up the next morning by the sweep.
+//
+// The immediate call is KEPT rather than replaced by the delayed one. A second
+// subscribed device never tapped, so it never redraws — the immediate delete clears
+// it at once, and waiting REDRAW_GRACE_MS on every device to fix the one that tapped
+// would be the wrong trade. Deletes are idempotent and unvalidated (200 for an id the
+// server has never seen), so the duplicate costs one no-op request.
+//
+// The delayed call is deliberately NOT awaited: it must land after we answer, which
+// is the whole point, so it cannot be part of the response path.
+async function retractResolved(id: string): Promise<void> {
+  await retract(id);
+  setTimeout(() => { void retract(id); }, REDRAW_GRACE_MS);
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Full 8-byte signature, not just the first four: the trailing \r\n\x1a\n is what
@@ -186,7 +216,18 @@ async function handleUpload(req: Request): Promise<Response> {
 // tap is a straight file read plus one PUT.
 async function handleAdd(id: string, alt: boolean): Promise<Response> {
   const rec = spool("pending", id);
-  if (!existsSync(rec)) return json({ error: "no pending record" }, 404);
+  if (!existsSync(rec)) {
+    // The record is resolved, so this notification is a leftover — withdraw it
+    // rather than answering 404 into a message that stays on screen. See
+    // retractResolved(): before this, a tap that lost the redraw race left buttons
+    // that could not clear themselves, and only the sweep took them down.
+    //
+    // Only THIS branch may retract. The 409s below are pending records missing a
+    // file, and the 502 leaves the record pending for a retry — in both the buttons
+    // are still the way to act, and taking them away would strand the capture.
+    await retractResolved(id);
+    return json({ error: "no pending record" }, 404);
+  }
 
   const icsFile = alt ? "event.alt.ics" : "event.ics";
   const propFile = alt ? "proposal.alt.json" : "proposal.json";
@@ -247,6 +288,10 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
 // Removing undoAdd must not quietly reintroduce it.
 async function handleDrop(id: string): Promise<Response> {
   if (!existsSync(spool("pending", id))) {
+    // Resolved already, so the notification is a leftover: withdraw it. The 409 is
+    // unchanged and still means "this tap did nothing" — answering ok here is the
+    // 2026-07-27 bug, and clearing the message is not the same claim.
+    await retractResolved(id);
     return json({ error: "already resolved", id }, 409);
   }
   await archive(id, "discard");
