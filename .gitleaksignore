@@ -18,3 +18,11 @@
 # find-and-replace rewrote this line that day, the fingerprint stopped matching, and
 # gitleaks failed CI on a finding that had been suppressed for three weeks.
 ae6f3cd8036ee0947d276557a327e5e77bd5be9a:capture/scripts/capture.lib.sh:generic-api-key:230
+
+# host/zed-functions.sh is VENDORED from /etc/zfs/zed.d/ and kept byte-close to
+# upstream so that a diff against .dpkg-dist stays readable after a zfs-zed upgrade.
+# Line 403 is upstream's PUSHBULLET notifier — `curl -u "${ZED_PUSHBULLET_ACCESS_TOKEN}:"`
+# — a variable reference, not a credential, for a service this box does not use. The
+# alternative was deleting the unused notifiers, which would mean editing zed_notify()
+# too (it calls each one) and diverging much further from the file we have to diff.
+b2f438953b98e112d6da0f34c9de40f5e3a9de21:host/zed-functions.sh:curl-auth-user:403
