@@ -640,6 +640,15 @@ contract_says "…including one inside a printf format" "italic line by hand"
 contract_fixture 'notify_receipt "$(title_count Passed 3 Event)" "$(body_join "$(body_list "${t[@]}")" "$(body_aside "3 more not sent")")"'
 contract_clean "body_aside passes"
 
+# The renderers escape link syntax out of everything untrusted, but PROSE reaches
+# body_join unescaped — so a hand-authored link is the one way a live one gets into a
+# notification. A BARE URL is fine and is load-bearing in changedetection's body.
+contract_fixture 'notify_fault "$(title_state Boot Failed)" "$(body_join "" "See [the runbook](https://example.com/x)")"'
+contract_says "a markdown link in a body is refused" "markdown link into a body"
+
+contract_fixture 'notify_fault "$(title_state Boot Failed)" "$(body_join "" "See https://example.com/x")"'
+contract_clean "a bare URL passes"
+
 # A nudge is the same decision asked twice. A title identical to the first asking
 # cannot be told from it — you do not know whether you already saw this one.
 contract_fixture 'notify_nudge "$(title_count Staged 3 Document)" "$b" "$id"'

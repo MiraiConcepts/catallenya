@@ -306,7 +306,13 @@ envelope: no bare `notify` outside `ntfy/`, no `clear=true` in an Actions string
 the body**, added 2026-08-21 with the renderers: no hand-built numbered list, and no
 hand-built italic line. The second looks for an underscore run closing before a quote
 rather than a leading `"_`, because that is the shape `paused_body` shipped in for a
-year — italics inside a `printf` *format* string.
+year — italics inside a `printf` *format* string. **A ninth refuses markdown link syntax
+in a body** (`](http`): the renderers escape links out of everything untrusted, but PROSE
+reaches `body_join` unescaped, so a hand-authored one is the only way a live link gets
+into a notification. **A bare URL is deliberately allowed** — link syntax HIDES its
+destination behind friendly text, which is what makes it dangerous inside a message the
+reader already trusts, while a bare URL shows where it goes; escaping one would mean
+mangling `:` and `/`, and changedetection's body ends with a real one on purpose.
 
 **The loan from `systemd/policy/` is weaker than it looks, and this is the thing to
 know before trusting it.** systemd has a real merge engine, so its layering holds even

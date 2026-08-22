@@ -190,6 +190,38 @@ BODY="$(body_join \
     "$(body_fact "24/26 containers running" "15/15 timers active")")"
 ```
 
+#### What the escaping stops, and what it does not
+
+**Markdown is ON everywhere and is never switched off.** That is the opposite of the
+old shape, where five publishers disabled rendering because their bodies were unsafe —
+which patched the symptom in five places. Safety comes from the renderers escaping
+their input, so it holds for every publisher including ones written later.
+
+Three behaviours, and the difference between them is deliberate:
+
+| Path | `[tap here](https://evil)` | Bare `https://evil` |
+|---|---|---|
+| **item · detail · fact** | `\[tap here\]\(https://evil\)` — inert, shows as literal text | passes through, may autolink |
+| **prose** | not escaped — the caller's | not escaped — the caller's |
+
+**Link syntax is what matters, and it is neutralised** in everything the box did not
+author: filenames arriving over Syncthing, model output, a remote server's `last_error`,
+a watch title chosen on someone else's website. Bold, headings and code spans go the same
+way.
+
+**A bare URL survives, and that is a decision rather than an oversight.** Link syntax
+*hides* its destination behind friendly text, which is what makes it dangerous inside a
+notification you already trust; a bare URL shows where it goes. Escaping one would mean
+mangling `:` or `/`, which wrecks every legitimate path and every `Reason:` label. It is
+also load-bearing in one place: changedetection's body ends with `{{watch_url}}`, because
+the link is the actionable thing.
+
+**Prose is unescaped by design** — `body_join` escapes nothing, since its other arguments
+are already rendered. So the PROSE argument is the caller's to escape, trivially true when
+the sentence is ours and mandatory when any part of it came from a model or a filename.
+Gate rule 9 refuses hand-written link syntax in a body, which is the half of that a static
+check can see.
+
 #### The rules
 
 | | Rule | Example |
@@ -705,7 +737,7 @@ sits at `changedetection.json.bak.pre-contract`.
 
 ## 9. Enforcement
 
-`systemd/contract.sh`, eight rules, run by `bash systemd/install.sh --check` (no root
+`systemd/contract.sh`, nine rules, run by `bash systemd/install.sh --check` (no root
 needed) and by `systemd/tests/run.sh`:
 
 1. Every title argument is a `title_count`, `title_state` or `title_quote` substitution —
@@ -727,6 +759,10 @@ needed) and by `systemd/tests/run.sh`:
    closing before a quote, so it catches the shape `paused_body` shipped in for a year:
    italics inside a `printf` *format* string, which anything anchored on a leading `"_`
    walks straight past.
+9. **No markdown link syntax in a body.** The renderers neutralise it in anything they
+   escape, but PROSE is unescaped, so this is the one place a live link could be authored
+   by hand. It matches `](http` — link syntax specifically, not a bare URL, which is
+   allowed and is load-bearing in changedetection's body.
 
 Rules 1–3 are about the title, 4–6 about the envelope, 7–8 about the body.
 
