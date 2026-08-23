@@ -35,19 +35,25 @@ OnCalendar=*-*-* *:00:00
 # the 2h grace, so nothing is lost by waiting for a stack that actually works.
 OnBootSec=15min
 
-# NO RandomizedDelaySec, and this is the ONE timer in the repo that must not have
-# one. Every other job here jitters so it does not fire on the hour alongside
-# logrotate, man-db, the sysstat collector, disk.timer and containers.timer — a
-# real concern for a job that reads every drive or walks 26 containers, and no
-# concern at all for a single HTTPS GET.
+# ONE MINUTE, where every other timer here uses five, and the small number is the
+# whole point.
 #
-# What jitter costs HERE is the signal. The far side is watching the clock against
-# the identical expression above, so a ping arriving at :03 is a ping that was
-# three minutes LATE, and healthchecks.io shows the check amber for those three
-# minutes before it lands. It never alerts — that needs the full 2h grace — but it
-# would mean the dashboard is amber for part of every single hour, forever. A
-# status that is amber when nothing is wrong is a status you stop reading, which is
-# the same argument smart.sh makes for ignoring Command_Timeout and containers.sh
-# makes for re-probing watchtower's recreate window.
+# The gate REQUIRES jitter on every timer (install.sh), for two repo-wide reasons:
+# several jobs contend for the same restic repository lock, and an un-jittered
+# timer lands on the hour beside logrotate, man-db and the sysstat collector. Both
+# are real. Neither applies to a job whose entire body is one HTTPS GET — it takes
+# no lock and costs nothing to run — so the rule is satisfied with the smallest
+# value that still genuinely spreads it away from containers.timer on the same hour.
 #
-# Firing on the exact second the other side expects is what keeps green meaningful.
+# What a LARGE jitter would cost here is the signal, which no other timer has to
+# think about. The far side watches the clock against the identical expression
+# above, so a ping arriving at :04 is a ping that was four minutes LATE, and
+# healthchecks.io shows the check amber until it lands. It never alerts — that needs
+# the full 2h grace — but at five minutes the dashboard would be amber for eight
+# percent of its life, forever, with nothing wrong. A status that is amber when
+# nothing is wrong is a status you stop reading, which is the argument smart.sh
+# makes for ignoring Command_Timeout and containers.sh for re-probing watchtower's
+# recreate window.
+#
+# One minute keeps the contract, keeps the spread, and keeps green meaningful.
+RandomizedDelaySec=1min
