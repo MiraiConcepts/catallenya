@@ -536,7 +536,7 @@ installing into the wrong directory leaves a hook that looks installed and never
 | hook | master | guards |
 |---|---|---|
 | `pre-commit` | `audit/pre-commit` | secret-shaped paths — the **second lock** on `.gitignore` |
-| `pre-push` | `ci/pre-push` | runs `ci/contract.sh` then `ci/shellcheck.sh` — the same two checks CI runs |
+| `pre-push` | `ci/pre-push` | `ci/contract.sh` → `ci/shellcheck.sh` → **`ci/tests.sh`** (all 1,124 cases, ~132s). The first two are mirrored in CI; the third **cannot be** |
 
 **The split between them is the point, not an accident.** Secrets are stopped at
 COMMIT time because this repo is public and force-pushes to every mirror — CI runs
@@ -546,6 +546,23 @@ fires on every docs typo teaches `--no-verify`, and that is the same flag that w
 disarm the secret guard. **Neither hook replaces CI**, which stays the authority: a
 hook can be bypassed, is absent on a fresh clone until installed, never sees a
 dependabot PR, and cannot gate the mirror publish the way `needs:` does.
+
+**`ci/tests.sh` is the exception, and it runs ONLY in the hook** (added 2026-08-23,
+owner's call). All seven suites, 1,124 cases, **~132s**, fastest first so a failure
+surfaces early, and it **stops at the first failing suite** rather than spending the
+rest of a two-minute budget on news you already have to act on. It cannot be a CI job
+and that is measured, not assumed: every suite resolves `/zpool/catallenya` absolutely
+and deliberately, so in a container with no `/zpool` six of the seven fail in bulk and
+the seventh cannot start. Making them portable means changing how production scripts
+find themselves in order to satisfy a runner. The suite list is **hardcoded, not
+globbed** — a glob matching fewer suites than yesterday runs fewer tests and still exits
+0 — and a suite on disk that is missing from the list is a refusal, the same cross-check
+`install.sh` does against its SYMLINKS map. **A push now takes a little over two
+minutes**, which runs against `ci/pre-push`'s own warning that a slow hook teaches
+`--no-verify`; that warning stands. If it ever starts to bite, **scope this to the
+suites whose directories changed** (measured at ~8s for a docs-only push) rather than
+deleting it, and do that before reaching for the flag once — it is the same flag that
+disarms the secret guard.
 
 Conventions: third-party actions are pinned to full commit SHAs with a `# vX.Y.Z`
 comment (a trivy-action tag deletion once broke CI for 5 weeks); `.github/dependabot.yml`
