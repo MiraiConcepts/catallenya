@@ -227,10 +227,18 @@ rather than reasoned about** (2026-08-23). Three forms, one device:
 
 `<…>` is a CommonMark **autolink**, which is a different thing from `[text](url)` and is
 not what rule 9 refuses: an autolink cannot hide a destination, because the
-destination *is* the text. Rendering has been on everywhere since 2026-08-21, so **every
-bare URL in this system has been un-tappable since that day** — including changedetection's,
-the one place the doc calls load-bearing. Only `.github/workflows/ci.yml` is fixed so far;
-the fleet is a separate decision and is deliberately left as it is until someone makes it.
+destination *is* the text. Rendering has been on since 2026-08-21 for everything that goes
+through `notify()`, so a bare URL in one of those bodies is un-tappable. **In practice that
+set is EMPTY**: no job authors a URL into a body — afterimage's and pigeonhole's URLs are
+BUTTON TARGETS, which are not body text — and the only URLs that could arrive are untrusted
+(a watch title lifted off someone's site, a `last_error` echoed back by a remote server).
+Those are escaped on purpose and **must stay defused**; making them live would be a
+downgrade, not a fix. So the rule is for whoever authors the NEXT one: wrap it in `<…>`.
+
+**changedetection is NOT affected**, and an earlier version of this paragraph said it was.
+Its watches notify through Apprise with `notification_format=text`, so nothing tells ntfy
+to render them and the client linkifies the URL itself — which is the same path the CI
+alert took before 2026-08-23, and that one was demonstrably tappable.
 
 **Prose is unescaped by design** — `body_join` escapes nothing, since its other arguments
 are already rendered. So the PROSE argument is the caller's to escape, trivially true when
@@ -767,8 +775,11 @@ Bodies are left alone: `{{diff}}` is changedetection's own diff format and there
 nothing to reshape it with.
 
 **`notification_format` stays `text`, and that is a SECURITY setting rather than a
-cosmetic one.** The cost is visible: a URL in the body is not tappable, because ntfy
-autolinks nothing in a message it was not told to render. The temptation is to switch to
+cosmetic one.** It was recorded here as costing a tappable URL — *"ntfy autolinks nothing
+in a message it was not told to render"* — and **that was measured wrong** (corrected
+2026-08-23). It is the other way round: with no render header the CLIENT linkifies a bare
+URL, and with rendering on it does not unless the URL is wrapped in `<…>`. So `text` costs
+nothing here; the security argument below stands entirely on its own. The temptation is to switch to
 `markdown`, and it must be resisted — changedetection escapes untrusted page content
 **only for HTML formats** (`if 'html' in requested_output_format` in
 `notification/handler.py`), which is the fix for GHSA-q8xq-qg4x-wphg. Markdown is not

@@ -33,4 +33,20 @@ ROOT="$(git rev-parse --show-toplevel)"
 # itself the moment you `docker compose up`, which is why compose-validate stays
 # CI-only.
 "${ROOT}/ci/contract.sh"
-exec "${ROOT}/ci/shellcheck.sh"
+"${ROOT}/ci/shellcheck.sh"
+
+# THREE checks now, cheapest first, and the third changes what this hook is.
+#
+# The first two are mirrored in CI and cost 7.6s between them. This one is the full
+# test suite — 1,124 cases, ~132s — and it is HOOK-ONLY because it provably cannot
+# run anywhere else: every suite resolves /zpool/catallenya absolutely and on
+# purpose, so on a runner six of the seven fail in bulk and the seventh cannot
+# start. See ci/tests.sh.
+#
+# A push therefore takes a little over two minutes, chosen with that number in hand
+# (owner, 2026-08-23). It sits against the warning at the top of this file, which
+# still stands: if two minutes on a docs commit ever starts producing --no-verify,
+# SCOPE this to the suites whose directories changed — measured at ~8s for a docs
+# push — rather than deleting it, and do that before reaching for the flag once.
+# The flag is the same one that disarms the secret guard.
+exec "${ROOT}/ci/tests.sh"

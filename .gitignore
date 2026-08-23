@@ -44,6 +44,7 @@
 # needed them.
 !ci/shellcheck.sh
 !ci/contract.sh
+!ci/tests.sh
 !ci/pre-push
 
 # Docs are per-file: docs/remote-luks-unlock.md is host-local ON PURPOSE (it is a
