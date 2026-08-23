@@ -20,4 +20,17 @@ set -euo pipefail
 # git passes the remote name and URL as $1/$2 and the refs on stdin. None of it
 # changes what is checked: the scope is every tracked *.sh, same as CI.
 ROOT="$(git rev-parse --show-toplevel)"
+
+# TWO checks, and only two. The contract gate runs FIRST because it is the faster
+# of them (1.7s against 5.9s), so a unit violation fails in under two seconds
+# rather than after the whole shell sweep.
+#
+# It was added 2026-08-23 after a unit the gate refuses reached main green: the
+# hook ran shellcheck, CI ran shellcheck, and NOTHING anywhere looked at unit
+# files. Both mirrored checks are in the same class — a shell fault and a contract
+# violation are both invisible until the day something runs them, which is what
+# earns a check a place in the per-push path. A compose typo is not: it announces
+# itself the moment you `docker compose up`, which is why compose-validate stays
+# CI-only.
+"${ROOT}/ci/contract.sh"
 exec "${ROOT}/ci/shellcheck.sh"

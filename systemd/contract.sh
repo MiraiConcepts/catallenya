@@ -200,3 +200,44 @@ intake_contract() {
     eval "$had_nullglob"
     return 0
 }
+
+# --- the workflow contract ---------------------------------------------------
+# The message rules above scan tracked SHELL. This one scans CI YAML, for the
+# single reason that a GitHub runner can emit a notification too and the rules did
+# not reach it.
+#
+# Found 2026-08-23: .github/workflows/ci.yml's notify-failure job had been sending
+# `Priority: high` and `Tags: rotating_light` since before both were removed from
+# notify() repo-wide on 2026-08-20. CLAUDE.md said in two places that nothing
+# shouts, and it was false in CI for three days — the same shape as the wrapped
+# `high` in pigeonhole that was false for nine, except no rule could have caught
+# this one, because contract.sh only ever read *.sh.
+#
+# DELIBERATELY NARROW. A runner cannot source ntfy/kinds.sh, so a workflow is a
+# sanctioned hand-built emitter in the same class as ntfy/system-ntfy.sh, checked
+# by pattern rather than by construction — see ntfy/MESSAGES.md. What is checked is
+# the part that is unambiguous no matter who built the string: the two headers that
+# no longer have a legal value anywhere in this system.
+workflow_contract() {
+    local dir="$1" f base code
+    local had_nullglob; had_nullglob="$(shopt -p nullglob)" || true
+    shopt -s nullglob
+    for f in "$dir"/*.yml "$dir"/*.yaml; do
+        [[ -f "$f" ]] || continue
+        base="$(basename "$f")"
+        # Comments are stripped for the same reason intake_contract strips them:
+        # this file now carries a note explaining why the two headers were removed,
+        # and a rule that cannot tell code from prose about code fires on the very
+        # comment left to prevent the regression.
+        code="$(sed 's/#.*//' "$f")"
+
+        if grep -qiE '^[[:space:]]*-H[[:space:]]+"?Priority:' <<<"$code"; then
+            err "${base}: sets a Priority header on an ntfy publish. Priority left notify() on 2026-08-20 and has no legal value anywhere in this system — nothing shouts. See ntfy/MESSAGES.md."
+        fi
+        if grep -qiE '^[[:space:]]*-H[[:space:]]+"?Tags:' <<<"$code"; then
+            err "${base}: sets a Tags header on an ntfy publish. Tags left notify() on 2026-08-20 — twelve glyphs of which four meant \"something is wrong\" and the rest named a pipeline the topic already names. See ntfy/MESSAGES.md."
+        fi
+    done
+    eval "$had_nullglob"
+    return 0
+}

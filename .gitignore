@@ -43,6 +43,7 @@
 # this directory is where a checker's credentials would land if one ever
 # needed them.
 !ci/shellcheck.sh
+!ci/contract.sh
 !ci/pre-push
 
 # Docs are per-file: docs/remote-luks-unlock.md is host-local ON PURPOSE (it is a

@@ -241,7 +241,7 @@ This is irreducible on-box: any watcher-of-the-watcher needs a watcher itself, f
 
 **What was declined, verbatim in effect:** *"the exposure is one blind spot replacing six, and it only bites if the heartbeat and whatever it would have caught both fail. Against that, an external dependency and an account are a real cost for a personal box whose owner would notice it being dead by other means."*
 
-**What changed is the second clause and only the second clause.** The first still holds exactly as written. But "the owner would notice by other means" was load-bearing, and it is precisely what a 1.0 — *"I am lazy to work on it anymore"* — retires. A standing decision may be re-raised on new information, and the retirement of its own premise is that information.
+**What changed is the second clause and only the second clause.** The first still holds exactly as written. But "the owner would notice by other means" was load-bearing, and it is precisely what stepping back from the box retires — the whole point of the decline was that a human was standing behind it. A standing decision may be re-raised on new information, and the retirement of its own premise is that information.
 
 Two things about the shape that were not obvious when it was declined. **The ping is CONDITIONAL, which is what makes it more than a power-on light**: `deadman.sh` pings only while it can still reach this box's own ntfy, so an alert channel that has stopped working expresses itself as external silence — the one fault this machine cannot report, because reporting it needs the broken part. And **the watching is MUTUAL**, which answers "who watches healthchecks.io": they watch us by our silence, we watch them by the ping's failure, reported through an ntfy we have just proven works. Their own FAQ says multi-day outages are possible (one-person ops team), so that direction is not theoretical.
 
@@ -329,7 +329,7 @@ regression. Repeating faults instead carry a **stable sequence id** so they repl
 rather than stack — `host/disk.sh` runs hourly, and a pool over threshold across a
 weekend used to produce forty-five notifications.
 
-`systemd/contract.sh` enforces eight rules at `--check`. Three are about the title: it
+`systemd/contract.sh` enforces ten rules at `--check`. Three are about the title: it
 comes from a constructor (following a variable to its assignment); its verb is declared;
 and every declared verb ends in `ed` or is in `NTFY_IRREGULAR_VERBS` (today: `Stuck`) —
 which is what stops a new service breaking the past-participle rule silently, refusing
@@ -345,7 +345,7 @@ reaches `body_join` unescaped, so a hand-authored one is the only way a live lin
 into a notification. **A bare URL is deliberately allowed** — link syntax HIDES its
 destination behind friendly text, which is what makes it dangerous inside a message the
 reader already trusts, while a bare URL shows where it goes; escaping one would mean
-mangling `:` and `/`, and changedetection's body ends with a real one on purpose.
+mangling `:` and `/`, and changedetection's body ends with a real one on purpose. **A tenth reads CI YAML rather than shell** — no `Priority:` or `Tags:` header in `.github/workflows/*.yml`. It exists because the other nine scan tracked `*.sh`, so `notify-failure` kept sending `Priority: high` and a tag for three days after both left `notify()` repo-wide, with "nothing shouts" written in two documents and false in CI the whole time. Deliberately narrow: a runner cannot source `kinds.sh`, so a workflow is a sanctioned hand-built emitter like `system-ntfy.sh`, and only the two headers with no legal value anywhere are checked. `ntfy/MESSAGES.md` § 8b now lists **five** hand-matched publishers.
 
 **The loan from `systemd/policy/` is weaker than it looks, and this is the thing to
 know before trusting it.** systemd has a real merge engine, so its layering holds even
@@ -456,6 +456,26 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   Changing the pin is a deliberate edit: bump it, run the command above, fix what the
   new version raises. **A local run that disagrees with CI means the versions differ
   — check that before believing either.**
+- **contract**: `bash ci/contract.sh` — `systemd/install.sh --check`, the gate every
+  unit must satisfy — plus `bash systemd/tests/run.sh`, the 101-case offline suite that
+  proves the gate still refuses each forbidden shape. **Added 2026-08-23, and it should
+  have existed all along**: the gate had run only when a human typed it, CLAUDE.md
+  documented that as "run this before committing any unit change", and it failed on the
+  first unit change after the rule was written — `32e92f6` dropped a required
+  `RandomizedDelaySec=` and pushed **green**, because `audit/pre-commit` frisks for
+  secrets, `ci/pre-push` ran shellcheck, and nothing anywhere read a unit file. A
+  refused unit on `main` is one `sudo bash systemd/install.sh` away from aborting the
+  **entire** install, since the gate creates no links if any single unit fails. Defined
+  once in `ci/contract.sh` and run by both CI and the `ci/pre-push` hook, the same
+  arrangement as `ci/shellcheck.sh` — **but the SUITE is CI-only, deliberately**:
+  measured 2026-08-23 it takes **72 seconds** against 1.7s for the gate and 5.9s for
+  shellcheck, and a minute of waiting on every docs typo is how a hook teaches
+  `--no-verify`, which is the same flag that disarms the secret guard. The gate catches
+  the violation; the suite catches a broken gate, and only the first is a per-push
+  concern. `INSTALL_CHECK_REPO` is what lets `--check` run on a runner at all — it is
+  `install.sh`'s own seam, honored only under `--check`, and without it the check would
+  validate the units at the hardcoded `/zpool/catallenya` rather than the tree being
+  pushed. Verified from a fresh shallow clone at an unrelated path as a non-root user.
 - **mirror**: publishes a feature directory to its own standalone repo via
   `git subtree split`, so a feature can be linked, described and pinned on its own —
   GitHub pins are repo-level, you cannot pin a directory. **Five matrix entries, and
@@ -511,7 +531,7 @@ installing into the wrong directory leaves a hook that looks installed and never
 | hook | master | guards |
 |---|---|---|
 | `pre-commit` | `audit/pre-commit` | secret-shaped paths — the **second lock** on `.gitignore` |
-| `pre-push` | `ci/pre-push` | runs `ci/shellcheck.sh`, the same check CI runs |
+| `pre-push` | `ci/pre-push` | runs `ci/contract.sh` then `ci/shellcheck.sh` — the same two checks CI runs |
 
 **The split between them is the point, not an accident.** Secrets are stopped at
 COMMIT time because this repo is public and force-pushes to every mirror — CI runs
