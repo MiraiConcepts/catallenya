@@ -35,6 +35,19 @@ OnCalendar=*-*-* *:00:00
 # the 2h grace, so nothing is lost by waiting for a stack that actually works.
 OnBootSec=15min
 
-# Jitter, so this does not fire exactly on the hour alongside logrotate, man-db,
-# the sysstat collector, disk.timer and containers.timer.
-RandomizedDelaySec=5min
+# NO RandomizedDelaySec, and this is the ONE timer in the repo that must not have
+# one. Every other job here jitters so it does not fire on the hour alongside
+# logrotate, man-db, the sysstat collector, disk.timer and containers.timer — a
+# real concern for a job that reads every drive or walks 26 containers, and no
+# concern at all for a single HTTPS GET.
+#
+# What jitter costs HERE is the signal. The far side is watching the clock against
+# the identical expression above, so a ping arriving at :03 is a ping that was
+# three minutes LATE, and healthchecks.io shows the check amber for those three
+# minutes before it lands. It never alerts — that needs the full 2h grace — but it
+# would mean the dashboard is amber for part of every single hour, forever. A
+# status that is amber when nothing is wrong is a status you stop reading, which is
+# the same argument smart.sh makes for ignoring Command_Timeout and containers.sh
+# makes for re-probing watchtower's recreate window.
+#
+# Firing on the exact second the other side expects is what keeps green meaningful.
