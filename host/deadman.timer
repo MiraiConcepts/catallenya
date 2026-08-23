@@ -4,14 +4,26 @@
 Description=Ping the off-box dead man's switch hourly
 
 [Timer]
-# HOURLY, and the interval is a contract with the other side: healthchecks.io is
-# configured with a 1h period and a 2h grace, so it raises the alarm after three
-# hours of silence. Changing this cadence WITHOUT changing that configuration
-# breaks the switch in the quiet direction — a longer interval here means missed
-# pings and false alarms, a shorter one means the alarm takes longer to be true
-# than it looks. The two numbers live in different places and nothing can check
-# they agree, which is the one weak joint in this design.
-OnCalendar=hourly
+# HOURLY, and the interval is a CONTRACT WITH THE OTHER SIDE. Nothing can check
+# that the two agree, which is the one weak joint in this design — so the joint is
+# made as narrow as it can be: healthchecks.io accepts a systemd OnCalendar
+# expression directly, and it is configured with THE LITERAL STRING BELOW rather
+# than with a period translated out of it. Copy the line, do not paraphrase it.
+#
+#   here                    OnCalendar=*-*-* *:00:00
+#   healthchecks.io         OnCalendar tab, same expression, timezone UTC
+#                           Grace Time 2 hours
+#
+# Written out rather than as the alias `hourly`, which systemd normalizes to
+# exactly this (verified: `systemd-analyze calendar hourly`). The alias would be
+# one more thing the far side has to agree about how to expand.
+#
+# Grace on their side is 2h, so the alarm fires after roughly three hours of
+# silence — two missed runs. Shortening this timer without shortening their grace
+# makes the alarm take longer to be true than it looks; lengthening it without
+# lengthening their grace produces false alarms. Timezone is irrelevant while the
+# expression is on-the-hour, and UTC is set on their side so it stays irrelevant.
+OnCalendar=*-*-* *:00:00
 
 # Fifteen minutes, matching containers.timer and for the same reason: catallenya.service
 # brings the stack up at boot and ntfy needs a moment to answer. An earlier first
