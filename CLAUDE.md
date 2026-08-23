@@ -457,8 +457,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   new version raises. **A local run that disagrees with CI means the versions differ
   — check that before believing either.**
 - **contract**: `bash ci/contract.sh` — `systemd/install.sh --check`, the gate every
-  unit must satisfy — plus `bash systemd/tests/run.sh`, the 101-case offline suite that
-  proves the gate still refuses each forbidden shape. **Added 2026-08-23, and it should
+  unit must satisfy. **Added 2026-08-23, and it should
   have existed all along**: the gate had run only when a human typed it, CLAUDE.md
   documented that as "run this before committing any unit change", and it failed on the
   first unit change after the rule was written — `32e92f6` dropped a required
@@ -467,12 +466,18 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   refused unit on `main` is one `sudo bash systemd/install.sh` away from aborting the
   **entire** install, since the gate creates no links if any single unit fails. Defined
   once in `ci/contract.sh` and run by both CI and the `ci/pre-push` hook, the same
-  arrangement as `ci/shellcheck.sh` — **but the SUITE is CI-only, deliberately**:
-  measured 2026-08-23 it takes **72 seconds** against 1.7s for the gate and 5.9s for
-  shellcheck, and a minute of waiting on every docs typo is how a hook teaches
-  `--no-verify`, which is the same flag that disarms the secret guard. The gate catches
-  the violation; the suite catches a broken gate, and only the first is a per-push
-  concern. `INSTALL_CHECK_REPO` is what lets `--check` run on a runner at all — it is
+  arrangement as `ci/shellcheck.sh`. **`systemd/tests/run.sh` is deliberately NOT in
+  either caller, and both exclusions were tried before being decided.** In the hook it
+  costs **72 seconds** against 1.7s for the gate, and a minute of waiting on every docs
+  typo is how a hook teaches `--no-verify` — the same flag that disarms the secret
+  guard. In CI it simply fails, for a reason that is not a defect: it runs the REAL
+  scripts, which resolve `/zpool/catallenya` absolutely and on purpose
+  (`systemd/heartbeat.sh` says so in a comment; `ntfy/system-ntfy.sh` reads the root
+  `.env` the same way), so seven cases depend on paths a runner cannot have. Making it
+  portable means changing how production scripts find themselves in order to satisfy a
+  test runner, which is a real risk for a second-order check. **The gate is the check**
+  — it catches the violation and runs everywhere; the suite catches a *broken gate*,
+  which is rarer and which a human running the documented command will find. `INSTALL_CHECK_REPO` is what lets `--check` run on a runner at all — it is
   `install.sh`'s own seam, honored only under `--check`, and without it the check would
   validate the units at the hardcoded `/zpool/catallenya` rather than the tree being
   pushed. Verified from a fresh shallow clone at an unrelated path as a non-root user. **Two things had to change for it to run off-box, and the first CI run is what found them.** An `ExecStart=` is an ABSOLUTE `/zpool/catallenya/...` path — systemd has no unit-relative form — so `INSTALL_CHECK_REPO` relocates where units are *found* while the path inside them is a literal, and all 19 service units reported a missing script on a perfectly good tree. A relocated tree now translates the repo prefix and checks the copy being validated, and skips paths OUTSIDE the repo *there and only there* (`zpool.scrub` runs `/usr/sbin/zpool`, which a runner has no reason to have; on the real box nothing is skipped, because a missing zpool binary is exactly what that check should still catch). Second, `install.sh` needs **`systemd-analyze`** to parse `MaxAge=`, and without it died at `127` having printed only its header — it now says so, on the same rule `ci/shellcheck.sh` states for docker: a check that reports nothing because it never ran is the same fault as a dropped alert with the run stamped healthy.

@@ -106,20 +106,20 @@ jobs:
         # drift shellcheck.sh was extracted to prevent.
         run: bash ci/contract.sh
 
-      - name: Prove the gate still refuses what it should
-        # The 101-case offline suite: it mutates a scratch tree of units and
-        # asserts the gate refuses each forbidden shape, and asserts the watchdog
-        # raises each finding type. Without it the job above only proves the units
-        # pass SOMETHING — a gate that had stopped checking would be green too.
-        #
-        # CI-ONLY, deliberately, and this is the one place the two callers of
-        # ci/contract.sh differ. Measured 2026-08-23: this suite takes 72 seconds
-        # against 1.7s for the gate. In the pre-push path that is a minute of
-        # waiting on every docs typo, and ci/pre-push's own header explains where
-        # that ends — "a check that fires on every docs typo is a check people
-        # learn to skip with --no-verify, which would cost the secret guard its
-        # credibility too, since that is the same flag." Here the 72s is free.
-        run: bash systemd/tests/run.sh
+      # systemd/tests/run.sh IS NOT RUN HERE, and it was tried. It is the 101-case
+      # suite that proves the gate still refuses each forbidden shape — genuinely
+      # worth having, and it fails on a runner for a reason that is not a defect:
+      # it executes the REAL scripts, and those resolve /zpool/catallenya
+      # absolutely and on purpose. systemd/heartbeat.sh sources the transport by
+      # absolute path with a comment saying why; ntfy/system-ntfy.sh reads the root
+      # .env the same way. Seven cases failed on paths that cannot exist here.
+      #
+      # Making it portable means changing how production scripts resolve their own
+      # paths, to satisfy a test runner. That is a real risk taken for a
+      # second-order check, so it is not taken. THE GATE IS THE CHECK — it catches
+      # the violation, and it runs everywhere. The suite catches a BROKEN gate,
+      # which is a rarer failure and one a human running the documented
+      # `bash systemd/tests/run.sh` will find.
 
   # Publishes a feature directory to its own standalone repo, so a single feature
   # can be linked, described and pinned on its own — you cannot pin a directory.
