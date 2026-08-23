@@ -275,8 +275,26 @@ jobs:
           # The body follows the renderers in ntfy/kinds.sh: a U+2022 fact that
           # reads as a complete statement and carries no stub label, then prose,
           # separated by a blank line, with a full stop on the prose line only.
-          # The bare URL is deliberate and permitted — link SYNTAX is what hides a
-          # destination inside a trusted message, and a bare URL shows where it goes.
+          #
+          # THE URL IS IN ANGLE BRACKETS AND MUST STAY THAT WAY. Measured on the
+          # actual phone 2026-08-23, because this is the class of thing this repo
+          # has twice been wrong about by reasoning instead of looking (the U+25AA
+          # that drew as a coloured emoji square; the X-ID header accepted with a
+          # 200 and silently ignored):
+          #
+          #   Markdown OFF, bare URL   -> the client linkifies it. Tappable.
+          #   Markdown ON,  bare URL   -> plain text. NOT tappable. Copy-paste only.
+          #   Markdown ON,  <bare URL> -> tappable, full address still visible.
+          #
+          # This alert shipped in the middle form for one day. Turning Markdown off
+          # would also fix it; the angle bracket keeps the body consistent with
+          # every other publisher in the fleet, which all render.
+          #
+          # `<...>` is a CommonMark AUTOLINK, not `[text](url)`, and that
+          # distinction is the whole of gate rule 9: link SYNTAX hides a
+          # destination behind friendly words inside a message the reader already
+          # trusts, while an autolink shows exactly where it goes. Never change
+          # this to `[...](...)` — the gate refuses it, and the gate is right.
           #
           # --data-raw, not -d: -d treats a leading @ as a filename to read.
           # --max-time, so a wedged ntfy.sh cannot hang the job that reports a
@@ -284,5 +302,5 @@ jobs:
           curl -fsS --max-time 15 \
             -H "Title: ${REPO##*/}: CI Failed" \
             -H "Markdown: yes" \
-            --data-raw "$(printf '\u2022 Failed on branch %s\n\n%s' "$REF" "$RUN_URL")" \
+            --data-raw "$(printf '\u2022 Failed on branch %s\n\n<%s>' "$REF" "$RUN_URL")" \
             "$NTFY_URL"
