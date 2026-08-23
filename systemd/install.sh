@@ -28,11 +28,35 @@ set -euo pipefail
 SYSTEMD_DIR="/etc/systemd/system"
 REPO_DIR="/zpool/catallenya"
 
+# The path units are WRITTEN against, which never moves even when REPO_DIR does.
+# Every ExecStart= in this repo is an absolute /zpool/catallenya/... path, because
+# systemd has no notion of a unit-relative one — so validating a tree at any other
+# location has to translate them. See the ExecStart check in validate_service.
+CANON_REPO="/zpool/catallenya"
+
 # --check validates the contract and exits without touching anything. It needs no
 # root, which is the point: the gate can then run in CI and be tested on its own,
 # rather than only being exercised by the thing it is supposed to guard.
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+
+# A CHECKER THAT CANNOT RUN MUST SAY SO, never die anonymously. `systemd-analyze
+# timespan` is what turns a MaxAge= into microseconds; without it the assignment
+# fails under `set -euo pipefail` and this script exits 127 having printed only
+# "Validating the job contract..." — which reads as a crash in the gate rather than
+# a missing package. Found the first time --check ran somewhere that was not this
+# box (a bare container, 2026-08-23).
+#
+# Same rule ci/shellcheck.sh states for docker: a check that reports nothing because
+# it never ran is the same fault as an alert dropped while the run is stamped
+# healthy. GitHub's ubuntu runners ship systemd and therefore this binary; a slim
+# container may not.
+if ! command -v systemd-analyze >/dev/null 2>&1; then
+    echo "systemd/install.sh: systemd-analyze not found — MaxAge= cannot be parsed" >&2
+    echo "  It is part of the systemd package. The contract cannot be validated" >&2
+    echo "  without it, and passing quietly would be worse than failing here." >&2
+    exit 1
+fi
 
 # The offline suite points --check at a tree of COPIED units, so its mutation
 # cases never write the real files — which are the live targets of the
@@ -339,13 +363,45 @@ validate_service() {
     # until the class start limit stops it: liquidroom.triage did exactly this on
     # its first live deploy and cost five notifications. Files written by tooling
     # default to 0644, so this is easy to reintroduce and invisible in review.
-    local execbin
+    #
+    # AN ExecStart= IS ABSOLUTE AND DOES NOT MOVE WITH THE TREE. INSTALL_CHECK_REPO
+    # relocates where units are FOUND; the /zpool/catallenya/... inside them is a
+    # literal. Checking it as written is right on this box and wrong everywhere
+    # else — on a CI runner /zpool does not exist, so all 19 service units reported
+    # a missing script and the job failed on a perfectly good tree. (Found the
+    # first time this check ran in CI, 2026-08-23, which is the job earning its
+    # place on the day it was added.)
+    #
+    # So a relocated tree translates the repo prefix and checks the copy actually
+    # being validated. Paths OUTSIDE the repo are skipped there and only there:
+    # zpool.scrub.service runs /usr/sbin/zpool, which a runner has no reason to
+    # have, and demanding it would mean CI could only pass on a machine that is
+    # already a ZFS host. On the real box nothing is skipped — a missing zpool
+    # binary is exactly the kind of thing this check should still catch.
+    # A RELOCATED TREE MAY HOLD EITHER, so accept either. Two callers relocate and
+    # they are not the same shape: a CI runner has the whole repo but no /zpool,
+    # while systemd/tests/run.sh copies UNITS ONLY into a scratch dir and leaves the
+    # scripts where they are. Translating unconditionally broke the suite (18 units
+    # reporting a script that is simply not in the check tree, and the
+    # non-executable case reading "does not exist" instead); checking only the
+    # literal broke CI. So: prefer the copy in the tree being validated, fall back
+    # to the canonical path, and only complain when NEITHER is there.
+    local execbin execpath execalt
     execbin="$(grep -m1 -oP '^\s*ExecStart\s*=\s*\K[^ ]+' "$file" 2>/dev/null)"
-    if [[ -n "$execbin" && "$execbin" == /* ]]; then
-        [[ -e "$execbin" ]] || \
+    execpath="$execbin"
+    if [[ -n "$execbin" && "$execbin" == /* && "$REPO_DIR" != "$CANON_REPO" ]]; then
+        if [[ "$execbin" == "${CANON_REPO}/"* ]]; then
+            execalt="${REPO_DIR}/${execbin#"${CANON_REPO}/"}"
+            [[ -e "$execalt" ]] && execpath="$execalt"
+        else
+            execpath=""   # a system binary, not this tree's to vouch for
+        fi
+    fi
+    if [[ -n "$execpath" && "$execpath" == /* ]]; then
+        [[ -e "$execpath" ]] || \
             err "${unit}: ExecStart= points at ${execbin}, which does not exist."
-        [[ ! -e "$execbin" || -x "$execbin" ]] || \
-            err "${unit}: ExecStart= target ${execbin} is not executable (mode $(stat -c %a "$execbin" 2>/dev/null)). systemd fails it with 203/EXEC, which names no cause. Run: chmod 755 ${execbin}"
+        [[ ! -e "$execpath" || -x "$execpath" ]] || \
+            err "${unit}: ExecStart= target ${execbin} is not executable (mode $(stat -c %a "$execpath" 2>/dev/null)). systemd fails it with 203/EXEC, which names no cause. Run: chmod 755 ${execbin}"
     fi
 
     check_not_reset "$file" "$unit" base $BASE_SETS
