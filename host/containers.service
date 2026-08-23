@@ -1,0 +1,38 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type=oneshot, journal
+# logging, the base hardening, and from the monitor class the read-only sandbox, the
+# 10-minute bound and the writable stamp directory.
+#
+# Why monitor rather than scheduled: this job only LOOKS and REPORTS. It never starts,
+# stops or restarts anything — a finding is a notification, exactly as everywhere else
+# in this control plane. Restarting a container automatically would turn a crash loop
+# into a quieter crash loop, which is the failure it exists to make visible.
+#
+# The inherited OnFailure is a BACKSTOP only. containers.sh posts its own findings to
+# the host topic. What OnFailure covers is the case it cannot report itself — dying
+# before it gets that far, or the alert being undeliverable, which here is the LIKELY
+# case rather than the exotic one: ntfy is itself one of the containers being watched,
+# so the run that discovers ntfy is down is the run that cannot say so.
+
+[Unit]
+Description=Container Fleet Monitor
+# The daemon, not the socket: a check that starts docker in order to ask whether
+# docker is running would answer its own question wrongly.
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+User=carrein
+Group=carrein
+ExecStart=/zpool/catallenya/host/containers.sh
+
+[X-Catallenya]
+Class=monitor
+# Hourly, so 3h allows two missed runs before the watchdog speaks — the same one-run
+# grace disk.timer gets, which is also hourly.
+MaxAge=3h
+# Freshness is implied for the monitor class — its own completion stamp at
+# /zpool/catallenya/systemd/state/containers. Declaring it here is redundant and the
+# gate rejects it.

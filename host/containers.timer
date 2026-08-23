@@ -1,0 +1,30 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Check the container fleet hourly
+
+[Timer]
+# HOURLY, and this deliberately differs from changedetection.health, whose timer
+# argues that daily is enough because "a watch that breaks stays broken until a human
+# intervenes, so there is nothing to gain from noticing it sooner". That argument is
+# correct there and wrong here, for one reason: ntfy is in the population being
+# watched. While ntfy is down, EVERY alert in this fleet is dropped with no trace —
+# so the interval is not how long a fault waits for a human, it is how long the whole
+# alerting system can be dead before anything can say so. Daily makes that window up
+# to ~47h; hourly makes it ~1h.
+#
+# It is not noisy: findings carry one stable sequence id, so an unfixed condition
+# rewrites its own notification rather than stacking. disk.timer has run hourly on
+# exactly that arrangement since the id was added.
+OnCalendar=hourly
+
+# Fifteen minutes, not disk.timer's five. catallenya.service brings the whole stack up
+# at boot and the slower images take a couple of minutes to pass their first
+# healthcheck, so an earlier first run would report a fleet that is merely still
+# starting — the cry-wolf case this job's re-probe and health grace both exist to
+# avoid.
+OnBootSec=15min
+
+# Jitter, so this does not fire exactly on the hour alongside logrotate, man-db, the
+# sysstat collector and disk.timer.
+RandomizedDelaySec=5min

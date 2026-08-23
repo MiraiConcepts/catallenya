@@ -68,6 +68,16 @@ declare -A SYMLINKS=(
     # SMART is the only place that trend is visible; ZED sees a disk that has
     # already failed, scrub sees corruption, neither sees flash near its limit.
     ["smart.timer"]="${REPO_DIR}/host/smart.timer"
+    # The 20 jobs had the heartbeat roll call; the 26 containers had nothing.
+    # `restart: unless-stopped` means a crash-looping container never reaches a
+    # failed state, and ntfy — the channel every other alert in this fleet depends
+    # on — was among the seven publishing no healthcheck at all.
+    ["containers.timer"]="${REPO_DIR}/host/containers.timer"
+    # The one alarm that does not live on this box. It pings healthchecks.io only
+    # while it can still reach our own ntfy, so an alert channel that has stopped
+    # working becomes external SILENCE — the single thing this machine cannot
+    # report about itself, because reporting it needs the part that is broken.
+    ["deadman.timer"]="${REPO_DIR}/host/deadman.timer"
     # changedetection cannot self-report a broken watch — every fetch error just
     # sets last_error and notifies nobody. This is the only thing that looks.
     ["changedetection.health.timer"]="${REPO_DIR}/changedetection/changedetection.health.timer"
@@ -100,6 +110,8 @@ declare -A SYMLINKS=(
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/host/disk.service"
     ["smart.service"]="${REPO_DIR}/host/smart.service"
+    ["containers.service"]="${REPO_DIR}/host/containers.service"
+    ["deadman.service"]="${REPO_DIR}/host/deadman.service"
     ["changedetection.health.service"]="${REPO_DIR}/changedetection/changedetection.health.service"
     ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"

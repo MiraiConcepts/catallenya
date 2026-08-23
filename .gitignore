@@ -132,6 +132,14 @@ ntfy/.env
 !host/smart.sh
 !host/smart.service
 !host/smart.timer
+!host/containers.sh
+!host/containers.service
+!host/containers.timer
+!host/deadman.sh
+!host/deadman.service
+!host/deadman.timer
+!host/tests/
+!host/tests/run.sh
 !immich/immich.fix-rotations.service
 !immich/immich.fix-rotations.timer
 !systemd/install.sh

@@ -1,0 +1,28 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Ping the off-box dead man's switch hourly
+
+[Timer]
+# HOURLY, and the interval is a contract with the other side: healthchecks.io is
+# configured with a 1h period and a 2h grace, so it raises the alarm after three
+# hours of silence. Changing this cadence WITHOUT changing that configuration
+# breaks the switch in the quiet direction — a longer interval here means missed
+# pings and false alarms, a shorter one means the alarm takes longer to be true
+# than it looks. The two numbers live in different places and nothing can check
+# they agree, which is the one weak joint in this design.
+OnCalendar=hourly
+
+# Fifteen minutes, matching containers.timer and for the same reason: catallenya.service
+# brings the stack up at boot and ntfy needs a moment to answer. An earlier first
+# run would find ntfy not yet up, correctly refuse to ping, and exit 1 — a true
+# statement that is not yet useful.
+#
+# This also matters after an outage: if the box was dark, healthchecks.io has
+# already alarmed, and this run is what clears it. Fifteen minutes is well inside
+# the 2h grace, so nothing is lost by waiting for a stack that actually works.
+OnBootSec=15min
+
+# Jitter, so this does not fire exactly on the hour alongside logrotate, man-db,
+# the sysstat collector, disk.timer and containers.timer.
+RandomizedDelaySec=5min
