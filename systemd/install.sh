@@ -505,6 +505,12 @@ for unit in "${!SYMLINKS[@]}"; do
     esac
 done
 
+# CI YAML can emit a notification too, and until 2026-08-23 nothing checked it —
+# contract.sh only ever read *.sh, so notify-failure kept sending `Priority: high`
+# and a tag for three days after both were removed from notify() repo-wide. Called
+# once rather than per-unit: it is a property of the repo, not of any job.
+workflow_contract "${REPO_DIR}/.github/workflows"
+
 # The SYMLINKS map is hand-maintained, and a unit that never makes it in is the
 # quietest failure this layout allows: it validates nothing, installs nothing,
 # and declares a Class the watchdog will never read — proven with a rogue unit

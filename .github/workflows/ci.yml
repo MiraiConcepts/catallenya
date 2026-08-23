@@ -84,6 +84,43 @@ jobs:
         # script; changing either is one edit that moves both callers together.
         run: bash ci/shellcheck.sh
 
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate the job contract
+        # The gate every unit must satisfy, run here for the first time on
+        # 2026-08-23. It had existed for weeks and run ONLY when a human typed it:
+        # CLAUDE.md documented `bash systemd/install.sh --check` as "run this
+        # before committing any unit change", which is discipline, not a gate.
+        # That failed on the first unit change after the rule was written —
+        # commit 32e92f6 dropped a required RandomizedDelaySec= and pushed GREEN,
+        # because audit/pre-commit frisks for secrets, ci/pre-push ran shellcheck,
+        # and nothing anywhere read a unit file. A refused unit on main is one
+        # `sudo bash systemd/install.sh` away from aborting the whole install,
+        # since the gate creates NO links if any single unit fails.
+        #
+        # Same file the ci/pre-push hook runs. Do NOT inline it — that is the
+        # drift shellcheck.sh was extracted to prevent.
+        run: bash ci/contract.sh
+
+      - name: Prove the gate still refuses what it should
+        # The 101-case offline suite: it mutates a scratch tree of units and
+        # asserts the gate refuses each forbidden shape, and asserts the watchdog
+        # raises each finding type. Without it the job above only proves the units
+        # pass SOMETHING — a gate that had stopped checking would be green too.
+        #
+        # CI-ONLY, deliberately, and this is the one place the two callers of
+        # ci/contract.sh differ. Measured 2026-08-23: this suite takes 72 seconds
+        # against 1.7s for the gate. In the pre-push path that is a minute of
+        # waiting on every docs typo, and ci/pre-push's own header explains where
+        # that ends — "a check that fires on every docs typo is a check people
+        # learn to skip with --no-verify, which would cost the secret guard its
+        # credibility too, since that is the same flag." Here the 72s is free.
+        run: bash systemd/tests/run.sh
+
   # Publishes a feature directory to its own standalone repo, so a single feature
   # can be linked, described and pinned on its own — you cannot pin a directory.
   # The monorepo stays the source of truth and the sync is STRICTLY ONE-WAY: the
@@ -97,7 +134,7 @@ jobs:
   # mirror is one line in the matrix.
   mirror:
     runs-on: ubuntu-latest
-    needs: [gitleaks, compose-validate, shellcheck]
+    needs: [gitleaks, compose-validate, shellcheck, contract]
     # Pushes to main only. A pull_request run must never publish unmerged code to
     # a public repo.
     if: >-
@@ -203,10 +240,23 @@ jobs:
     # `mirror` is here deliberately: a mirror that silently stops syncing looks
     # identical to one that is current, which is the exact failure mode the rest
     # of this repo exists to prevent.
-    needs: [gitleaks, compose-validate, shellcheck, mirror]
+    needs: [gitleaks, compose-validate, shellcheck, contract, mirror]
     if: failure()
     steps:
       - name: Post failure to ntfy
+        # THE ONE EMITTER THAT CANNOT SOURCE ntfy/kinds.sh, and therefore the one
+        # that matches the message contract BY HAND. A runner has no access to this
+        # box's transport, and the message goes to the public ntfy.sh rather than to
+        # the tailnet instance — so this is a deliberate exception in the same class
+        # as ntfy/system-ntfy.sh, which also builds its headers by hand because the
+        # alarm of last resort must depend on nothing. See ntfy/MESSAGES.md.
+        #
+        # It was NOT matching until 2026-08-23. It carried `Priority: high` and
+        # `Tags: rotating_light` — both removed from notify() repo-wide on
+        # 2026-08-20, when priority became unrepresentable rather than merely
+        # discouraged and twelve tag glyphs went with it — plus a hand-written
+        # `CI failed: <repo>` title. It escaped every gate because systemd/contract.sh
+        # scans tracked SHELL, and this is YAML. There is now a rule for that too.
         env:
           NTFY_URL: ${{ secrets.NTFY_FAILURE_URL }}
           REPO: ${{ github.repository }}
@@ -217,9 +267,22 @@ jobs:
             echo "NTFY_FAILURE_URL secret not set; skipping notification."
             exit 0
           fi
-          curl -sf \
-            -H "Title: CI failed: $REPO" \
-            -H "Priority: high" \
-            -H "Tags: rotating_light" \
-            -d "A CI job failed on $REF. $RUN_URL" \
+          # title_state's shape, written out: "<Subject>: <State>", subject
+          # narrower than the topic. The topic is a generic failure channel, so
+          # the repo is the subject; ${REPO##*/} drops the owner, which the topic
+          # does not need and a lock screen has no room for.
+          #
+          # The body follows the renderers in ntfy/kinds.sh: a U+2022 fact that
+          # reads as a complete statement and carries no stub label, then prose,
+          # separated by a blank line, with a full stop on the prose line only.
+          # The bare URL is deliberate and permitted — link SYNTAX is what hides a
+          # destination inside a trusted message, and a bare URL shows where it goes.
+          #
+          # --data-raw, not -d: -d treats a leading @ as a filename to read.
+          # --max-time, so a wedged ntfy.sh cannot hang the job that reports a
+          # failure. No Priority and no Tags: nothing in this system shouts.
+          curl -fsS --max-time 15 \
+            -H "Title: ${REPO##*/}: CI Failed" \
+            -H "Markdown: yes" \
+            --data-raw "$(printf '\u2022 Failed on branch %s\n\n%s' "$REF" "$RUN_URL")" \
             "$NTFY_URL"

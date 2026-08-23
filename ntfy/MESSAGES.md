@@ -647,11 +647,32 @@ contract listing only what it governs reads as though it governs everything.
 | **watchtower** | `docker-compose.yml`, shoutrrr | **in the contract, hand-matched** |
 | **changedetection** (the watches) | Apprise, set in its **UI** | **reshaped, but unenforceable** |
 | **zed** (ZFS Event Daemon) | `/etc/zfs/zed.d/` on the host | **in the contract, hand-matched** |
+| **GitHub Actions** (`notify-failure`) | `.github/workflows/ci.yml`, `curl` | **in the contract, hand-matched, gate-checked** |
 
-None of the three can call `ntfy/kinds.sh` — a Go binary, a Python app and a POSIX
-shell function outside the repo — so all three match the grammar **by hand**, exactly as
-`ntfy/system-ntfy.sh` does. That is **four hand-matched publishers**, and the number
-should not grow: each is a place the gate cannot reach.
+None of the four can call `ntfy/kinds.sh` — a Go binary, a Python app, a POSIX shell
+function outside the repo, and a job on someone else's runner — so all four match the
+grammar **by hand**, exactly as `ntfy/system-ntfy.sh` does. That is **five hand-matched
+publishers**, and the number should not grow: each is a place the gate cannot fully reach.
+
+### GitHub Actions
+
+Added to this list on **2026-08-23**, and it was the one publisher nobody had noticed
+was here. It posts to the **public ntfy.sh**, not to this box's instance — a runner
+cannot reach the tailnet — using the `NTFY_FAILURE_URL` secret. That is the only reason
+CI can tell you anything at all when a push fails.
+
+**It was violating the contract and had been since the contract landed.** It carried
+`Priority: high` and `Tags: rotating_light`, both of which left `notify()` on
+2026-08-20, plus a hand-written `CI failed: <repo>` title. It escaped every check for a
+reason worth stating plainly: `systemd/contract.sh` scanned tracked **shell**, and this
+is **YAML**. "Nothing shouts" was written in two documents and was false in CI for three
+days — the same shape as the wrapped `high` in pigeonhole that was false for nine.
+
+It is now `catallenya: CI Failed` (`title_state`'s shape, subject narrower than the
+topic, `${REPO##*/}` dropping the owner a lock screen has no room for) over a body of
+one `•` fact and a bare URL, and it is the **only** hand-matched publisher the gate
+actually reads — rule 10 refuses `Priority:` or `Tags:` in any workflow file. It is also
+`--data-raw` rather than `-d` and carries `--max-time`, matching the transport.
 
 ### watchtower
 
@@ -769,8 +790,10 @@ sits at `changedetection.json.bak.pre-contract`.
 
 ## 9. Enforcement
 
-`systemd/contract.sh`, nine rules, run by `bash systemd/install.sh --check` (no root
-needed) and by `systemd/tests/run.sh`:
+`systemd/contract.sh`, ten rules, run by `bash systemd/install.sh --check` (no root
+needed) and by `systemd/tests/run.sh`. **Since 2026-08-23 that command is also a CI job
+and a `ci/pre-push` hook** — before then it ran only when a human typed it, and a unit
+it refuses reached `main` green:
 
 1. Every title argument is a `title_count`, `title_state` or `title_quote` substitution —
    nothing hand-built. A variable is followed to its assignment.
@@ -795,6 +818,12 @@ needed) and by `systemd/tests/run.sh`:
    escape, but PROSE is unescaped, so this is the one place a live link could be authored
    by hand. It matches `](http` — link syntax specifically, not a bare URL, which is
    allowed and is load-bearing in changedetection's body.
+10. **No `Priority:` or `Tags:` header in a CI workflow.** The nine rules above read
+    tracked shell; this one reads `.github/workflows/*.yml`, because a runner emits
+    notifications too and nothing was looking. Deliberately narrow — a workflow is a
+    sanctioned hand-built emitter (§8b), so what is checked is only the part that is
+    unambiguous regardless of who assembled the string: the two headers with no legal
+    value left anywhere in this system.
 
 Rules 1–3 are about the title, 4–6 about the envelope, 7–8 about the body.
 
