@@ -216,6 +216,22 @@ mangling `:` or `/`, which wrecks every legitimate path and every `Reason:` labe
 also load-bearing in one place: changedetection's body ends with `{{watch_url}}`, because
 the link is the actionable thing.
 
+**But a bare URL is NOT TAPPABLE while markdown is on, and that was measured on the phone
+rather than reasoned about** (2026-08-23). Three forms, one device:
+
+| Body | Renders as |
+|---|---|
+| markdown **off**, `https://…` | the client linkifies it — tappable |
+| markdown **on**, `https://…` | **plain text — not tappable** |
+| markdown **on**, `<https://…>` | tappable, and the full address is still visible |
+
+`<…>` is a CommonMark **autolink**, which is a different thing from `[text](url)` and is
+not what rule 9 refuses: an autolink cannot hide a destination, because the
+destination *is* the text. Rendering has been on everywhere since 2026-08-21, so **every
+bare URL in this system has been un-tappable since that day** — including changedetection's,
+the one place the doc calls load-bearing. Only `.github/workflows/ci.yml` is fixed so far;
+the fleet is a separate decision and is deliberately left as it is until someone makes it.
+
 **Prose is unescaped by design** — `body_join` escapes nothing, since its other arguments
 are already rendered. So the PROSE argument is the caller's to escape, trivially true when
 the sentence is ours and mandatory when any part of it came from a model or a filename.
