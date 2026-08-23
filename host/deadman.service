@@ -1,0 +1,43 @@
+# Class: monitor    (see systemd/policy/20-monitor.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type=oneshot, journal
+# logging, the base hardening, and from the monitor class the read-only sandbox,
+# the 10-minute bound and the writable stamp directory.
+#
+# THE INHERITED OnFailure IS ALMOST ALWAYS USELESS HERE, and that is not a defect.
+# This job fails for exactly one interesting reason — ntfy could not be reached —
+# so the courier it calls on failure cannot reach ntfy either. The journal keeps
+# the diagnosis, healthchecks.io raises the alarm from outside, and the watchdog
+# reports the missing stamp within 3h. Three paths, none of which is the phone,
+# because the phone is what is unreachable. It is kept because the job can also
+# fail for ordinary reasons (an unreadable .env, a missing binary) where the
+# courier works fine.
+#
+# Why monitor rather than scheduled: it only LOOKS and REPORTS. The outbound ping
+# changes nothing on this box or anywhere else — it is a GET that records a
+# timestamp on someone else's server.
+
+[Unit]
+Description=Off-box Dead Man's Switch
+# The probe goes over the tailnet to Caddy, so the network must be up. Deliberately
+# NOT Requires=docker.service or the tailscale container: if those are down, ntfy is
+# unreachable, and this job's whole purpose is to NOTICE that rather than to be
+# skipped because of it. A dependency here would turn the alarm into a no-op at
+# exactly the moment it matters.
+After=network-online.target
+
+[Service]
+User=carrein
+Group=carrein
+ExecStart=/zpool/catallenya/host/deadman.sh
+
+[X-Catallenya]
+Class=monitor
+# Hourly, so 3h allows two missed runs before the watchdog speaks — matching
+# disk and containers, the other two hourly monitors.
+#
+# Note the watchdog and healthchecks.io are watching the same job from opposite
+# sides: the watchdog sees a stamp that stopped being written, healthchecks.io sees
+# a ping that stopped arriving. Either alone would be a single point of failure.
+MaxAge=3h
