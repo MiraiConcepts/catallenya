@@ -1,6 +1,6 @@
 # afterimage
 
-> A pipeline of [catallenya](https://github.com/carrein/catallenya), mirrored from
+> A pipeline of [catallenya](https://github.com/MiraiConcepts/catallenya), mirrored from
 > `afterimage/`. Force-synced by CI — open issues and pull requests on the parent
 > repo, not here.
 
@@ -317,7 +317,7 @@ money, so an unexpected bill is the signal to look here first.
 
 ## Scope
 
-A component of [catallenya](https://github.com/carrein/catallenya), published for
+A component of [catallenya](https://github.com/MiraiConcepts/catallenya), published for
 reading rather than installation. It is not standalone: it expects a specific host
 filesystem layout, a container definition that lives in the parent repository's
 compose file, a reverse proxy in front of it, and a systemd policy contract it

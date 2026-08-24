@@ -1,6 +1,6 @@
 # inference
 
-> The shared AI layer of [catallenya](https://github.com/carrein/catallenya), mirrored
+> The shared AI layer of [catallenya](https://github.com/MiraiConcepts/catallenya), mirrored
 > from `ai/`. Force-synced by CI — open issues and pull requests on the parent repo,
 > not here. The consumers below live in the parent repo; two of them are themselves
 > mirrored, as [afterimage](https://github.com/MiraiConcepts/afterimage) and

@@ -1,6 +1,6 @@
 # dispatch
 
-> The message layer of [catallenya](https://github.com/carrein/catallenya), mirrored
+> The message layer of [catallenya](https://github.com/MiraiConcepts/catallenya), mirrored
 > from `ntfy/`. Force-synced by CI — open issues and pull requests on the parent repo,
 > not here. The jobs that send through it live there; five of them are themselves
 > mirrored, as [afterimage](https://github.com/MiraiConcepts/afterimage),

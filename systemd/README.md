@@ -1,6 +1,6 @@
 # controlplane
 
-**The control plane for [catallenya](https://github.com/carrein/catallenya):
+**The control plane for [catallenya](https://github.com/MiraiConcepts/catallenya):
 policy is declared once, an installer admits or refuses each job against it, and
 a daily watchdog verifies every job actually ran.**
 
@@ -14,7 +14,7 @@ on different axes, so neither replaces the other. One caveat on the borrowed
 term: this plane **reports** drift, it does not reconcile it. A watchdog finding
 is a notification, never a restart.
 
-> Mirror of [`carrein/catallenya`](https://github.com/carrein/catallenya) →
+> Mirror of [`MiraiConcepts/catallenya`](https://github.com/MiraiConcepts/catallenya) →
 > `systemd/`. Force-synced by CI — open issues and pull requests on the parent
 > repo, not here.
 >
@@ -194,7 +194,7 @@ without running anything.
   running is silent. This is irreducible on-box — any watcher needs a watcher —
   and escaping it requires an off-box dead-man's switch where silence is the
   alarm. Accepted deliberately; the reasoning is in
-  [CLAUDE.md](https://github.com/carrein/catallenya/blob/main/CLAUDE.md).
+  [CLAUDE.md](https://github.com/MiraiConcepts/catallenya/blob/main/CLAUDE.md).
 - A `.path` watcher can be armed while its producer runs but delivers nothing.
   Container-alive is a floor, not a proof.
 - Nothing watches the 26 containers between boots.
@@ -216,10 +216,10 @@ contract. Everything else it governs lives with what it serves: a job's unit and
 its body sit together, in the directory of the thing the job is about — `host/`
 for the machine, `restic/`, `immich/`, `afterimage/` and so on. That is also why
 per-instance metadata for template units lives beside its units, in
-[`restic/check/`](https://github.com/carrein/catallenya/tree/main/restic/check),
+[`restic/check/`](https://github.com/MiraiConcepts/catallenya/tree/main/restic/check),
 rather than here.
 
 The courier every `OnFailure=` points at is the one deliberate exception, in
-[`ntfy/`](https://github.com/carrein/catallenya/tree/main/ntfy). It is not a job
+[`ntfy/`](https://github.com/MiraiConcepts/catallenya/tree/main/ntfy). It is not a job
 and inherits nothing from this contract — a failed alert must not call the
 courier to complain about the courier.
