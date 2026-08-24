@@ -39,6 +39,12 @@ source "/zpool/catallenya/ntfy/ntfy.lib.sh"
 
 ROOT_THRESHOLD=75
 ZPOOL_THRESHOLD=75
+# /boot is small (2G) and is NOT covered by the root check — it is its own partition.
+# Same 75% as the others on purpose: three gauges that disagree about what "full"
+# means is three numbers to remember, and this one exists to catch a specific
+# breakage rather than to be finely tuned. See the guard below for why it may be
+# skipped entirely.
+BOOT_THRESHOLD=75
 
 # Root is ext4/LVM -> df is the right metric. Capture pcent + human-readable used/size/avail.
 read -r ROOT_USED ROOT_SIZE ROOT_AVAIL ROOT_PCENT < <(df -h --output=used,size,avail,pcent / | tail -n 1)
@@ -48,6 +54,33 @@ ROOT_USAGE=${ROOT_PCENT%\%}
 # so the alert reflects TRUE pool fill (df under-reports when snapshots hold space).
 read -r ZPOOL_USAGE ZPOOL_SIZE ZPOOL_ALLOC ZPOOL_FREE < <(zpool list -H -o capacity,size,alloc,free zpool)
 ZPOOL_USAGE=${ZPOOL_USAGE%\%}
+
+# /boot, and WHY IT IS WORTH A THIRD GAUGE. It is a separate 2G partition, so the
+# root check above says nothing about it, and unattended-upgrades installs kernels
+# into it without asking. A full /boot makes `update-initramfs` fail — and on THIS
+# box the initramfs carries the baked tailnet identity for remote LUKS unlock, so
+# the failure degrades the way back in to a machine you cannot physically reach.
+# You would discover it at the worst possible moment, from abroad.
+#
+# HONEST SIZING, measured 2026-08-24: 311M of 2.0G (18%), three kernels, and apt's
+# autoremove has zero pending. Ubuntu is managing this correctly today, so this is
+# insurance against autoremove breaking rather than a trend to watch. It should stay
+# silent for years; that is the intended behaviour, not evidence it is not working.
+#
+# THE MOUNTPOINT GUARD IS LOAD-BEARING. `df /boot` on a system where /boot is just a
+# directory returns the ROOT filesystem's numbers, so without this the same
+# filesystem would be reported twice under two names whenever root crossed — two
+# notifications, two stable ids, and a reader trying to work out which disk is full.
+# findmnt prints the path only when it is genuinely its own mount.
+BOOT_IS_MOUNT=""
+if command -v findmnt >/dev/null 2>&1; then
+    BOOT_IS_MOUNT="$(findmnt -rno TARGET /boot 2>/dev/null || true)"
+fi
+BOOT_USAGE=""
+if [[ "$BOOT_IS_MOUNT" == "/boot" ]]; then
+    read -r BOOT_USED BOOT_SIZE BOOT_AVAIL BOOT_PCENT < <(df -h --output=used,size,avail,pcent /boot | tail -n 1)
+    BOOT_USAGE=${BOOT_PCENT%\%}
+fi
 
 # ONE NOTIFICATION PER FILESYSTEM OVER THRESHOLD, not one summary for both.
 #
@@ -76,6 +109,19 @@ if [ "$ZPOOL_USAGE" -ge "$ZPOOL_THRESHOLD" ]; then
         "${ZPOOL_ALLOC} of ${ZPOOL_SIZE} used" \
         "${ZPOOL_FREE} free" \
         "${ZPOOL_DIFF}% over the ${ZPOOL_THRESHOLD}% threshold")")
+fi
+
+# The prose line names the consequence rather than the number. A full /boot reads as
+# a trivial disk warning and is not one here: it is the remote-unlock path failing
+# quietly, and the reader needs to know that at a glance rather than infer it.
+if [[ -n "$BOOT_USAGE" ]] && [ "$BOOT_USAGE" -ge "$BOOT_THRESHOLD" ]; then
+    BOOT_DIFF=$((BOOT_USAGE - BOOT_THRESHOLD))
+    ALERTS+=("boot"$'\t'"$BOOT_USAGE"$'\t'"$(body_join \
+        "$(body_fact \
+            "${BOOT_USED} of ${BOOT_SIZE} used" \
+            "${BOOT_AVAIL} free" \
+            "${BOOT_DIFF}% over the ${BOOT_THRESHOLD}% threshold")" \
+        "A full /boot makes update-initramfs fail, which breaks remote LUKS unlock. Check that apt autoremove is still clearing old kernels.")")
 fi
 
 # Only publish (and log anything) if something crossed.
