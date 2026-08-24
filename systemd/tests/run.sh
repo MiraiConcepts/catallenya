@@ -428,6 +428,37 @@ has  "an adopted unit with no sticker is reported" "$ADOPT" "NO STICKER    sanoi
 has  "…including sanoid-prune"                     "$ADOPT" "NO STICKER    sanoid-prune.service"
 has  "…and the boot orchestrator"                  "$ADOPT" "catallenya.service"
 
+# --------------------------------------------------------- units in `failed`
+#
+# A unit's failure is announced ONCE, by the courier, at the moment it happens. If
+# that alert never lands the unit sits failed forever and nothing mentions it again
+# — every freshness check above can still pass, because "ran recently" and "ran
+# successfully" are different questions. Added 2026-08-24 alongside the two courier
+# fixes: those make the first alert reliable, this makes it non-unique.
+fixture "zzhb-broken.service" \
+    "[Service]" "Type=oneshot" "ExecStart=/bin/false" \
+    "" "[X-Catallenya]" "Class=scheduled" "MaxAge=36h" "Freshness=stamp:${STATE}/fresh"
+systemctl --user daemon-reload 2>/dev/null
+systemctl --user start zzhb-broken.service 2>/dev/null || true
+
+FAILEDOUT="$(run_hb)"
+has  "a unit sitting in failed is reported"  "$FAILEDOUT" "zzhb-broken.service"
+has  "…and says why that matters"            "$FAILEDOUT" "nothing will mention it again"
+
+# The negative half. Without it the case would pass just as well if the sweep
+# reported EVERY unit, which is the commonest way this kind of check rots.
+hasnt "a healthy unit is not reported as failed" \
+      "$(printf '%s' "$FAILEDOUT" | grep -i 'FAILED' || true)" "zzhb-fresh.service"
+
+systemctl --user reset-failed zzhb-broken.service 2>/dev/null || true
+# Scoped to FAILED lines on purpose. The unit is still a registered job, so it
+# rightly keeps appearing in the roll call as `ok` — asserting the name is absent
+# entirely would be asserting the wrong thing, and would fail against correct code.
+hasnt "and it stops being reported once cleared" \
+      "$(run_hb | grep -i 'FAILED' || true)" "zzhb-broken.service"
+rm -f "${UD}/zzhb-broken.service" "${ENUM}/zzhb-broken.service"
+systemctl --user daemon-reload 2>/dev/null
+
 # ============================================================== the courier
 #
 # Ownership is fragment-under-repo OR a Class in the merged view — the second
