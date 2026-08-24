@@ -1133,6 +1133,63 @@ is "the sweep ends by syncing the summary" "$(paused_sync_reached)" "would sync 
 # `X-Sequence-ID: <id>`, POST /capture/<id>/drop, and confirm both that the record
 # moved to archive/ and that a message_delete for that id appears on the topic.
 
+# ------------------------------------------------- the sweep, actually RUN
+#
+# THE FIRST CASES IN THIS SUITE THAT EXECUTE ANYTHING. Everything above greps source
+# text, and that is exactly how issue #18 survived from the pipeline's first commit:
+# 47 assertions mention the sweep, all of them checking that its source CONTAINS some
+# string, and not one of them ever ran it. A script that exits 0 no matter what looks
+# perfect to a grep.
+#
+# What is asserted here is the FAILURE path, because the success path was never the
+# problem. Making it fail needs a real unwritable directory — there is no way to fake
+# it at the string level, which is the other half of why this went unnoticed.
+echo
+echo "sweep — the failure path"
+
+sweep_spool() {   # -> a scratch spool with one record old enough to expire
+    local t; t="$(mktemp -d)"
+    mkdir -p "${t}/incoming" "${t}/pending" "${t}/archive"
+    local r="${t}/pending/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    mkdir -p "$r"
+    printf '{"events":[{"title":"Test"}]}\n' > "${r}/capture.json"
+    printf '{"title":"Test"}\n'              > "${r}/proposal.json"
+    : > "${r}/screenshot.png"
+    touch -d '400 hours ago' "${r}/proposal.json" "${r}/capture.json"
+    printf '%s' "$t"
+}
+sweep_run() {     # $1 spool -> sets SW_OUT, SW_RC
+    SW_RC=0
+    SW_OUT="$(AFTERIMAGE_DATA_DIR="$1" NTFY_DISABLE=1 \
+              bash "${SCRIPT_DIR}/afterimage.sweep.sh" 2>&1)" || SW_RC=$?
+}
+
+# The control. Without it the failure case below would pass just as well against a
+# sweep that exits 1 unconditionally, which is the commonest way a negative test rots.
+SP="$(sweep_spool)"
+sweep_run "$SP"
+is  "a good run exits 0"          "$SW_RC" "0"
+has "and reports nothing failed"  "$SW_OUT" "0 failed"
+is  "and the record is archived"  "$(ls "${SP}/archive" | wc -l)" "1"
+is  "and pending is empty"        "$(ls "${SP}/pending" | wc -l)" "0"
+rm -rf "$SP"
+
+# THE REGRESSION. Before 2026-08-24 every one of these four assertions failed: the
+# archive move failed, nothing was logged, nothing was counted, and the script exited
+# 0 — so systemd recorded success, the inherited OnFailure= never fired,
+# ExecStartPost= stamped the run, and the watchdog reported the job fresh. A whole
+# night of doing nothing, indistinguishable from a night of doing everything.
+SP="$(sweep_spool)"
+chmod 500 "${SP}/archive"        # readable, not writable: a full pool or a perms change
+sweep_run "$SP"
+is  "an unwritable archive/ FAILS the unit"  "$SW_RC" "1"
+has "and says which record it could not move" "$SW_OUT" "could not archive"
+has "and counts it in the tally"              "$SW_OUT" "1 failed"
+# Nothing may be lost on the way: the record must still be where it was, so the next
+# run can retry it once whatever broke is fixed.
+is  "and the record is still pending"         "$(ls "${SP}/pending" | wc -l)" "1"
+chmod 700 "${SP}/archive"; rm -rf "$SP"
+
 # --------------------------------------------------------------------- result
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

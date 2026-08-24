@@ -55,6 +55,14 @@ records=("$PENDING_DIR"/*/)
 
 now=$(date +%s)
 renotified=0 ignored=0 requeued=0 abandoned=0 parked=0
+# FAILURES ARE COUNTED, which they were not until 2026-08-24 (issue #18). Every
+# counter above tallies something that WORKED; nothing tallied anything that did not,
+# and the script ends `exit 0` unconditionally — so a night on which every archive
+# failed was indistinguishable from a night on which everything succeeded. systemd
+# recorded success, the inherited OnFailure= never fired, ExecStartPost= stamped the
+# run, and the watchdog reported the job fresh. Every layer built to notice reported
+# healthy while the sweep did nothing it exists to do.
+FAILED=0
 
 for rec in "${records[@]}"; do
     rec="${rec%/}"
@@ -108,8 +116,11 @@ for rec in "${records[@]}"; do
                 "$(body_list "${id:0:8}")" \
                 "$(body_fact "${gave_up:-The API could not be reached}" "Unanswered for ${age_d} days")" \
                 "Take it again once things are healthy.")"
-            archive_record "$id" "$rec" failed "API unavailable for ${age_d} days" \
-                && { abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"; }
+            if archive_record "$id" "$rec" failed "API unavailable for ${age_d} days"; then
+                abandoned=$((abandoned + 1)); log "gave up on ${id:0:8} (${age_d}d)"
+            else
+                FAILED=$((FAILED + 1)); log "  !! could not archive ${id:0:8} as failed"
+            fi
             notify_fault "$(title_count Abandoned 1 Screenshot)" "$give_up_body"
             continue
         fi
@@ -123,6 +134,7 @@ for rec in "${records[@]}"; do
             requeued=$((requeued + 1)); parked=$((parked + 1))
             log "retrying ${id:0:8} (${age_d}d parked)"
         else
+            FAILED=$((FAILED + 1))
             log "  !! could not retry ${id:0:8}"
         fi
         continue
@@ -137,8 +149,11 @@ for rec in "${records[@]}"; do
         nh_age_h=$(( (now - $(stat -c %Y "${rec}/capture.json" 2>/dev/null || echo "$now")) / 3600 ))
         if (( nh_age_h >= IGNORE_AFTER_HOURS )); then
             (( DRY )) && { log "would archive needs-human ${id:0:8} (${nh_age_h}h)"; continue; }
-            archive_record "$id" "$rec" needs_human "no action within ${nh_age_h}h" \
-                && { ignored=$((ignored + 1)); log "needs-human expired ${id:0:8} (${nh_age_h}h)"; }
+            if archive_record "$id" "$rec" needs_human "no action within ${nh_age_h}h"; then
+                ignored=$((ignored + 1)); log "needs-human expired ${id:0:8} (${nh_age_h}h)"
+            else
+                FAILED=$((FAILED + 1)); log "  !! could not archive ${id:0:8} as needs_human"
+            fi
             continue
         fi
         if (( nh_age_h >= RENOTIFY_AFTER_HOURS )) && [[ ! -f "${rec}/renotified" ]]; then
@@ -175,8 +190,11 @@ for rec in "${records[@]}"; do
     # --- expire ---
     if (( age_h >= IGNORE_AFTER_HOURS )); then
         (( DRY )) && { log "would archive ${id:0:8} as ignored (${age_h}h)"; continue; }
-        archive_record "$id" "$rec" ignored "no action within ${age_h}h" \
-            && { ignored=$((ignored + 1)); log "ignored ${id:0:8} (${age_h}h)"; }
+        if archive_record "$id" "$rec" ignored "no action within ${age_h}h"; then
+            ignored=$((ignored + 1)); log "ignored ${id:0:8} (${age_h}h)"
+        else
+            FAILED=$((FAILED + 1)); log "  !! could not archive ${id:0:8} as ignored"
+        fi
         continue
     fi
 
@@ -341,6 +359,24 @@ if (( ${#strays[@]} )); then
     fi
 fi
 
-(( renotified || ignored || requeued || abandoned || pruned || retracted )) && \
-    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} retried, ${abandoned} gave up, ${retracted} notifications withdrawn, ${pruned} images pruned"
+(( renotified || ignored || requeued || abandoned || pruned || retracted || FAILED )) && \
+    log "sweep: ${renotified} re-notified, ${ignored} ignored, ${requeued} retried, ${abandoned} gave up, ${retracted} notifications withdrawn, ${pruned} images pruned, ${FAILED} failed"
+
+# STRICTER THAN THE TRIAGE'S GATE, DELIBERATELY. capture.triage exits non-zero only
+# on TOTAL failure (`FAILED > 0 && OK == 0`) because partial failure is already
+# reported per-capture over ntfy — the systemd signal is a backstop there.
+#
+# This job has no such fallback. Its work is reconciliation: nothing here notifies
+# per item, so a partial failure is completely silent, and the records it could not
+# move simply stay in pending/ with their clocks stopped. Its failures are also
+# filesystem-shaped — a full pool, a permissions change — which are rarely transient
+# and rarely partial: whatever stopped one archive will stop the next one too.
+#
+# So ANY failure fails the unit. The cost of being wrong in this direction is one
+# alert on a night that half-worked. The cost of the other direction is what this
+# script already did for its entire life: a sweep that has silently done nothing for
+# a week, discovered by noticing a notification that should have gone away.
+if (( FAILED > 0 )); then
+    exit 1
+fi
 exit 0

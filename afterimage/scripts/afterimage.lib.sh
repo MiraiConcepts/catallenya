@@ -35,7 +35,19 @@ NTFY_VERBS=(Stuck Unlinked Skipped Passed Stranded Flagged Abandoned)
 NTFY_NOUNS=(Screenshot Event File)
 
 AFTERIMAGE_DIR="/zpool/catallenya/afterimage"
-DATA_DIR="${AFTERIMAGE_DIR}/data"
+# THE SPOOL IS OVERRIDABLE, the scripts are not. Added 2026-08-24 for issue #18, and
+# the split is the point: SCRIPT_DIR below still resolves to the real scripts, so
+# render_ics.py is always the committed one, while the data spool can be pointed at a
+# scratch tree. Same seam and same rule as DOCS in pigeonhole.lib.sh — exercised by
+# the suite, NEVER set in production.
+#
+# It exists because #18 could not be tested without it. The afterimage suite ran 313
+# cases and executed ZERO scripts: every one of its 47 sweep assertions greps the
+# source for a string. That is why a sweep which exits 0 no matter what survived from
+# the pipeline's first commit — you cannot catch a runtime behaviour by reading text,
+# and a suite that only reads text will keep reporting green while the thing it
+# describes does nothing.
+DATA_DIR="${AFTERIMAGE_DATA_DIR:-${AFTERIMAGE_DIR}/data}"
 IN_DIR="${DATA_DIR}/incoming"
 PENDING_DIR="${DATA_DIR}/pending"
 # Every capture ends here once resolved — accepted, rejected, or ignored — with the
