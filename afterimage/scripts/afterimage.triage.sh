@@ -270,7 +270,7 @@ notify_event() {
         # The event's NAME is the item, the facts are already rendered, and the
         # explanation is prose. This was hand-built until 2026-08-21 — the title, a
         # raw newline, then `$body` with a full stop welded onto its end, which put
-        # `▪ Candlenut. Could not build callback URL` on one line: a stop and a
+        # `• Candlenut. Could not build callback URL` on one line: a stop and a
         # sentence glued to a fact.
         notify_fault "$(title_count Unlinked 1 Event)" \
                "$(body_join "$(body_list "$title")" "$body" \

@@ -109,11 +109,29 @@ done
 echo
 
 echo "--- 8. Hardcoded Secrets in Tracked Files ---"
-# Check for hardcoded tailnet name in tracked files
-if grep -r "kamori-mulley.ts.net" "${COMPOSE_DIR}/docker-compose.yml" "${COMPOSE_DIR}/caddy/Caddyfile" > /dev/null 2>&1; then
-  echo "  ✗ Hardcoded tailnet name found in tracked files"
+# THE OLD VERSION CLAIMED A CHECK IT DID NOT PERFORM. It grepped exactly two files —
+# docker-compose.yml and the Caddyfile — and then printed "No hardcoded tailnet name
+# in TRACKED FILES", which is a repo-wide claim. The name is in a tracked file
+# (afterimage/client/afterimage.sh) and therefore in a public mirror, and this section
+# reported clean anyway. A check that overstates its own scope is worse than no check:
+# it answers the question you asked with the answer to a narrower one.
+#
+# Now it asks git what is tracked, which is the same set the mirrors publish.
+#
+# The one KNOWN occurrence is allowlisted by path rather than by silence, and it is
+# deliberate: afterimage's laptop client hardcodes the hostname because .ts.net
+# certificates are published in Certificate Transparency logs, so the name is public
+# the moment Caddy issues a cert. The allowlist exists so a SECOND occurrence, in a
+# file nobody has thought about, still fails.
+TAILNET_OK="afterimage/client/afterimage.sh"
+tailnet_hits="$(git -C "$COMPOSE_DIR" grep -l 'kamori-mulley\.ts\.net' -- . 2>/dev/null \
+                 | grep -vxF "$TAILNET_OK" | grep -vxF 'audit/audit.sh' || true)"
+if [[ -n "$tailnet_hits" ]]; then
+  echo "  ✗ Hardcoded tailnet name in tracked files beyond the known client:"
+  printf '      %s\n' $tailnet_hits
+  FAIL=1
 else
-  echo "  ✓ No hardcoded tailnet name in tracked files"
+  echo "  ✓ No hardcoded tailnet name in tracked files (except the documented client)"
 fi
 echo
 

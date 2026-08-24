@@ -368,21 +368,21 @@ body_list() {
 # the same day. See ALT_SEP in afterimage/scripts/afterimage.lib.sh.
 BODY_FACT_MARK=$'\u2022'
 
-# body_fact <line>... -> the ▪ metric lines, one per argument.
+# body_fact <line>... -> the • metric lines, one per argument.
 #
 #   body_fact "1.3T of 1.7T used" "400G free"
 #
-#       ▪ 1.3T of 1.7T used
-#       ▪ 400G free
+#       • 1.3T of 1.7T used
+#       • 400G free
 #
-# A FACT IS SELF-DESCRIBING AND CARRIES NO STUB LABEL. `▪ Free: 400G` names a
-# category; `▪ 400G free` states something. The distinction is not decoration — a
+# A FACT IS SELF-DESCRIBING AND CARRIES NO STUB LABEL. `• Free: 400G` names a
+# category; `• 400G free` states something. The distinction is not decoration — a
 # detail hangs off the item above it, so a label says WHICH ASPECT of that item,
 # while a fact stands alone and therefore has to describe itself.
 #
 # The failure mode this invites is dropping context to keep the line short:
-# `▪ about 70m` is terse and means nothing. Where prose reads badly, the answer is a
-# FULL DESCRIPTIVE PHRASE — `▪ Estimated time left: 70m` — never a stub. A fact must
+# `• about 70m` is terse and means nothing. Where prose reads badly, the answer is a
+# FULL DESCRIPTIVE PHRASE — `• Estimated time left: 70m` — never a stub. A fact must
 # read as a complete statement; how many words that takes is not the constraint.
 #
 # No full stop, on any body line (settled 2026-08-21). A stop after a path reads as
