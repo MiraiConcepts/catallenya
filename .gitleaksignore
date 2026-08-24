@@ -1,7 +1,25 @@
+# ALL THREE COMMIT IDS BELOW WERE REWRITTEN ON 2026-08-24 and are not the ones this
+# file carried before that date. The history was rewritten to purge personal data that
+# had been committed into the document pipeline's vocabulary (see pigeonhole/README.md
+# § The vocabulary is not in this repo). A fingerprint is
+# <commit>:<path-as-it-was-in-that-commit>:<rule>:<line>, so ONLY the commit half moved
+# — every path, rule and line below is unchanged and still historical.
+#
+# This does NOT contradict the "MUST NOT BE UPDATED" warning further down, which is
+# about the PATH half. That warning stands. The commit half was remapped from
+# git-filter-repo's own .git/filter-repo/commit-map, never by hand, and never by
+# guessing which commit "looks like" the old one.
+#
+# Note all three moved, including 5fd0bfc (2025-11-05), which predates the earliest
+# content change. Reasoning said an ancestor commit keeps its id and the map said
+# otherwise; the map is what CI reads. If the history is ever rewritten again, reread
+# the map rather than assuming which of these are affected.
+
 # Deliberate fake RSA key committed 2025-11-05 to test the GitLeaks CI job
 # ("GITLEAKS TEST" comment in the commit; removed by the next commit, 38c0757).
 # The value is the literal string THISISAFANTASTICALLYFAKETESTKEYFOR... — not a secret.
-5fd0bfcf571dc74b4832c15d0cb65af696ba3cff:archivebox.Dockerfile:private-key:5
+# Was 5fd0bfcf571dc74b4832c15d0cb65af696ba3cff before the 2026-08-24 rewrite.
+c7b5a3e26ddbeda15d9e523c4cda4ea64d199b3b:archivebox.Dockerfile:private-key:5
 
 # False positive, 2026-07-27. A prose COMMENT in what is now afterimage.lib.sh,
 # explaining why the triage stopped sourcing the whole .env, happened to name two
@@ -13,11 +31,12 @@
 #
 # THE PATH BELOW IS HISTORICAL AND MUST NOT BE UPDATED TO MATCH THE CURRENT TREE.
 # A fingerprint is <commit>:<path-as-it-was-in-that-commit>:<rule>:<line>. The file
-# was capture/scripts/capture.lib.sh when ae6f3cd8 was written and always will be;
+# was capture/scripts/capture.lib.sh when this commit was written and always will be;
 # the 2026-08-15 rename to afterimage/ cannot reach into history. A repo-wide
 # find-and-replace rewrote this line that day, the fingerprint stopped matching, and
 # gitleaks failed CI on a finding that had been suppressed for three weeks.
-ae6f3cd8036ee0947d276557a327e5e77bd5be9a:capture/scripts/capture.lib.sh:generic-api-key:230
+# Was ae6f3cd8036ee0947d276557a327e5e77bd5be9a before the 2026-08-24 rewrite.
+085cf59d6d7cacae75d6446a25415114430c1e3a:capture/scripts/capture.lib.sh:generic-api-key:230
 
 # host/zed-functions.sh is VENDORED from /etc/zfs/zed.d/ and kept byte-close to
 # upstream so that a diff against .dpkg-dist stays readable after a zfs-zed upgrade.
@@ -25,4 +44,5 @@ ae6f3cd8036ee0947d276557a327e5e77bd5be9a:capture/scripts/capture.lib.sh:generic-
 # — a variable reference, not a credential, for a service this box does not use. The
 # alternative was deleting the unused notifiers, which would mean editing zed_notify()
 # too (it calls each one) and diverging much further from the file we have to diff.
-b2f438953b98e112d6da0f34c9de40f5e3a9de21:host/zed-functions.sh:curl-auth-user:403
+# Was b2f438953b98e112d6da0f34c9de40f5e3a9de21 before the 2026-08-24 rewrite.
+b1ec64cc19f3d3f3ea129b8f3da5dfa7961ef5fa:host/zed-functions.sh:curl-auth-user:403

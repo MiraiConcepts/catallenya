@@ -299,7 +299,17 @@ jobs:
           # --data-raw, not -d: -d treats a leading @ as a filename to read.
           # --max-time, so a wedged ntfy.sh cannot hang the job that reports a
           # failure. No Priority and no Tags: nothing in this system shouts.
-          curl -fsS --max-time 15 \
+          #
+          # -o /dev/null IS THE SECURITY CONTROL, not tidiness. ntfy answers a publish
+          # with a JSON body that ECHOES THE TOPIC, and Actions logs on a public repo
+          # are world-readable \u2014 so for a year every failed run printed
+          # {"id":...,"topic":"catallenya-ci-..."} into a public log, and the topic is
+          # the whole of the secret. ntfy.sh is unauthenticated, so anyone reading it
+          # could subscribe to the channel or publish to the owner's phone. Found
+          # 2026-08-24 while recovering the value; the topic was rotated the same day.
+          # Redacting $NTFY_URL in the env block never covered this: the leak is in
+          # the RESPONSE, which GitHub has no reason to mask.
+          curl -fsS --max-time 15 -o /dev/null \
             -H "Title: ${REPO##*/}: CI Failed" \
             -H "Markdown: yes" \
             --data-raw "$(printf '\u2022 Failed on branch %s\n\n<%s>' "$REF" "$RUN_URL")" \
