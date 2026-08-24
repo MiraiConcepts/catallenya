@@ -91,8 +91,8 @@ fi
 # honestly wear one subject. Split, each keeps its real title (`zpool: 78% Full`), its
 # own facts, and its own stable id, so neither replaces the other and neither stacks.
 #
-# Facts carry no stub label and must read as complete statements: `▪ 400G free`, never
-# `▪ Free: 400G` and never `▪ about 400G`. See ntfy/MESSAGES.md § 3.
+# Facts carry no stub label and must read as complete statements: `• 400G free`, never
+# `• Free: 400G` and never `• about 400G`. See ntfy/MESSAGES.md § 3.
 ALERTS=()   # "name<TAB>pct<TAB>body"
 
 if [ "$ROOT_USAGE" -ge "$ROOT_THRESHOLD" ]; then

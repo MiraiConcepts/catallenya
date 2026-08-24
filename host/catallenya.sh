@@ -219,8 +219,8 @@ fi
 # Findings as ITEMS, then the run's counts as FACTS. The `Errors:` heading is gone —
 # the title already says how many, and a heading above a numbered list says it twice.
 #
-# Facts are self-describing and carry no stub label: `▪ 24/26 containers running`,
-# never `▪ Containers: 24/26`. A fact stands alone, so it has to describe itself,
+# Facts are self-describing and carry no stub label: `• 24/26 containers running`,
+# never `• Containers: 24/26`. A fact stands alone, so it has to describe itself,
 # where a detail can lean on the item above it. See ntfy/MESSAGES.md § 3.
 BODY="$(body_join \
     "$(body_list "${ERRORS[@]}")" \

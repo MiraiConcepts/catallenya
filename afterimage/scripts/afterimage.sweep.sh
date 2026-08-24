@@ -186,8 +186,8 @@ for rec in "${records[@]}"; do
         title="$(jq -r '.title // "Capture"' "${rec}/proposal.json")"
         # THE NUDGE REPLACES THE PROPOSAL under the same id, so it must not read
         # worse than what it withdrew. This built one fact by string-concatenating
-        # the raw ISO date onto the raw start time — `▪ 2026-08-26 16:00` — where the
-        # triage had sent `▪ Wednesday, 26 August 2026` and `▪ 16:00` on lines of
+        # the raw ISO date onto the raw start time — `• 2026-08-26 16:00` — where the
+        # triage had sent `• Wednesday, 26 August 2026` and `• 16:00` on lines of
         # their own. Both rules it broke are the same rule: a fact is a complete
         # statement, and metrics get their own line rather than a joined run.
         #
