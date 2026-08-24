@@ -308,6 +308,78 @@ has   "and says the alert was lost"   "$out" "ntfy publish FAILED"
 has   "with the findings still logged" "$out" "ntfy: Exited"
 rm -f "${TMP}/curl"
 
+# =================================================================== disk.sh
+# The three-filesystem gauge. It had NO test at all until 2026-08-24, which is why
+# the /boot gap below went unnoticed: nothing exercised it, so nothing could notice
+# what it did not look at.
+#
+# Driven through PATH stubs for df, zpool and findmnt, with NTFY_DISABLE muting the
+# wire — so threshold arithmetic, the mountpoint guard and body construction all run
+# for real.
+echo
+echo "disk: the gauge"
+
+DK="${TMP}/dk"; mkdir -p "${DK}/bin"
+cat > "${DK}/bin/df" <<'DKS'
+#!/usr/bin/env bash
+tgt="${@: -1}"
+case "$tgt" in
+  /boot) printf 'Used Size Avail Use%%\n%s\n' "${DK_BOOT:-311M 2.0G 1.5G 18%}" ;;
+  *)     printf 'Used Size Avail Use%%\n%s\n' "${DK_ROOT:-84G 455G 348G 20%}" ;;
+esac
+DKS
+cat > "${DK}/bin/zpool" <<'DKS'
+#!/usr/bin/env bash
+printf '%s\n' "${DK_ZPOOL:-48%	3.48T	1.67T	1.81T}"
+DKS
+cat > "${DK}/bin/findmnt" <<'DKS'
+#!/usr/bin/env bash
+[[ "${DK_BOOT_MOUNT:-yes}" == "yes" ]] && echo /boot
+exit 0
+DKS
+chmod +x "${DK}/bin"/*
+
+# The DK_* knobs are set by each caller as a command prefix (`DK_BOOT=… dk_run`),
+# which bash exports for the duration of the call — so they reach the stubs without
+# being restated here. Restating them was worse than redundant: re-assigning DK in a
+# prefix that also expands ${DK} is SC2097/SC2098, and the expansion silently reads
+# the OUTER value rather than the one being assigned.
+dk_run() {
+    RC=0
+    OUT="$(PATH="${DK}/bin:$PATH" NTFY_DISABLE=1 bash "${REPO}/host/disk.sh" 2>&1)" || RC=$?
+}
+
+echo "  everything healthy"
+DK_BOOT="" DK_ROOT="" DK_ZPOOL="" dk_run
+is "silent"  "$OUT" ""
+is "exits 0" "$RC" "0"
+
+echo "  /boot over threshold"
+DK_BOOT="1.6G 2.0G 400M 80%" dk_run
+has "it is reported"                    "$OUT" "boot at 80%"
+has "and names the real consequence"    "$OUT" "remote LUKS unlock"
+has "and points at the likely cause"    "$OUT" "autoremove"
+
+echo "  /boot just under threshold"
+DK_BOOT="1.4G 2.0G 600M 74%" dk_run
+is "silent at 74%" "$OUT" ""
+
+# THE GUARD. Where /boot is a plain directory rather than its own partition, `df
+# /boot` returns the ROOT filesystem — so without this the same disk is reported
+# twice under two names, with two stable ids, whenever root crosses. A reader then
+# has two notifications and no way to tell they are one problem.
+echo "  /boot is not a separate mount"
+DK_BOOT_MOUNT="no" DK_ROOT="400G 455G 20G 88%" dk_run
+has  "root is still reported"                "$OUT" "root at 88%"
+hasnt "but /boot is not reported at all"     "$OUT" "boot at"
+
+echo "  root and /boot both over"
+DK_BOOT_MOUNT="yes" DK_ROOT="400G 455G 20G 88%" DK_BOOT="1.6G 2.0G 400M 80%" dk_run
+has "root is reported"           "$OUT" "root at 88%"
+has "and /boot separately"       "$OUT" "boot at 80%"
+
+unset DK_BOOT DK_ROOT DK_ZPOOL DK_BOOT_MOUNT
+
 # =============================================================== deadman.sh
 # The off-box dead man's switch. Its ONE job is to be silent at the right moments:
 # it must ping while alerts can get out, and it must REFUSE to ping when they
