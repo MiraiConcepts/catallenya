@@ -3,6 +3,32 @@ Description=Ntfy Alert for %i
 Requires=network-online.target
 After=network-online.target
 
+# THE RATE LIMIT IS OFF, AND THAT IS THE POINT.
+#
+# Note the section: StartLimitIntervalSec= and StartLimitBurst= live in [Unit], the
+# same trap 20-adhoc.conf calls out. Putting them under [Service] is silently ignored.
+#
+# Until 2026-08-24 this unit inherited systemd's defaults — 5 starts per 10 seconds —
+# because the comment below correctly says every class bound must be written out here
+# and then wrote only the timeout. The result was a courier that DESTROYS alerts
+# exactly when they matter most, since faults arrive in bursts and a burst is what
+# trips a rate limit. It is not theoretical: on 2026-08-14 liquidroom.triage failed
+# 203/EXEC thirteen times in about a second under its .path unit, five alerts went
+# out and SEVEN were destroyed with `start-limit-hit` — and systemd reports a failed
+# OnFailure= handler nowhere, so nothing said so. Seven such events in 30 days.
+#
+# Disabling rather than raising, because a bound here is redundant as a safety
+# mechanism and harmful as a rate limit. The courier cannot start more often than
+# something asks it to, and every asker is already bounded: adhoc jobs at 12 per
+# 30 minutes (20-adhoc.conf), and timer-driven jobs by their own schedule. So a
+# limit here can never prevent a runaway that the upstream limit would not already
+# have stopped — it can only drop alerts the upstream deliberately allowed.
+#
+# An alert that never arrives is worse than a duplicate. The duplicate is at worst
+# noise; the missing one is indistinguishable from health, which is the failure this
+# whole fleet is built to avoid.
+StartLimitIntervalSec=0
+
 [Service]
 Type=oneshot
 User=carrein

@@ -387,6 +387,31 @@ for link in "${SYSTEMD_DIR}"/*.service "${SYSTEMD_DIR}"/*.timer "${SYSTEMD_DIR}"
     finding "No sticker" "$unit" "installed from the repo but declares no Class"
 done
 
+# --- units sitting in `failed` ---------------------------------------------
+#
+# A unit's FAILURE is announced exactly once, at the moment it fails, by the courier
+# — and if that one alert never lands, nothing ever mentions it again. Everything
+# above this line asks "did the job run recently enough", which a failed unit can
+# still satisfy: a job that ran, failed, and left a stale-but-not-yet-stale stamp
+# looks fine to every check here.
+#
+# That single point of failure was real on 2026-08-14: liquidroom.triage failed 13
+# times, seven alerts were destroyed by the courier's rate limit and the other five
+# were titled "Success". Both faults are fixed now (see system-ntfy@.service and
+# system-ntfy.sh), which is exactly why this belongs here — those fixes make the
+# first alert reliable, and this makes it non-unique. A daily sweep costs one
+# systemctl call and turns "you had to catch the notification" into "it is reported
+# every morning until it is cleared".
+#
+# --plain --no-legend so the output is parseable; the unit name is the first field.
+while read -r fu _; do
+    [[ -n "$fu" ]] || continue
+    # The courier itself is deliberately excluded from the sticker model, but a
+    # courier stuck in `failed` is worth saying out loud — it means an alert about
+    # something else did not get out.
+    finding "Failed" "$fu" "is sitting in failed and nothing will mention it again"
+done < <($SYSTEMCTL list-units --state=failed --plain --no-legend --no-pager 2>/dev/null | awk '{print $1}')
+
 # --- report ----------------------------------------------------------------
 
 if (( ${#NOTES[@]} )); then

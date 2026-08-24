@@ -337,12 +337,20 @@ exit 0
 DMC
 chmod +x "${TMP}/dmcurl"
 
-dm_reset() { rm -f "${DM}/ping.rc" "${DM}/health.rc" "${DM}/health.body"; : > "${TMP}/dmlog"; }
+dm_reset() {
+    rm -f "${DM}/ping.rc" "${DM}/health.rc" "${DM}/health.body"; : > "${TMP}/dmlog"
+    # A stamp this run considers FRESH. Pointing the default at the real stamp would
+    # make every case above depend on when the watchdog last ran — green today, red
+    # the first morning the heartbeat is late, for reasons having nothing to do with
+    # the case under test.
+    HB_STAMP="${DM}/hb"; : > "$HB_STAMP"
+}
 
 # Sets OUT and RC as globals, for the subshell reason documented on run() above.
 dm_run() {
     RC=0
     DM="$DM" DM_LOG="${TMP}/dmlog" CURL="${TMP}/dmcurl" DEADMAN_ENV="${1:-${REPO}/.env}" \
+    HEARTBEAT_STAMP="$HB_STAMP" \
         bash "${REPO}/host/deadman.sh" > "${TMP}/dmout" 2>&1 || RC=$?
     OUT="$(<"${TMP}/dmout")"
 }
@@ -391,6 +399,46 @@ dm_run "${TMP}/env-unarmed"; out="$OUT"
 is    "exits 1"                  "$RC" "1"
 has   "says it is not armed"     "$out" "the switch is not armed"
 dm_pinged && bad "and it did NOT ping" "no call to hc-ping.com" "it pinged anyway" || ok "and it did NOT ping"
+
+# --- watching the watchdog ---------------------------------------------------
+# The heartbeat is the only job nothing else checks, and CLAUDE.md asserted for a
+# day that this script covered it while the sole mention here was a comment. These
+# cases exist so that claim is true and stays true.
+#
+# The one that matters is the SECOND assertion in each pair: it must still ping. A
+# stale watchdog is not an alert-channel failure, and spending the external alarm
+# on it would make silence mean two different things — the exact ambiguity the
+# whole inverted design exists to avoid.
+echo "  the watchdog has gone stale"
+dm_reset; touch -d '40 hours ago' "$HB_STAMP"; dm_run; out="$OUT"
+is    "exits 0 — this is a reporter finding, not its own failure" "$RC" "0"
+has   "says the watchdog is stale"   "$out" "heartbeat is stale"
+has   "and quotes the age"           "$out" "40h"
+dm_pinged && ok "and it STILL pinged" || bad "and it STILL pinged" "a call to hc-ping.com" "none"
+
+echo "  the watchdog has never run"
+dm_reset; rm -f "$HB_STAMP"; dm_run; out="$OUT"
+is    "exits 0"                      "$RC" "0"
+has   "says the stamp is missing"    "$out" "heartbeat stamp missing"
+dm_pinged && ok "and it STILL pinged" || bad "and it STILL pinged" "a call to hc-ping.com" "none"
+
+echo "  the watchdog is fresh"
+dm_reset; touch -d '2 hours ago' "$HB_STAMP"; dm_run; out="$OUT"
+is    "silent"                       "$out" ""
+is    "exits 0"                      "$RC" "0"
+dm_pinged && ok "and it pinged"      || bad "and it pinged" "a call to hc-ping.com" "none"
+
+# THE JOINT. deadman's threshold and the heartbeat's own MaxAge live in different
+# files and nothing at runtime makes them agree — the same shape as the
+# healthchecks.io cadence joint, which CLAUDE.md calls out as uncheckable. This one
+# IS checkable, so it is checked: a threshold shorter than the watchdog's own limit
+# would fire on a job the watchdog still considers fresh.
+hb_declared="$(awk '
+    /^\[/  { inside = ($0 == "[X-Catallenya]"); next }
+    inside && index($0, "MaxAge=") == 1 { v = substr($0, 8) }
+    END { if (v != "") print v }' "${REPO}/systemd/catallenya.heartbeat.service")"
+hb_default="$(sed -n 's/^HEARTBEAT_MAX_AGE="\${HEARTBEAT_MAX_AGE:-\([^}]*\)}"/\1/p' "${REPO}/host/deadman.sh")"
+is "deadman's threshold matches the heartbeat's declared MaxAge" "$hb_default" "$hb_declared"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

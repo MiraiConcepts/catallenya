@@ -436,5 +436,74 @@ is    "empty text yields nothing"   "$(body_aside "")" ""
 # of the emphasis and leave the rest of the body italic.
 has   "text is escaped inside"      "$(body_aside "a_b_c")" 'a\_b\_c'
 
+# ======================================================== system-ntfy.sh
+# The courier every OnFailure= points at — and until 2026-08-24 the only thing in
+# this fleet with NO behavioural test at all, which is how it spent a year able to
+# title a failed run "Succeeded" without anyone noticing.
+#
+# It sources nothing on purpose (the alarm of last resort depends on nothing), so it
+# is driven here through PATH stubs for systemctl and journalctl, with NTFY_DISABLE=1
+# turning the publish into a printed "(title -> topic)" line. Everything up to the
+# wire — ownership, topic routing, title derivation — runs for real.
+echo
+echo "system-ntfy: the courier"
+
+CT="${TMP:-$(mktemp -d)}/courier"; mkdir -p "${CT}/bin"
+cat > "${CT}/bin/systemctl" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"-p FragmentPath"*)   echo "/zpool/catallenya/restic/backup/restic.backup.service" ;;
+  *"-p InvocationID"*)   echo "${STUB_INV:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" ;;
+  cat\ *)                printf '[Service]\n[X-Catallenya]\nClass=scheduled\n' ;;
+  is-failed*)            exit "${STUB_ISFAILED_RC:-1}" ;;   # 0 = unit is failed
+  status*)               echo "stub status output" ;;
+  *)                     exit 0 ;;
+esac
+STUB
+cat > "${CT}/bin/journalctl" <<'STUB'
+#!/usr/bin/env bash
+echo "journal line for ${*: -1}"
+STUB
+chmod +x "${CT}/bin/systemctl" "${CT}/bin/journalctl"
+
+courier() {  # $1 unit; env: MONITOR_SERVICE_RESULT, STUB_ISFAILED_RC
+    PATH="${CT}/bin:$PATH" NTFY_DISABLE=1 \
+        bash "${SELF_DIR}/../system-ntfy.sh" "$1" 2>&1 || true
+}
+
+# THE REGRESSION. is-failed answers "is it failed NOW", and a .path-driven job is
+# already `activating` again by the time the courier asks — so the honest answer to
+# "did the run that triggered me fail" has to come from systemd's MONITOR_* instead.
+echo "  the title reflects the INVOCATION, not the unit's current state"
+out="$(MONITOR_SERVICE_RESULT=exit-code STUB_ISFAILED_RC=1 courier restic.backup)"
+has "a failed invocation says Failed even while the unit reads healthy" "$out" "Failed"
+hasnt "and never says Succeeded"                                        "$out" "Succeeded"
+
+out="$(MONITOR_SERVICE_RESULT=success STUB_ISFAILED_RC=1 courier restic.backup)"
+has "a successful invocation says Succeeded"                            "$out" "Succeeded"
+
+# Other results are failures too — signal, timeout, oom-kill. Treating only
+# "exit-code" as failure would call an OOM kill a success.
+for r in signal timeout oom-kill core-dump watchdog; do
+    out="$(MONITOR_SERVICE_RESULT="$r" STUB_ISFAILED_RC=1 courier restic.backup)"
+    has "result '${r}' is a failure" "$out" "Failed"
+done
+
+# The fallback matters: systemd REFUSES to set MONITOR_* when a handler has more than
+# one trigger source, and it counts OnSuccess= and OnFailure= on the same instance as
+# two — which is exactly the three restic jobs. They are timer-driven and cannot
+# re-trigger themselves, so is-failed is still right for them, but it must still work.
+echo "  falls back to is-failed when MONITOR_* is absent"
+out="$(STUB_ISFAILED_RC=0 courier restic.backup)"
+has "unit failed  -> Failed"    "$out" "Failed"
+out="$(STUB_ISFAILED_RC=1 courier restic.backup)"
+has "unit healthy -> Succeeded" "$out" "Succeeded"
+
+echo "  topic routing still holds"
+out="$(MONITOR_SERVICE_RESULT=success courier restic.backup)"
+has "a known topic is used directly" "$out" "-> restic"
+out="$(MONITOR_SERVICE_RESULT=exit-code courier notatopic.job)"
+has "an unknown topic is REROUTED, never dropped" "$out" "-> host"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))

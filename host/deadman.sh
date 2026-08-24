@@ -52,6 +52,33 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-10}"
 # ping URL missing and prove the not-armed branch below actually fires.
 DEADMAN_ENV="${DEADMAN_ENV:-/zpool/catallenya/.env}"
 
+# --- watching the watchdog ---------------------------------------------------
+#
+# The heartbeat is the one job nothing else checks, and CLAUDE.md claimed for a
+# day that THIS script covered it. It did not: until 2026-08-24 the only mention
+# of the heartbeat here was a comment. The gap is real and specific — if
+# catallenya.heartbeat.timer stops, ntfy stays healthy, so this job keeps pinging,
+# healthchecks.io stays green, and every "did that job actually run" finding simply
+# stops being computed. Six of those jobs are silent when healthy, so a stopped
+# restic, a stopped sanoid, a stopped disk gauge and a stopped SMART job all become
+# indistinguishable from working ones. Nothing would ever say so.
+#
+# This is the right script for it precisely because it is a DIFFERENT unit on a
+# DIFFERENT schedule: the heartbeat cannot be the thing that notices it has died.
+#
+# It NOTIFIES and still PINGS, deliberately. Refusing to ping would conflate two
+# unrelated faults — this job's contract is "ping only while alerts can get out",
+# and a stale heartbeat is not an alert-channel failure. ntfy has just been proven
+# working three lines above, so the box can report this itself; spending the
+# external alarm on it would make silence mean two things at once.
+HEARTBEAT_STAMP="${HEARTBEAT_STAMP:-/zpool/catallenya/systemd/state/catallenya.heartbeat}"
+# MUST NOT be shorter than the heartbeat's own MaxAge, or this fires on a job that
+# the watchdog itself still considers fresh. The two are held equal by a case in
+# host/tests/run.sh that parses the sticker out of the unit and compares — the same
+# joint as the healthchecks.io cadence, but this one is checkable, so it is checked.
+HEARTBEAT_MAX_AGE="${HEARTBEAT_MAX_AGE:-36h}"
+HEARTBEAT_NTFY_ID="deadman-watchdog"
+
 # The ntfy trio, for the health probe below. This is the transport's own loader:
 # it extracts named keys one at a time rather than sourcing, which is what keeps
 # forty credentials and any stray $(...) out of this process.
@@ -154,4 +181,44 @@ if (( ping_rc != 0 )); then
     exit 1
 fi
 
+# --- is the watchdog still running? ------------------------------------------
+#
+# Reached only once the ping has succeeded, so this never delays the job's primary
+# duty. Exits 0 either way: this is a REPORTER finding in the sense CLAUDE.md uses
+# — the bad news is about another job, not about this one — so failing here would
+# skip our own ExecStartPost stamp and report THIS job stale for a fault that
+# belongs to the heartbeat. The notification is the signal.
+hb_age=-1
+if [[ -e "$HEARTBEAT_STAMP" ]]; then
+    hb_age=$(( $(date +%s) - $(stat -c %Y "$HEARTBEAT_STAMP") ))
+fi
+hb_max=$(systemd-analyze timespan "$HEARTBEAT_MAX_AGE" 2>/dev/null | awk 'NR==2 {print $NF}')
+[[ "$hb_max" =~ ^[0-9]+$ ]] && hb_max=$(( hb_max / 1000000 )) || hb_max=129600   # 36h
+
+if (( hb_age < 0 )); then
+    hb_body="$(body_join \
+        "$(body_fact "The watchdog has no completion stamp" \
+                     "Expected at ${HEARTBEAT_STAMP}")" \
+        "Nothing is checking whether the other jobs still run. A stopped restic, sanoid, disk or SMART job would look exactly like a healthy one.")"
+    echo "deadman: heartbeat stamp missing at ${HEARTBEAT_STAMP}" >&2
+    out="$(notify_fault "$(title_state "Watchdog" "Stalled")" "$hb_body" "$HEARTBEAT_NTFY_ID" 2>&1)"
+    [[ -n "$out" ]] && echo "deadman: and the ntfy alert about it also failed: ${out}" >&2
+elif (( hb_age > hb_max )); then
+    hb_body="$(body_join \
+        "$(body_fact "The watchdog last completed $(( hb_age / 3600 ))h ago" \
+                     "Its own limit is ${HEARTBEAT_MAX_AGE}")" \
+        "Nothing is checking whether the other jobs still run. A stopped restic, sanoid, disk or SMART job would look exactly like a healthy one.")"
+    echo "deadman: heartbeat is stale — $(( hb_age / 3600 ))h against ${HEARTBEAT_MAX_AGE}" >&2
+    out="$(notify_fault "$(title_state "Watchdog" "Stalled")" "$hb_body" "$HEARTBEAT_NTFY_ID" 2>&1)"
+    [[ -n "$out" ]] && echo "deadman: and the ntfy alert about it also failed: ${out}" >&2
+fi
+
 # Silence is the healthy state. The ping IS the output.
+#
+# EXPLICIT, and not decoration. Without it the exit status is whatever the last
+# command left behind — and in the watchdog branches above that is
+# `[[ -n "$out" ]]`, which is FALSE whenever the notification succeeded, so a
+# perfectly good run reported failure. Caught by the suite the same hour it was
+# written; it is the same shape as every other wrong-result-behind-a-right-exit-code
+# bug in this repo, only inverted.
+exit 0

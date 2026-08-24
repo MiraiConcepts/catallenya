@@ -144,11 +144,47 @@ fi
 # of this file's exemption from it. Both were dropped repo-wide on 2026-08-20: priority
 # had one legal value, and tags were twelve glyphs of which four meant "something is
 # wrong". The title says which this is.
-if systemctl is-failed --quiet "${service_name}.service"; then
-    title="${job_type}: Failed${routed_note}"
-else
-    title="${job_type}: Succeeded${routed_note}"
+#
+# THE OUTCOME COMES FROM THE INVOCATION, NOT THE UNIT'S CURRENT STATE (2026-08-24).
+#
+# `systemctl is-failed` answers "is this unit failed RIGHT NOW", which is a different
+# question from "did the run that triggered me fail" — and they diverge exactly when
+# it matters. A .path-driven job that fails is re-triggered immediately by its still-
+# matching glob, so by the time the courier asks, the unit is `activating` again and
+# is-failed says no. The alert then goes out titled Succeeded.
+#
+# Not hypothetical. On 2026-08-14 liquidroom.triage failed 203/EXEC thirteen times in
+# about a second; seven alerts were destroyed by the rate limit (see the unit file)
+# and the five that survived were all titled "Triage Success [liquidroom]". A false
+# negative is worse than a dropped alert: the owner is not merely uninformed, they are
+# actively told the thing is fine.
+#
+# systemd hands the real answer to an OnFailure=/OnSuccess= handler in MONITOR_*
+# (systemd 249+; this box runs 255). Verified empirically with throwaway user units
+# rather than taken from the docs, and the probe found the one constraint that
+# matters: systemd REFUSES to populate these when a handler has more than one trigger
+# source, logging "multiple trigger source candidates for exit status propagation,
+# skipping" — and it counts OnSuccess= and OnFailure= pointing at the SAME instance as
+# two. So the three restic jobs, which wire both, get nothing here.
+#
+# That is why the fallback stays rather than being an embarrassment: MONITOR_* covers
+# every OnFailure-only job, which is every job that can hot-loop, while the restic trio
+# that falls through is timer-driven and cannot re-trigger itself — so is-failed is
+# reliable for precisely the units left using it.
+outcome=""
+case "${MONITOR_SERVICE_RESULT:-}" in
+    success)  outcome="Succeeded" ;;
+    "")       outcome="" ;;          # not passed — fall through to the state check
+    *)        outcome="Failed" ;;    # exit-code, signal, timeout, oom-kill, …
+esac
+if [[ -z "$outcome" ]]; then
+    if systemctl is-failed --quiet "${service_name}.service"; then
+        outcome="Failed"
+    else
+        outcome="Succeeded"
+    fi
 fi
+title="${job_type}: ${outcome}${routed_note}"
 
 # Get systemctl status output
 # THE BODY IS THE JOB'S OWN WORDS, not `systemctl status` (changed 2026-08-20).
@@ -171,7 +207,14 @@ fi
 # would be worse than a verbose one — if the journal cannot be read (this runs as
 # User=carrein, which is in `adm` today, but that is a property of the host rather
 # than of this file) the status dump is still better than nothing.
-inv=$(systemctl show "${service_name}.service" -p InvocationID --value 2>/dev/null)
+# MONITOR_INVOCATION_ID first, for the same reason the title uses MONITOR_SERVICE_RESULT
+# above: `systemctl show -p InvocationID` returns the invocation running NOW, and after
+# a .path re-trigger that is the next run, not the one that just failed. The body would
+# then quote a run that has barely started — usually nothing at all — while the failure
+# it was sent about sat unreported in the previous invocation. Same divergence as the
+# title, one line further down, and it would have been much harder to notice.
+inv="${MONITOR_INVOCATION_ID:-}"
+[[ -n "$inv" ]] || inv=$(systemctl show "${service_name}.service" -p InvocationID --value 2>/dev/null)
 message=""
 if [[ -n "$inv" ]]; then
     # THIS RUN ONLY, and only what the job PRINTED.
