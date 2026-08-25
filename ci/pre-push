@@ -21,7 +21,21 @@ set -euo pipefail
 # changes what is checked: the scope is every tracked *.sh, same as CI.
 ROOT="$(git rev-parse --show-toplevel)"
 
-# TWO checks, and only two. The contract gate runs FIRST because it is the faster
+# The secret scan runs FIRST, and it is the cheapest thing here — 0.3s for the
+# full history, against 1.7s for the contract gate and 5.9s for the shell sweep.
+# Cheapest-first is not the reason it leads, though: it is the only check whose
+# failure is IRREVERSIBLE once the push lands. This repo is public and force-
+# pushes to six public mirrors, so a leaked credential is disclosed the moment
+# the push completes; a shell fault or a refused unit costs a red build. Owner's
+# call, 2026-08-25 — the same file CI runs, so a bypassed hook is still caught by
+# CI over the full history, and neither side can drift from the other.
+#
+# It is deliberately the SAME invocation, not a cheaper staged-only variant. At
+# pre-push time the commits already exist, so `detect` over history asks exactly
+# the question CI asks, and parity is literal rather than approximate.
+"${ROOT}/ci/gitleaks.sh"
+
+# The contract gate then runs before shellcheck because it is the faster
 # of them (1.7s against 5.9s), so a unit violation fails in under two seconds
 # rather than after the whole shell sweep.
 #
@@ -35,9 +49,9 @@ ROOT="$(git rev-parse --show-toplevel)"
 "${ROOT}/ci/contract.sh"
 "${ROOT}/ci/shellcheck.sh"
 
-# THREE checks now, cheapest first, and the third changes what this hook is.
+# FOUR checks now, cheapest first, and the last changes what this hook is.
 #
-# The first two are mirrored in CI and cost 7.6s between them. This one is the full
+# The first three are mirrored in CI and cost 7.9s between them. This one is the full
 # test suite — 1,124 cases, ~132s — and it is HOOK-ONLY because it provably cannot
 # run anywhere else: every suite resolves /zpool/catallenya absolutely and on
 # purpose, so on a runner six of the seven fail in bulk and the seventh cannot

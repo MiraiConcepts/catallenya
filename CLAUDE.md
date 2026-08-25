@@ -30,10 +30,10 @@ bash audit/audit.sh
 # so a clean result here means a clean result there. ci/pre-push runs this too.
 bash ci/shellcheck.sh
 
-# The CI secret scan, run locally. Same script and same pinned scanner CI runs.
-# Full history every time (~0.3s), unlike the action it replaced, which read only
-# the push diff. NOT in ci/pre-push: secrets are stopped at COMMIT time by
-# audit/pre-commit, which is the only side of the push that is early enough.
+# The CI secret scan, run locally. Same script and same pinned scanner CI runs,
+# and the same one ci/pre-push runs FIRST — so a leaked credential stops the push
+# before the two-minute suite, and a bypassed hook is still caught by CI over the
+# full history. ~0.3s.
 bash ci/gitleaks.sh
 
 # Install the tracked git hooks into this clone (idempotent). audit.sh §17 fails
@@ -419,7 +419,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   **`ci/gitleaks.sh`**, the same arrangement as `ci/shellcheck.sh` and `ci/contract.sh`.
   Run it by hand with `bash ci/gitleaks.sh`; that IS the CI check, not an approximation
   of it, so a local run and CI have nothing to disagree about. **Do not inline it back
-  into the workflow.** **`gitleaks/gitleaks-action` was DROPPED 2026-08-24 and must not
+  into the workflow.** `ci/pre-push` runs it too, and runs it **FIRST** (2026-08-25,
+  owner) — not for being cheapest, though at 0.3s it is, but because it is the only
+  check in that hook whose failure is IRREVERSIBLE once the push lands: this repo is
+  public and force-pushes to six public mirrors, so a leaked credential is disclosed
+  the moment the push completes, while a shell fault or a refused unit costs a red
+  build. The hook and CI run the identical invocation — `detect` over full history, not
+  a cheaper staged-only variant — so a bypassed hook changes nothing about what is
+  eventually scanned. It does NOT replace `audit/pre-commit`, which acts a step earlier
+  and asks a different question: that hook frisks secret-shaped PATHS, this one reads
+  file CONTENT. **`gitleaks/gitleaks-action` was DROPPED 2026-08-24 and must not
   be restored**: the wrapper is free for a repo owned by a PERSONAL account and requires
   a licence key for one owned by an ORGANIZATION, so moving this repo from `carrein/` to
   `MiraiConcepts/` broke the job on ownership alone — it refused 0.4s in, before it had
@@ -571,7 +580,7 @@ installing into the wrong directory leaves a hook that looks installed and never
 | hook | master | guards |
 |---|---|---|
 | `pre-commit` | `audit/pre-commit` | secret-shaped paths — the **second lock** on `.gitignore` |
-| `pre-push` | `ci/pre-push` | `ci/contract.sh` → `ci/shellcheck.sh` → **`ci/tests.sh`** (all 1,124 cases, ~132s). The first two are mirrored in CI; the third **cannot be** |
+| `pre-push` | `ci/pre-push` | **`ci/gitleaks.sh`** → `ci/contract.sh` → `ci/shellcheck.sh` → **`ci/tests.sh`** (all 1,124 cases, ~132s). The first three are mirrored in CI; the fourth **cannot be** |
 
 **The split between them is the point, not an accident.** Secrets are stopped at
 COMMIT time because this repo is public and force-pushes to every mirror — CI runs
