@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The secret scan, defined ONCE. Both callers run this same file:
 #   .github/workflows/ci.yml  — the authority; the mirror publish `needs:` it
-#   a human, by hand         — `bash ci/gitleaks.sh`, before or after a push
+#   ci/pre-push               — the same scan, before the push leaves this box
+#   a human, by hand          — `bash ci/gitleaks.sh`, any time
 #
 # Same reasoning as ci/shellcheck.sh: a check written twice is a check that
 # drifts. CLAUDE.md used to carry the local command as PROSE beside a CI job
