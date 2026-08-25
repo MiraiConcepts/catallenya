@@ -42,6 +42,7 @@
 # the pre-push hook, plus that hook's tracked master. Per-file, never `ci/**`:
 # this directory is where a checker's credentials would land if one ever
 # needed them.
+!ci/gitleaks.sh
 !ci/shellcheck.sh
 !ci/contract.sh
 !ci/tests.sh

@@ -30,6 +30,12 @@ bash audit/audit.sh
 # so a clean result here means a clean result there. ci/pre-push runs this too.
 bash ci/shellcheck.sh
 
+# The CI secret scan, run locally. Same script and same pinned scanner CI runs.
+# Full history every time (~0.3s), unlike the action it replaced, which read only
+# the push diff. NOT in ci/pre-push: secrets are stopped at COMMIT time by
+# audit/pre-commit, which is the only side of the push that is early enough.
+bash ci/gitleaks.sh
+
 # Install the tracked git hooks into this clone (idempotent). audit.sh §17 fails
 # if either is missing, non-executable, or drifted from its tracked master.
 bash audit/install-hooks.sh
@@ -408,22 +414,51 @@ Fallback unlock paths: LAN dropbear (`ssh -p 22 root@<lan-ip>` — most reliable
 ### CI/CD
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manual dispatch:
-- **GitLeaks** (v3): scans for leaked secrets. **Scan SCOPE depends on the event: a
-  `push` scans only that push's diff, while `workflow_dispatch` scans the FULL
-  history** — so a manual run is the only thing here that re-reads the whole repo.
-  That matters because `.gitleaksignore` suppresses by fingerprint, and a fingerprint
-  is `<commit>:<path-AS-IT-WAS-in-that-commit>:<rule>:<line>`. The 2026-08-15 rename's
-  repo-wide find-and-replace rewrote one of those paths to match the current tree,
-  which no later rename can do — the suppression stopped matching, and it sailed
-  through four green pushes before the next dispatch failed on a finding that had been
-  suppressed for three weeks. Never let a bulk edit touch that file. Known-fake
-  findings suppressed there: the deliberate 2025-11-05 test key; a 2026-07-27 false
-  positive on a prose comment. CI pins the SCANNER explicitly via
-  `GITLEAKS_VERSION: "8.24.3"` (2026-08-10) — the action SHA only fixes the wrapper,
-  and the binary it downloads is whatever that release bundles, so a weekly dependabot
-  SHA bump would have moved it with nothing in the diff to say so. 8.30.1 does not
-  flag the same things, so verify with the pinned version, not `:latest`:
-  `docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.24.3 detect --redact`
+- **GitLeaks**: scans for leaked secrets, **full history on every run** — 323 commits,
+  2.2 MB, ~0.3s measured 2026-08-24. The check is **defined once**, in
+  **`ci/gitleaks.sh`**, the same arrangement as `ci/shellcheck.sh` and `ci/contract.sh`.
+  Run it by hand with `bash ci/gitleaks.sh`; that IS the CI check, not an approximation
+  of it, so a local run and CI have nothing to disagree about. **Do not inline it back
+  into the workflow.** **`gitleaks/gitleaks-action` was DROPPED 2026-08-24 and must not
+  be restored**: the wrapper is free for a repo owned by a PERSONAL account and requires
+  a licence key for one owned by an ORGANIZATION, so moving this repo from `carrein/` to
+  `MiraiConcepts/` broke the job on ownership alone — it refused 0.4s in, before it had
+  downloaded the scanner or read a single commit (`[MiraiConcepts] is an organization.
+  License key is required.`). **The licence lives entirely in the wrapper**; the scanner
+  is MIT, has never been licensed, and does not know GitHub exists. A free single-repo
+  tier was declined deliberately: it puts an external licence server in front of the one
+  check guarding a PUBLIC repo that force-pushes to six public mirrors. What went with
+  it — PR comments and SARIF upload to code scanning — was never in use, because the
+  workflow declares `permissions: contents: read` with no `security-events: write`.
+  **The scan SCOPE changed and that is the payoff, not a side effect.** The wrapper read
+  only the push DIFF on a push and the full history only on `workflow_dispatch`, so a
+  broken suppression could hide for weeks — which is not hypothetical: the 2026-08-15
+  rename's repo-wide find-and-replace rewrote a `.gitleaksignore` path to match the
+  current tree, and it sailed through four green pushes before the next dispatch failed
+  on a finding that had been suppressed for three weeks. Full history every run closes
+  that; the same break would now surface on the next push. The trap it teaches is
+  unchanged — **never let a bulk edit touch `.gitleaksignore`**, because a fingerprint is
+  `<commit>:<path-AS-IT-WAS-in-that-commit>:<rule>:<line>` and no later rename can reach
+  into history. Three known-fake findings are suppressed there: the deliberate 2025-11-05
+  test key, a 2026-07-27 false positive on a prose comment, and upstream's unused
+  pushbullet `curl -u` in the vendored `host/zed-functions.sh`. All three verified still
+  matching on 2026-08-24 — **mask the file with an empty one and the same scan goes from
+  0 findings to 3**, which is how to re-check them (`--gitleaks-ignore-path` does NOT
+  override the repo-root file; that control passes for the wrong reason).
+  **One pin now, not two.** The old shape pinned the action SHA *and* `GITLEAKS_VERSION`,
+  because the SHA fixed only the wrapper while the binary it fetched was whatever that
+  release bundled — a trap that retires with the fetcher, since the image tag now names
+  the scanner directly. The rule it taught is still live everywhere else: **pin what
+  RUNS, not what fetches it** (`ci/shellcheck.sh`, and every SHA-pinned action). 8.30.1
+  does not flag the same things 8.24.3 does, so verify with the pinned version, never
+  `:latest`. **`ghcr.io/gitleaks/gitleaks`, not Docker Hub** — byte-identical (same
+  manifest, same linux/amd64 digest `sha256:5d0147dc25c78f8c…`, verified 2026-08-24), but
+  Docker Hub rate-limits anonymous pulls per source IP and GitHub's runners share theirs,
+  so the Hub path fails intermittently for reasons that have nothing to do with this
+  repository. **Dependabot does not see this pin — and never saw the scanner version
+  either**, being configured for the `github-actions` ecosystem alone, so it bumped only
+  the wrapper it is now no longer needed for. The pin ages until a human moves it, which
+  is the same deal `ci/shellcheck.sh` already makes and says so out loud.
 - **compose-validate**: `docker compose --env-file .env.ci config --quiet` plus a drift
   guard that fails if a `${VAR}` in docker-compose.yml has no line in `.env.ci`. When
   adding a new compose variable, add a dummy (shape-valid) line to `.env.ci`

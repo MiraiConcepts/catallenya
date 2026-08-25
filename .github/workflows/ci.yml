@@ -21,18 +21,21 @@ jobs:
           fetch-depth: 0  # Full history for secret scanning.
 
       - name: Run GitLeaks
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pin the SCANNER, not just the action. The action SHA above only fixes the
-          # wrapper; the gitleaks binary it downloads is whatever that release bundles,
-          # so a dependabot SHA bump silently changes the scanner version. 8.30.1 does
-          # not flag the same things 8.24.3 does, and .gitleaksignore fingerprints are
-          # version-sensitive — a silent bump could mask a real finding or resurface a
-          # suppressed false positive. Verify locally with the SAME version:
-          #   docker run --rm -v "$PWD:/repo" -w /repo \
-          #     zricethezav/gitleaks:v8.24.3 detect --redact
-          GITLEAKS_VERSION: "8.24.3"
+        # The scan itself lives in ci/gitleaks.sh, the same arrangement as
+        # ci/shellcheck.sh and ci/contract.sh — one definition, so a local run
+        # and this job have nothing to disagree about. Do NOT inline it back.
+        #
+        # This replaced gitleaks/gitleaks-action on 2026-08-24, when the repo
+        # moved from carrein/ to MiraiConcepts/. The wrapper is free for repos
+        # owned by a PERSONAL account and requires a licence key for repos owned
+        # by an ORGANIZATION, so it refused on ownership alone — 0.4s in, before
+        # it had downloaded the scanner or read a single commit:
+        #   [MiraiConcepts] is an organization. License key is required.
+        # The scanner itself is MIT and unaffected; the licence lives entirely in
+        # the wrapper. Dropping it also retired the two-pin problem the old env
+        # block below described, and widened the scan from the push diff to full
+        # history on every run. See ci/gitleaks.sh for the whole reasoning.
+        run: bash ci/gitleaks.sh
 
   compose-validate:
     runs-on: ubuntu-latest
