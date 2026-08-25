@@ -38,11 +38,25 @@ set -euo pipefail
 # and cannot see a version string inside a shell script. This pin ages until a
 # human moves it — the same deal ci/shellcheck.sh already makes, and the reason
 # both files say so out loud rather than looking maintained.
-GITLEAKS_VERSION="v8.24.3"
+GITLEAKS_VERSION="v8.30.1"
 
+# Bumped 8.24.3 -> 8.30.1 on 2026-08-25, eleven releases in one step, and the
+# safety of it was MEASURED rather than assumed. Both versions were run over the
+# full history twice: with .gitleaksignore in place both exit 0, and with it
+# masked by an empty file both find the SAME THREE findings — same rule, same
+# file, same line — so the newer scanner has not gone quiet and all three
+# fingerprints still match (they are commit:path:rule:line, and none of those
+# moved). That test is the one to repeat before any future bump.
+#
+# It also disproved the reason the pin was being held. CLAUDE.md and
+# .gitleaksignore both claimed "8.30.1 does not flag" the generic-api-key false
+# positive at capture.lib.sh:230. It does. The claim dates from a 2026-07-27 CI
+# failure and whatever it described, it was not this; both copies are corrected.
+#
 # ghcr rather than Docker Hub, and the images are the SAME BYTES — verified
-# 2026-08-24, identical manifest and identical linux/amd64 digest:
-#   sha256:5d0147dc25c78f8cc2b9861ff8f5c9b4a41419ed60a9ce2217de5a215270b42b
+# 2026-08-24 on v8.24.3, identical manifest and identical linux/amd64 digest.
+# Tag digest at time of pinning, so a moved tag is detectable:
+#   sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb
 # Docker Hub rate-limits anonymous pulls per source IP and GitHub's runners
 # share theirs, so the Hub path fails intermittently for reasons that have
 # nothing to do with this repository. ghcr has no such limit from Actions.
