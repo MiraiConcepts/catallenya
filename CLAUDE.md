@@ -458,8 +458,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main, PRs, and manua
   because the SHA fixed only the wrapper while the binary it fetched was whatever that
   release bundled — a trap that retires with the fetcher, since the image tag now names
   the scanner directly. The rule it taught is still live everywhere else: **pin what
-  RUNS, not what fetches it** (`ci/shellcheck.sh`, and every SHA-pinned action). 8.30.1
-  does not flag the same things 8.24.3 does, so verify with the pinned version, never
+  RUNS, not what fetches it** (`ci/shellcheck.sh`, and every SHA-pinned action). **The pin moved 8.24.3 -> 8.30.1 on
+  2026-08-25**, eleven releases at once, and the claim that had held it back —
+  written here and in `.gitleaksignore` as "8.30.1 does not flag the same things" —
+  **was false**. Measured both ways before bumping: with `.gitleaksignore` in place
+  both versions exit 0 over full history, and with it masked by an empty file both
+  find the SAME THREE findings, same rule, same file, same line. So the newer
+  scanner had not gone quiet, every fingerprint still matched, and nothing was
+  being protected by staying behind. **That double run is the test to repeat before
+  any future bump** — a clean scan alone proves nothing, because a scanner that
+  detects nothing also scans clean. Still verify with the pinned version, never
   `:latest`. **`ghcr.io/gitleaks/gitleaks`, not Docker Hub** — byte-identical (same
   manifest, same linux/amd64 digest `sha256:5d0147dc25c78f8c…`, verified 2026-08-24), but
   Docker Hub rate-limits anonymous pulls per source IP and GitHub's runners share theirs,
