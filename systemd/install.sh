@@ -118,6 +118,10 @@ declare -A SYMLINKS=(
     ["pigeonhole.sweep.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.timer"
     ["pigeonhole.retry.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.retry.timer"
     ["catallenya.heartbeat.timer"]="${REPO_DIR}/systemd/catallenya.heartbeat.timer"
+    # liquidroom polls rather than watching, and that is forced: a request is an
+    # empty FOLDER now and no .path verb can express emptiness. It REPLACED
+    # liquidroom.triage.path on 2026-08-28 — see liquidroom/systemd/liquidroom.triage.timer.
+    ["liquidroom.triage.timer"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.timer"
 
     # --- Paths (event-triggered, not scheduled) ---
     ["afterimage.triage.path"]="${REPO_DIR}/afterimage/systemd/afterimage.triage.path"
@@ -127,9 +131,6 @@ declare -A SYMLINKS=(
     # tap, not overnight.
     ["pigeonhole.triage.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.path"
     ["pigeonhole.apply.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.path"
-    # liquidroom is one path unit and no timer: a music request is an event, and a
-    # week without one is a week the pipeline correctly never runs.
-    ["liquidroom.triage.path"]="${REPO_DIR}/liquidroom/systemd/liquidroom.triage.path"
 
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/host/disk.service"
