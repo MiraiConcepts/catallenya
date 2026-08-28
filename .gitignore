@@ -291,7 +291,7 @@ ntfy/.env
 !liquidroom/scripts/liquidroom.triage.sh
 !liquidroom/scripts/models.sh
 !liquidroom/systemd/
-!liquidroom/systemd/liquidroom.triage.path
+!liquidroom/systemd/liquidroom.triage.timer
 !liquidroom/systemd/liquidroom.triage.service
 !liquidroom/tests/
 !liquidroom/tests/run.sh

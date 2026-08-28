@@ -118,6 +118,42 @@ st_folder_idle() {
     [[ "$state" == "idle" && "$need" == "0" ]]
 }
 
+# syncthing_index_has_files <path-relative-to-folder-root> — 0 when Syncthing's
+# GLOBAL INDEX says that path holds at least one entry.
+#
+# This answers "is this empty folder a request, or a result that is still
+# arriving?", and it answers DEFINITIVELY rather than by heuristic: Syncthing
+# CREATES directories from its index, so by the time an empty directory exists
+# locally because of a sync, the index already knows what belongs inside it. There
+# is no ordering in which the directory appears first and the index learns later.
+# That is what makes this stronger than the timed re-probe it replaced.
+#
+# It FAILS CLOSED. An unreachable API, an unreadable key or malformed JSON all
+# return 0 — "has files" — so the caller skips the candidate rather than acting on
+# it. The asymmetry is deliberate: a false skip costs one poll interval, a false
+# queue costs a 45-minute job republishing a track that already existed.
+#
+# The prefix goes through --data-urlencode because artist and track names carry
+# spaces routinely and non-ASCII often.
+syncthing_index_has_files() { # $1 = path relative to the folder root
+    local rel="${1:?syncthing_index_has_files: path}" key json n
+    # Same test seam as syncthing_quiet: a scratch tree has no Syncthing to ask,
+    # and there "nothing in the index" is the truthful answer. Never set in
+    # production — without it every mid-transfer folder reads as a request.
+    [[ "${SKIP_SYNCTHING_GATE:-}" == "1" ]] && return 1
+    key="$(st_apikey)" || return 0
+    st_api_base || return 0   # sets globals; NOT $(...) — see st_api_base
+    json="$(curl -sS --max-time 15 --resolve "${ST_HOST}:${ST_PORT}:127.0.0.1" \
+            -H "X-API-Key: ${key}" -G \
+            --data-urlencode "folder=${SYNCTHING_FOLDER_ID}" \
+            --data-urlencode "prefix=${rel}" \
+            --data-urlencode "levels=0" \
+            "${ST_BASE}/rest/db/browse" 2>/dev/null)" || return 0
+    n="$(jq -r 'if type == "array" then length else 1 end' <<<"$json" 2>/dev/null)" || return 0
+    [[ "$n" =~ ^[0-9]+$ ]] || return 0
+    (( n > 0 ))
+}
+
 # syncthing_quiet <watched-directory> — 0 when it is safe to touch that directory.
 #
 # Two signals, both cheap: no scratch files alongside (Syncthing writes
