@@ -218,6 +218,29 @@ has   "and says what changed" "$out" "was expected last run and is not in the co
 run "$st"; out2="$OUT"
 is    "and not again on the next run" "$out2" ""
 
+# ------------------------------------------- a PROFILED service is never remembered
+# The regression that produced three false alerts on 2026-08-28. A profiled service
+# is invisible to `compose config --services` on purpose — the profile is what marks
+# it as allowed to be absent — but it IS visible to `docker ps` while it runs. So a
+# liquidroom job that started one, finished, and let `--rm` take it away left the
+# service in the state file, and the next hourly pass reported it as having left the
+# compose file. Once per music request, indefinitely.
+echo "a profiled service that runs transiently is not remembered"
+fixture profiled
+# Present in ps/inspect (it is running right now) but absent from services (no profile).
+printf 'liquidroom-roformer|/liquidroom-job|running|none|0|2026-08-28T15:51:03Z\n' \
+    >> "${FIXTURE}/inspect"
+printf 'liquidroom-job\n' >> "${FIXTURE}/ps"
+st="${TMP}/state-profiled"
+run "$st"; out="$OUT"
+hasnt "the running profiled service is not itself a finding" "$out" "liquidroom-roformer"
+hasnt "and it never enters the state file" "$(cat "$st" 2>/dev/null)" "liquidroom-roformer"
+# ...so when the job ends and the container goes, there is nothing to miss.
+perl -ni -e 'print unless /^liquidroom/' "${FIXTURE}/inspect" "${FIXTURE}/ps"
+run "$st"; out2="$OUT"
+hasnt "and its disappearance is silent" "$out2" "No Longer Declared"
+is    "which means the run is clean"    "$out2" ""
+
 # --------------------------------------------------------------- docker unreachable
 echo "the docker daemon is unreachable"
 fixture nodocker

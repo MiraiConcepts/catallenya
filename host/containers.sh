@@ -131,6 +131,10 @@ probe() {
         return 0
     fi
     mapfile -t expected < <(sort <<<"$out")
+    # Membership lookup for the CUR guard below; a bash array cannot be searched
+    # without a loop and this is consulted once per running container.
+    local -A EXPECTED_SET=()
+    for svc in "${expected[@]}"; do EXPECTED_SET["$svc"]=1; done
 
     # Everything docker currently holds for this project, in one call.
     rc=0
@@ -166,7 +170,22 @@ probe() {
             RESTARTS["$svc"]="$restarts"
             STARTED["$svc"]="$started"
             CNAME["$svc"]="${cname#/}"
-            CUR["$svc"]="$restarts"
+            # ONLY remember a service the compose file still declares. CUR is built
+            # from what docker actually holds, `expected` from the DEFAULT-profile
+            # services, and those two sets disagree for exactly one kind of thing: a
+            # profiled service running transiently. liquidroom's two are profiled
+            # precisely because they are allowed to be absent, so a job that starts
+            # one, finishes, and lets `--rm` take it away used to leave it in the
+            # state file — and the next hourly pass found it remembered, absent from
+            # the compose listing, and reported "No Longer Declared". Once per music
+            # request, indefinitely; three fired on 2026-08-28 before this.
+            #
+            # The check it protects still works, because that check is about a
+            # service LEAVING the compose file, and a service that was never in the
+            # listing cannot leave it.
+            if [[ -n "${EXPECTED_SET[$svc]:-}" ]]; then
+                CUR["$svc"]="$restarts"
+            fi
         done < <("$DOCKER" inspect \
             --format '{{index .Config.Labels "com.docker.compose.service"}}|{{.Name}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.StartedAt}}' \
             "${names[@]}" 2>/dev/null || true)
