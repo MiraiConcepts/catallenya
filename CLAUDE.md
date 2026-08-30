@@ -101,17 +101,39 @@ Caddy reads the Tailscale socket directly (`tailscaled.sock`) for certificate ma
 
 ### Port Assignments (via .env)
 
-| Variable                         | Service     |
-|----------------------------------|-------------|
-| `NTFY_REVERSE_PROXY_PORT`        | Ntfy        |
-| `FLAME_REVERSE_PROXY_PORT`       | Flame       |
-| `RADICALE_REVERSE_PROXY_PORT`    | Radicale    |
-| `SYNCTHING_REVERSE_PROXY_PORT`   | Syncthing   |
-| `IMMICH_REVERSE_PROXY_PORT`      | Immich      |
-| `ARCHIVEBOX_REVERSE_PROXY_PORT`  | Archivebox  |
-| `MEMOKA_REVERSE_PROXY_PORT`      | Memoka      |
-| `CHANGEDETECTION_REVERSE_PROXY_PORT` | Changedetection.io |
-| `AFTERIMAGE_REVERSE_PROXY_PORT`     | Capture (10000) |
+Every one of these is read by Caddy and published on **`127.0.0.1` only** — the
+tailnet reaches them through the userspace-tailscaled forward, so an unprefixed
+publish would open the home LAN. Ordered by port, which is also where the gaps
+are visible.
+
+| Variable                             | Port  | Service |
+|--------------------------------------|-------|---------|
+| `NTFY_REVERSE_PROXY_PORT`            | 3000  | Ntfy |
+| `FLAME_REVERSE_PROXY_PORT`           | 4000  | Flame — **deprecated, container not running** |
+| `RADICALE_REVERSE_PROXY_PORT`        | 7000  | Radicale, direct — **must stay 401 unauthenticated** |
+| `SYNCTHING_REVERSE_PROXY_PORT`       | 8000  | Syncthing |
+| `IMMICH_REVERSE_PROXY_PORT`          | 9000  | Immich |
+| `AFTERIMAGE_REVERSE_PROXY_PORT`      | 10000 | Afterimage (capture) |
+| `ARCHIVEBOX_REVERSE_PROXY_PORT`      | 11000 | Archivebox |
+| `MEMOKA_REVERSE_PROXY_PORT`          | 12000 | Memoka (API server port) |
+| `CHANGEDETECTION_REVERSE_PROXY_PORT` | 13000 | Changedetection.io |
+| `IPP_REVERSE_PROXY_PORT`             | 14000 | Immich Public Proxy |
+| `HITOME_REVERSE_PROXY_PORT`          | 15000 | Hitome (calendar) at `/`, **Radicale under `/dav/`** |
+| `PIGEONHOLE_REVERSE_PROXY_PORT`      | 16000 | Pigeonhole approve endpoint |
+
+**15000 is not a free choice.** A published Android APK has
+`https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:15000/dav/` compiled in, so moving
+it needs an APK rebuild and re-release. The constraint binds the **`/dav/`
+handler**, not the app at `/` — which is what made the 2026-08-30 mitsume→hitome
+swap invisible to the phone: same Radicale, same injected credential, same
+`X-Script-Name`. Anything holding that handler on 15000 satisfies the client.
+
+The table was three rows short until 2026-08-30 (`IPP`, `PIGEONHOLE` and the
+`MITSUME` row that became `HITOME`), and listed a port number for exactly one
+service. A partial table is worse than none — it reads as authoritative, so the
+missing rows look like free ports rather than omissions. The authoritative list
+is the `*_REVERSE_PROXY_PORT` keys in Caddy's `environment:` block; if you add a
+service, this table is not optional.
 
 ### Service Dependencies
 
