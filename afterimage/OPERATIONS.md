@@ -56,12 +56,12 @@ sudo chmod 600 /etc/ai.env
 ```
 
 The container also needs the Radicale credential as a docker secret — the same
-`base64(carrein:<app pw>)` Caddy injects for mitsume. It is a file, not an env var,
+`base64(carrein:<app pw>)` Caddy injects for hitome. It is a file, not an env var,
 because `docker inspect` and `/proc/1/environ` both expose environment, and that
 credential is good for read, write and delete across the whole `/carrein/` tree:
 
 ```bash
-grep -m1 '^MITSUME_DAV_B64=' .env | cut -d= -f2- > afterimage/dav-secret
+grep -m1 '^HITOME_DAV_B64=' .env | cut -d= -f2- > afterimage/dav-secret
 chmod 600 afterimage/dav-secret
 ```
 

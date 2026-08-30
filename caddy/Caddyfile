@@ -162,17 +162,17 @@ http://img.catallenya.com {
 	reverse_proxy changedetection:5000
 }
 
-{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$MITSUME_REVERSE_PROXY_PORT} {
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$HITOME_REVERSE_PROXY_PORT} {
 	# CalDAV, same-origin: strip /dav before proxying; X-Script-Name makes
 	# Radicale emit hrefs under /dav so discovery resolves through this block.
 	handle_path /dav/* {
 		reverse_proxy radicale:5232 {
 			header_up X-Script-Name /dav
-			header_up Authorization "Basic {$MITSUME_DAV_B64}"
+			header_up Authorization "Basic {$HITOME_DAV_B64}"
 		}
 	}
 
 	handle {
-		reverse_proxy mitsume:80
+		reverse_proxy hitome:80
 	}
 }
