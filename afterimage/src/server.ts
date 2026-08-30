@@ -24,7 +24,7 @@ const DAV_USER = process.env.CAPTURE_DAV_USER ?? "carrein";
 // so the container still starts if the secret is not mounted.
 const DAV_B64 = (() => {
   try { return readFileSync("/run/secrets/afterimage-dav-secret", "utf8").trim(); }
-  catch { return process.env.MITSUME_DAV_B64 ?? ""; }
+  catch { return process.env.HITOME_DAV_B64 ?? ""; }
 })();
 // The ntfy web UI fires the action buttons with browser fetch(), so the custom
 // X-Afterimage header triggers a CORS preflight. Refusing every preflight — which is

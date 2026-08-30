@@ -194,10 +194,10 @@ services:
       MEMOKA_REVERSE_PROXY_PORT: ${MEMOKA_REVERSE_PROXY_PORT}
       CHANGEDETECTION_REVERSE_PROXY_PORT: ${CHANGEDETECTION_REVERSE_PROXY_PORT}
       IPP_REVERSE_PROXY_PORT: ${IPP_REVERSE_PROXY_PORT}
-      MITSUME_REVERSE_PROXY_PORT: ${MITSUME_REVERSE_PROXY_PORT}
+      HITOME_REVERSE_PROXY_PORT: ${HITOME_REVERSE_PROXY_PORT}
       AFTERIMAGE_REVERSE_PROXY_PORT: ${AFTERIMAGE_REVERSE_PROXY_PORT}
       PIGEONHOLE_REVERSE_PROXY_PORT: ${PIGEONHOLE_REVERSE_PROXY_PORT}
-      MITSUME_DAV_B64: ${MITSUME_DAV_B64}
+      HITOME_DAV_B64: ${HITOME_DAV_B64}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
       # userspace-tailscaled→127.0.0.1 forward, so loopback still serves the
@@ -212,7 +212,7 @@ services:
       - 127.0.0.1:${MEMOKA_REVERSE_PROXY_PORT}:${MEMOKA_REVERSE_PROXY_PORT}  # API server port
       - 127.0.0.1:${CHANGEDETECTION_REVERSE_PROXY_PORT}:${CHANGEDETECTION_REVERSE_PROXY_PORT}
       - 127.0.0.1:${IPP_REVERSE_PROXY_PORT}:${IPP_REVERSE_PROXY_PORT}
-      - 127.0.0.1:${MITSUME_REVERSE_PROXY_PORT}:${MITSUME_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${HITOME_REVERSE_PROXY_PORT}:${HITOME_REVERSE_PROXY_PORT}
       - 127.0.0.1:${AFTERIMAGE_REVERSE_PROXY_PORT}:${AFTERIMAGE_REVERSE_PROXY_PORT}
       - 127.0.0.1:${PIGEONHOLE_REVERSE_PROXY_PORT}:${PIGEONHOLE_REVERSE_PROXY_PORT}
     volumes:
@@ -557,7 +557,7 @@ services:
     # The Radicale password comes in as a file, not an env var: `docker inspect`
     # and /proc/1/environ both expose environment, and this credential is good for
     # read/write/delete across the whole /carrein/ tree. Same pattern as immich's
-    # DB_PASSWORD_FILE. The value is identical to the MITSUME_DAV_B64 Caddy injects.
+    # DB_PASSWORD_FILE. The value is identical to the HITOME_DAV_B64 Caddy injects.
     secrets:
       - afterimage-dav-secret
     volumes:
@@ -699,9 +699,9 @@ services:
       - ${ZPOOL_VOLUME}/liquidroom/state/work:/work
       - ${ZPOOL_VOLUME}/liquidroom/state/models:/models
 
-  mitsume:
-    container_name: mitsume
-    image: ghcr.io/carrein/mitsume:latest
+  hitome:
+    container_name: hitome
+    image: ghcr.io/miraiconcepts/hitome:latest
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -715,7 +715,7 @@ services:
           memory: 64M
     labels:
       - flame.type=application
-      - flame.name=mitsume
+      - flame.name=hitome
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
 
@@ -1110,7 +1110,7 @@ secrets:
     file: archivebox/password.txt
   postgres-secret:
     file: postgres/password.txt
-  afterimage-dav-secret: # base64(carrein:<radicale app pw>) — same value as MITSUME_DAV_B64
+  afterimage-dav-secret: # base64(carrein:<radicale app pw>) — same value as HITOME_DAV_B64
     file: afterimage/dav-secret
 
 volumes:
