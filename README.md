@@ -1,6 +1,6 @@
 # catallenya
 
-catallenya is a personal data sovereignty project aimed at replacing third-party services with self-hosted solutions.
+catallenya is a self-hosted service platform for personal data sovereignty.
 
 ![catallenya](catallenya.png)
 
