@@ -395,47 +395,56 @@ services:
     # data-island (#ipp-init), so IPP is version-pinned and bumped deliberately
     # in lockstep with the blog's parser.
 
-  # DEPRECATED 2026-08-09 — not started by `docker compose up -d`.
+  # Re-enabled 2026-09-05. Both halves of the 2026-08-09 deprecation are fixed:
   #
-  # Flame authenticates with `process.env.PASSWORD` ONLY (controllers/auth/login.js:11).
-  # It has no support for PASSWORD_FILE, so the `secrets: [password]` + PASSWORD_FILE
-  # below were dead config and the effective admin password was the image's published
-  # default `flame_password` (confirmed by sha256 against the running container's env).
-  # Combined with PID 1 running as root and a working /var/run/docker.sock (`:ro`
-  # restricts the bind, NOT the API — GET /containers/json returned 200 from inside),
-  # any tailnet device could reach :4000, log in with a password published in Flame's
-  # own Dockerfile, and create a container with a `/` bind = root on the host.
-  # The tailnet ACL is `{"src":["*"],"dst":["*:*"]}`, so that meant every peer.
+  # 1. Auth. Flame reads `process.env.PASSWORD` ONLY (controllers/auth/login.js:11)
+  #    and has no PASSWORD_FILE support, so the old `secrets: [password]` +
+  #    PASSWORD_FILE were dead config and the live admin password was the image's
+  #    published default (`ENV PASSWORD=flame_password`, still present in
+  #    pawelmalak/flame:latest). Now a real env var sourced from ${FLAME_PASSWORD}.
+  #    The dead top-level `password:` secret was removed with it.
   #
-  # Left defined rather than deleted: flame/data/ is preserved and is in restic.
-  # To bring it back:  docker compose --profile deprecated up -d flame
-  # BEFORE re-enabling, fix both halves: replace PASSWORD_FILE with a real
-  # PASSWORD env var, and drop the docker.sock mount (entries are static in
-  # flame/data/config.json, so the socket buys nothing).
+  # 2. Docker socket. The `/var/run/docker.sock:ro` mount is gone. `:ro` restricts
+  #    the bind, NOT the API, so any Flame login was host root via
+  #    POST /containers/create with a `/` bind. Flame used the socket only for
+  #    `flame.*` label discovery, and every discovered app is already persisted in
+  #    flame/data/db.sqlite, so `dockerApps` is set false in flame/data/config.json
+  #    and the dashboard is unchanged. Re-adding the mount re-opens the host-root
+  #    path — add apps in the UI instead.
+  #
+  # Still runs as root, deliberately. Tried `user: "1000:1000"` on 2026-09-05 and
+  # the entrypoint dies with EACCES copying /app/data/flame.css -> /app/public:
+  # /app/public is root-owned inside the image and is not a mount. Seeding it from
+  # a named volume would fix the permission but freeze the frontend assets at the
+  # image version that first populated it, which breaks silently under watchtower.
+  # Root here is bounded: no docker.sock, no host mounts beyond flame/data,
+  # cap_drop ALL with only CHOWN + DAC_OVERRIDE re-added, a 50-process pids cap,
+  # and no-new-privileges.
   flame:
-    profiles: ["deprecated"]
     container_name: flame
     image: pawelmalak/flame:latest
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
+      # Minimal set for the entrypoint's `chown -R node /app/data`: CHOWN to change
+      # ownership, DAC_OVERRIDE to traverse flame/data (drwxr--r--, owned by 1000 —
+      # cap_drop ALL removes root's usual bypass). SETUID/SETGID/FOWNER dropped
+      # 2026-09-05 and verified unnecessary: the image has zero setuid binaries and
+      # no gosu/su-exec, so nothing in it ever drops privilege.
       - CHOWN
-      - SETUID
-      - SETGID
-      - FOWNER
       - DAC_OVERRIDE
     deploy:
       resources:
         limits:
           memory: 256M
+          pids: 50
     volumes:
       - ${FLAME_VOLUME}:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    secrets:
-      - password
     environment:
-      - PASSWORD_FILE=/run/secrets/password
+      - PASSWORD=${FLAME_PASSWORD}
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -1102,8 +1111,6 @@ services:
       - com.centurylinklabs.watchtower.enable=true
 
 secrets:
-  password: # Flame hardcodes the password field.
-    file: flame/password.txt
   cloudflared-secret:
     file: cloudflared/token.json
   sonic-secret:
