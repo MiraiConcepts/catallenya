@@ -28,6 +28,14 @@
 !immich/
 !tailscale/
 
+# The baseline rules. Per-file like everything else here, so a NEW RULE NEEDS A
+# LINE IN THIS BLOCK or it stays untracked, which is the state this whole
+# directory sat in until 2026-09-05: no history, no offsite copy, invisible to
+# the hooks and to ci/gitleaks.sh. Note that !README.md above is pathless and so
+# rescues policy/README.md on its own once the directory itself is un-ignored.
+!policy/
+!policy/readmes.md
+
 # Explicit exclude audit logs
 !audit/audit.sh
 # The tracked master copy of the pre-commit hook. .git/hooks/ is never tracked by
