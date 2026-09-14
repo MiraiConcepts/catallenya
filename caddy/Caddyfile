@@ -176,3 +176,19 @@ http://img.catallenya.com {
 		reverse_proxy hitome:80
 	}
 }
+
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$KARAKEEP_REVERSE_PROXY_PORT} {
+	# Karakeep shows its own full-page archives and PDFs in iframes from this same
+	# origin (/api/assets/*), which the snippet's X-Frame-Options DENY would refuse
+	# to render. SAMEORIGIN still refuses every other site.
+	#
+	# Deferred and placed BEFORE the import, and both are load-bearing: the snippet's
+	# `-Server` makes its whole block deferred, deferred blocks apply in reverse order,
+	# so a plain override (or one after the import) is overwritten back to DENY.
+	header {
+		X-Frame-Options SAMEORIGIN
+		defer
+	}
+	import security_headers
+	reverse_proxy karakeep:3000
+}

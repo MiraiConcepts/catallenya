@@ -59,6 +59,33 @@ else
     echo "Upvotes SQLite backup complete." >&2
 fi
 
+# Karakeep, the same way: VACUUM INTO runs inside the karakeep container through its
+# own bundled better-sqlite3 (it resolves from /app/apps/workers), so the host needs
+# no sqlite3. Only this dump and karakeep/data/assets are restic targets, never the
+# live db.db. Written to .tmp and moved on success like the Memoka dump, so a failed
+# run keeps the previous good copy and costs only this dump, not the whole backup.
+KARAKEEP_DUMP_DIR=/zpool/catallenya/karakeep/dump
+mkdir -p ${KARAKEEP_DUMP_DIR}
+if ! docker ps --format '{{.Names}}' | grep -qx karakeep; then
+    echo "Karakeep container not running; skipping SQLite backup." >&2
+else
+    echo "Backing up Karakeep SQLite database..." >&2
+    # VACUUM INTO refuses to write over an existing file.
+    rm -f ${KARAKEEP_DUMP_DIR}/db.db.tmp
+    if docker exec -w /app/apps/workers karakeep node -e '
+        const Database = require("better-sqlite3");
+        const db = new Database("/data/db.db", { readonly: true, fileMustExist: true });
+        db.prepare("VACUUM INTO ?").run("/dump/db.db.tmp");
+        db.close();
+    '; then
+        mv ${KARAKEEP_DUMP_DIR}/db.db.tmp ${KARAKEEP_DUMP_DIR}/db.db
+        echo "Karakeep SQLite backup complete." >&2
+    else
+        rm -f ${KARAKEEP_DUMP_DIR}/db.db.tmp
+        echo "Karakeep dump FAILED; keeping the previous dump and continuing." >&2
+    fi
+fi
+
 # Build --exclude flags — one per path (restic requires a separate flag each time).
 EXCLUDES=""
 for target in ${RESTIC_EXCLUDE_TARGETS}; do

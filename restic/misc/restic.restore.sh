@@ -63,3 +63,24 @@ restic -r "${RESTIC_DRIVER}:${RESTIC_RCLONE_REMOTE}:${RESTIC_BACKUP_LOCATION}" \
 #
 #   3. Start it back up:
 #        docker compose up -d upvotes
+#
+# --- Karakeep database restore ---
+# Same shape as upvotes: backup.sh runs `VACUUM INTO` inside the karakeep container,
+# through its own bundled better-sqlite3, writing karakeep/dump/db.db. restic takes
+# that dump and karakeep/data/assets, never the live db.db. queue.db (in-flight jobs)
+# and the meilisearch index are not backed up; Karakeep rebuilds the index.
+# To restore:
+#
+#   1. Stop Karakeep:
+#        docker compose stop karakeep
+#
+#   2. Put the dump and the assets back. Delete any leftover rollback journal first:
+#      SQLite would replay it onto the restored file.
+#        rm -f /zpool/catallenya/karakeep/data/db.db-journal
+#        cp ${RESTIC_RESTORE_TARGET}/zpool/catallenya/karakeep/dump/db.db \
+#           /zpool/catallenya/karakeep/data/db.db
+#        cp -a ${RESTIC_RESTORE_TARGET}/zpool/catallenya/karakeep/data/assets \
+#              /zpool/catallenya/karakeep/data/
+#
+#   3. Start it, then rebuild search from the admin panel (Reindex all bookmarks):
+#        docker compose up -d karakeep

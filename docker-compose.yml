@@ -197,6 +197,7 @@ services:
       HITOME_REVERSE_PROXY_PORT: ${HITOME_REVERSE_PROXY_PORT}
       AFTERIMAGE_REVERSE_PROXY_PORT: ${AFTERIMAGE_REVERSE_PROXY_PORT}
       PIGEONHOLE_REVERSE_PROXY_PORT: ${PIGEONHOLE_REVERSE_PROXY_PORT}
+      KARAKEEP_REVERSE_PROXY_PORT: ${KARAKEEP_REVERSE_PROXY_PORT}
       HITOME_DAV_B64: ${HITOME_DAV_B64}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
@@ -215,6 +216,7 @@ services:
       - 127.0.0.1:${HITOME_REVERSE_PROXY_PORT}:${HITOME_REVERSE_PROXY_PORT}
       - 127.0.0.1:${AFTERIMAGE_REVERSE_PROXY_PORT}:${AFTERIMAGE_REVERSE_PROXY_PORT}
       - 127.0.0.1:${PIGEONHOLE_REVERSE_PROXY_PORT}:${PIGEONHOLE_REVERSE_PROXY_PORT}
+      - 127.0.0.1:${KARAKEEP_REVERSE_PROXY_PORT}:${KARAKEEP_REVERSE_PROXY_PORT}
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/caddy/flags:/flags:ro
@@ -1109,6 +1111,107 @@ services:
       - flame.url=${CHANGEDETECTION_URL}
       - flame.icon=custom
       - com.centurylinklabs.watchtower.enable=true
+
+  karakeep:
+    container_name: karakeep
+    # 0.33.2, pinned by digest and OFF watchtower: Karakeep runs its database
+    # migration on every start (the image's s6 init-db-migration), the same reason
+    # archivebox is pinned. Bump in lockstep with karakeep-chrome, because Karakeep
+    # pairs each stable release with a browser image:
+    #   docker buildx imagetools inspect ghcr.io/karakeep-app/karakeep:<ver> --format '{{.Manifest.Digest}}'
+    image: ghcr.io/karakeep-app/karakeep@sha256:b069e4307dec06ea06d16989c6861c30a1ff208568be44ed5fb5d422cd3e950c
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # The image runs as root under s6-overlay (no USER), and cap_drop ALL leaves root
+    # unable to create db.db in the carrein-owned /data: the migration died with
+    # SQLITE_CANTOPEN. DAC_OVERRIDE alone restores that, the changedetection pattern
+    # minus what this image turned out not to need.
+    cap_add:
+      - DAC_OVERRIDE
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    volumes:
+      - ${KARAKEEP_VOLUME}/data:/data
+      - ${KARAKEEP_VOLUME}/dump:/dump
+    environment:
+      DATA_DIR: /data
+      MEILI_ADDR: http://karakeep-meilisearch:7700
+      MEILI_MASTER_KEY: ${KARAKEEP_MEILI_MASTER_KEY}
+      BROWSER_WEB_URL: http://karakeep-chrome:9222
+      NEXTAUTH_URL: https://${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}:${KARAKEEP_REVERSE_PROXY_PORT}
+      NEXTAUTH_SECRET: ${KARAKEEP_NEXTAUTH_SECRET}
+      # Set once the owner's account existed (the first account is the admin). The
+      # signup form and API then refuse new users; add people from the admin panel.
+      DISABLE_SIGNUPS: "true"
+      MAX_ASSET_SIZE_MB: "250"
+    # No healthcheck here: the image ships one (wget /api/health).
+
+  karakeep-chrome:
+    container_name: karakeep-chrome
+    # 151.0.7922.47-r1, pinned by digest. Bump only together with karakeep above.
+    # It holds no data, but a browser update that broke crawling would break it
+    # SILENTLY: Karakeep falls back to a plain HTTP fetch with no screenshot and
+    # only logs it. It reconnects on its own once Chrome answers again.
+    image: ghcr.io/karakeep-app/karakeep-chrome@sha256:5b19bbb160e9ff60681a3abd97e1c4ec9f64212301410de658c3900ab7ef31e7
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    command:
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --hide-scrollbars
+      - --disable-blink-features=AutomationControlled
+      - --window-size=1440,900
+    healthcheck:
+      # The image has bash but no curl or wget, so the probe speaks HTTP over bash's
+      # /dev/tcp. /json/version is the DevTools endpoint the crawler connects to.
+      # HTTP/1.1, not 1.0: Chrome answers 1.0 with nothing at all ("Cannot handle
+      # request with protocol: HTTP/1.0"). Connection: close is what lets grep see EOF.
+      test: ["CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/9222 && printf "GET /json/version HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3 && grep -q Browser <&3']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  karakeep-meilisearch:
+    container_name: karakeep-meilisearch
+    # v1.41.0, pinned by digest: Karakeep's docs advise against upgrading it, and its
+    # on-disk format breaks across versions. Not in restic: Karakeep rebuilds the
+    # index (admin -> Reindex all bookmarks).
+    image: getmeili/meilisearch@sha256:860fa4baed04ae1c235de870edab0c8006227546dea1bbb6411fbfc5e27cf1db
+    restart: unless-stopped
+    user: "1000:1000" # Same as archivebox_sonic: root + cap_drop ALL can't write the 1000-owned store.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    environment:
+      MEILI_MASTER_KEY: ${KARAKEEP_MEILI_MASTER_KEY}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - ${KARAKEEP_VOLUME}/meilisearch:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 secrets:
   cloudflared-secret:
