@@ -433,9 +433,25 @@ services:
     cap_add:
       # Minimal set for the entrypoint's `chown -R node /app/data`: CHOWN to change
       # ownership, DAC_OVERRIDE to traverse flame/data (drwxr--r--, owned by 1000 —
-      # cap_drop ALL removes root's usual bypass). SETUID/SETGID/FOWNER dropped
-      # 2026-09-05 and verified unnecessary: the image has zero setuid binaries and
-      # no gosu/su-exec, so nothing in it ever drops privilege.
+      # cap_drop ALL removes root's usual bypass). SETUID/SETGID dropped 2026-09-05
+      # and verified unnecessary: the image has zero setuid binaries and no
+      # gosu/su-exec, so nothing in it ever drops privilege.
+      #
+      # FOWNER was dropped in the same pass and described as unnecessary. That was
+      # WRONG, corrected 2026-09-06: saving custom CSS via the UI/API calls
+      # fs.copyFileSync(public/flame.css -> data/flame.css), which fchmods the
+      # destination. `chown -R node /app/data` (the CMD above) makes that file
+      # node-owned every boot, and root without FOWNER cannot fchmod a file it does
+      # not own -> EPERM, a 500, and the edit is lost on the next recreate.
+      # Deliberately still dropped: CSS is edited by writing
+      # flame/data/flame.css directly on the host instead, then
+      # `docker compose restart flame` -- flame serves its own copy in /app/public
+      # and refreshes it only at startup. Re-add FOWNER only if editing CSS in the
+      # browser matters more than the tighter cap set.
+      # Do NOT "fix" this by bind-mounting a file onto /app/public/flame.css --
+      # that startup copy (utils/init/createFile.js:15, reached from server.js:23
+      # via initApp) cannot write over a bind mount, so flame crash-loops on
+      # start. Tried and reverted 2026-09-06.
       - CHOWN
       - DAC_OVERRIDE
     deploy:
