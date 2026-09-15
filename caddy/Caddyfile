@@ -8,10 +8,33 @@
 	}
 }
 
+# Serve one of the blog's own pages under a different status code, for the
+# section toggles in the catallenya.com block. Args: page path, status.
+(blog_page) {
+	rewrite * {args[0]}
+	reverse_proxy carrein-blog:80 {
+		@ok status 200
+		handle_response @ok {
+			header Content-Type "text/html; charset=utf-8"
+			copy_response {args[1]}
+		}
+	}
+}
+
 # Public traffic enters here from cloudflared (TLS terminated upstream at CF edge).
 # Internal-bridge only — caddy:80 is not host-mapped. Path-split between blog and upvotes API.
 http://catallenya.com {
 	import security_headers
+
+	# Lets the section toggles below strip hidden sections from the nav. The blog
+	# wraps each nav link in <!--{{if not (fileExists "hide-<name>.on")}}--> ...
+	# <!--{{end}}-->, which is an inert HTML comment anywhere this doesn't run.
+	# Only text/html responses are buffered and parsed.
+	templates {
+		mime text/html
+		root /flags
+		between <!--{{ }}-->
+	}
 
 	@upvotes path /api/votes /api/votes/*
 	handle @upvotes {
@@ -40,6 +63,47 @@ http://catallenya.com {
 				copy_response 503
 			}
 		}
+	}
+
+	# Section toggles, same idea as maintenance: /flags/hide-<name>.on hides the
+	# blog section whose URL starts with /<name> (hide-music.on -> /music/*),
+	# re-checked per request, no reload. Hidden URLs get the blog's /404.html as a
+	# 404 and the templates block above drops the nav link. Writings is the home
+	# page, so hide-writings.on also covers /posts and /tagged, and "/" gets the
+	# blog's /home-redirect.html: a 302 to the first visible section (404 if none).
+	# Sections and their order live in the blog repo's site.config.js; adding one
+	# needs no change here.
+	@home_hidden {
+		path /
+		file {
+			root /flags
+			try_files hide-writings.on
+		}
+	}
+	handle @home_hidden {
+		import blog_page /home-redirect.html 302
+	}
+
+	@writings_hidden {
+		path /posts /posts/* /tagged /tagged/*
+		file {
+			root /flags
+			try_files hide-writings.on
+		}
+	}
+	handle @writings_hidden {
+		import blog_page /404.html 404
+	}
+
+	@section_hidden {
+		not path /image/* /assets/* /styles/*
+		file {
+			root /flags
+			try_files hide-{path.0}.on
+		}
+	}
+	handle @section_hidden {
+		import blog_page /404.html 404
 	}
 
 	handle {
