@@ -356,6 +356,9 @@ Kene [2/4]
 • Candlenut
 ```
 
+An online event adds its meeting link as one more fact, in full. Add writes it into the
+calendar as a link you can tap, and the notification is the only place to check it first.
+
 ---
 
 ## 4. The kinds

@@ -215,6 +215,7 @@ for rec in "${records[@]}"; do
         nudge_start="$(jq -r 'if .all_day then "" else (.start_time // "") end' "${rec}/proposal.json")"
         nudge_end="$(jq -r 'if .all_day then "" else (.end_time // "") end' "${rec}/proposal.json")"
         nudge_loc="$(jq -r '.location // ""' "${rec}/proposal.json")"
+        nudge_conf="$(jq -r '.conference // ""' "${rec}/proposal.json")"
         nudge_facts=()
         [[ -n "$nudge_date" ]] && nudge_facts+=("$(date -d "$nudge_date" '+%A, %-d %B %Y' 2>/dev/null || printf '%s' "$nudge_date")")
         if [[ "$(jq -r '.all_day' "${rec}/proposal.json")" == "true" ]]; then
@@ -223,6 +224,7 @@ for rec in "${records[@]}"; do
             [[ -n "$nudge_end" ]] && nudge_facts+=("${nudge_start} - ${nudge_end}") || nudge_facts+=("$nudge_start")
         fi
         [[ -n "$nudge_loc" ]] && nudge_facts+=("$nudge_loc")
+        [[ -n "$nudge_conf" ]] && nudge_facts+=("$nudge_conf")
         nudge_facts+=("Proposed ${age_h}h ago, no action yet")
         if base="$(capture_base_url)" && actions="$(record_actions "$base" "$id" "$rec")"; then
             # The nudge used to hardcode [Add] [Discard], which dropped the

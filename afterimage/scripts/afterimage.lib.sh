@@ -502,6 +502,11 @@ clean_proposal() {
       | .events = [ .events[]?
                     | .title       |= clean
                     | .location    |= clean
+                    # A link is kept WHOLE or dropped, never truncated or stripped
+                    # into a different link. Same pattern as render_ics.py, so the
+                    # link the notification shows is the one Add writes.
+                    | .conference  |= (if type == "string" and test("^https://[!-~]+$")
+                                         and length <= 500 then . else null end)
                     | .description |= clean
                     | .alternatives = [ .alternatives[]? | .location |= clean ] ]
     ' <<<"$1"
@@ -744,6 +749,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
           "timezone":    {"type": "string"},
           "recurrence":  {"type": "string", "enum": ["none","yearly","monthly","weekly","daily"]},
           "location":    {"type": ["string", "null"]},
+          "conference":  {"type": ["string", "null"]},
           "description": {"type": ["string", "null"]},
           "alternatives": {
             "type": "array",
@@ -761,7 +767,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
           }
         },
         "required": ["calendar","title","date","end_date","start_time","end_time","all_day",
-                     "timezone","recurrence","location","description","alternatives"]
+                     "timezone","recurrence","location","conference","description","alternatives"]
       }
     }
   },

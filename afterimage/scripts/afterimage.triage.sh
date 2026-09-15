@@ -77,7 +77,8 @@ Rules:
   The test is whether attending every one of them would be attending a single continuous thing. "Runs 29-30 August" -> yes, one event, date=2026-08-29 and end_date=2026-08-30, alternatives empty. "Tour poster shows two London dates, Mar 31 and Apr 1" -> no, those are two performances, so date=the first and the other goes in alternatives with end_date null.
   end_date is null for a single-day event, which is nearly all of them. Never set end_date equal to date, and never set it earlier than date.
 - title: short and human, no emoji prefix.
-- location: include the venue/address if shown, else null.
+- location: include the venue/address if shown, else null. A link is never a venue: an online meeting with no physical place has location=null.
+- conference: the link to JOIN an online meeting or call (Google Meet, Zoom, Microsoft Teams, Webex and the like), copied exactly as shown, starting with https://. null when there is none. Never a ticket page, an event page, a sign-up form or any other kind of link.
 - reason: why nothing was scheduled, when is_event=false or needs_human=true. It is READ ON A LOCK SCREEN, so write it the way everything else in this system writes prose: complete sentences, each ending in a full stop; no em-dashes and no dashes standing in for a join, use a comma or a second sentence; no rhetorical questions, state the possibility instead ("The date may be on another screen." not "Date missing?"); no Markdown, no bullets and no headings, since the text is inserted into a rendered notification as-is. Say what you actually saw and what specifically was missing — "No date is shown anywhere on the listing, only that reservations open on 1 August." beats "Insufficient information." Length is not the constraint; being vague is.
 - events_seen: how many DISTINCT events the image describes in total — different acts, sessions or dates, NOT the same event at two possible times. 1 for an ordinary screenshot. Return at most ${MAX_EVENTS_PER_CAPTURE} in events, the soonest after ${1} first, but set events_seen to the TRUE total so the user is told when there are more than were sent.
 - SAME THING vs DIFFERENT THING. Ask whether it is the same act, show, talk, screening or person appearing more than once. If it is, that is ONE entry in events, however many times or places it appears — the same band at 7pm and 8.15pm, the same show running Thursday and Friday, the same tour playing Kuala Lumpur on the 13th and Seoul on the 19th. All of those are one thing you would attend once, so the other ways to attend go in alternatives.
@@ -118,7 +119,7 @@ ask() {
 # exactly this event, so every callback path stays as simple as it was.
 notify_event() {
     local eid="$1" erec="$2" ev="$3" n="$4" of="$5" dropped="$6"
-    local title disp_title ev_date ev_end_date ev_start ev_end ev_loc all_day body
+    local title disp_title ev_date ev_end_date ev_start ev_end ev_loc ev_conf all_day body
     local has_alt=0 alt_json alt_date_chk today_local primary alt_label actions base
 
     title="$(jq -r '.title // "Untitled"' <<<"$ev")"
@@ -137,6 +138,7 @@ notify_event() {
     ev_start="$(jq -r '.start_time // ""' <<<"$ev")"
     ev_end="$(jq -r '.end_time // ""'    <<<"$ev")"
     ev_loc="$(jq -r '.location // ""'    <<<"$ev")"
+    ev_conf="$(jq -r '.conference // ""' <<<"$ev")"
     all_day="$(jq -r '.all_day'          <<<"$ev")"
 
     if [[ "$(jq -r '.alternatives | length' <<<"$ev")" -gt 0 ]]; then
@@ -212,6 +214,9 @@ notify_event() {
         facts+=("$ev_loc")
         [[ -n "$alt_loc_h" && "$alt_loc_h" != "$ev_loc" ]] && facts[-1]+="${ALT_SEP}${alt_loc_h}"
     fi
+    # The meeting link, IN FULL. Add writes it into the calendar as a link you can tap,
+    # and it came off a screenshot, so this is the one place to see it before it does.
+    [[ -n "$ev_conf" ]] && facts+=("$ev_conf")
     # The calendar name is NOT shown. It read "General" on almost everything,
     # which told the user nothing they had not already assumed, and the one case
     # it was informative for — a birthday — announces itself in the title. Routing

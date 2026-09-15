@@ -17,7 +17,7 @@ triage before it ever gets here.
 Event fields consumed (see afterimage.lib.sh for the schema):
   calendar, title, date (YYYY-MM-DD), end_date (YYYY-MM-DD|null),
   start_time (HH:MM|null), end_time (HH:MM|null), all_day, timezone (IANA),
-  recurrence (none|yearly|monthly|weekly|daily), location, description
+  recurrence (none|yearly|monthly|weekly|daily), location, conference, description
 
 end_date makes the event a SPAN — one thing running across days (a market open
 both days, a festival, a trip). It is NOT the same as two alternatives: those are
@@ -26,6 +26,7 @@ separate occasions the user picks one of, and they arrive as separate .ics files
 import argparse
 import datetime
 import json
+import re
 import sys
 from zoneinfo import ZoneInfo
 
@@ -153,6 +154,15 @@ def build(p, uid, now_iso, duration_min):
     lines.append("SUMMARY:" + esc(p.get("title", "Untitled")))
     if p.get("location"):
         lines.append("LOCATION:" + esc(p["location"]))
+    # The link to join an online call (RFC 7986). It was going into LOCATION, where
+    # nothing reads a link, because the model had no other field to put it in.
+    # A URI, so NOT esc()'d: escaping would put backslashes into the link. The pattern
+    # is what keeps it on one line instead — printable ASCII with no space, so no CR
+    # can start a property of its own. clean_proposal applies the same pattern first;
+    # this repeats it because the renderer is also run by hand and by the tests.
+    conf = p.get("conference")
+    if isinstance(conf, str) and re.fullmatch(r"https://[!-~]+", conf):
+        lines.append("CONFERENCE;VALUE=URI:" + conf)
     if p.get("description"):
         lines.append("DESCRIPTION:" + esc(p["description"]))
 

@@ -9,8 +9,8 @@ writes the approved ones to a private calendar server.
 
 - A screenshot uploaded from a laptop hotkey or a phone is triaged the moment it
   lands. Nothing is scheduled and nothing is polled.
-- A vision model extracts the event details: title, date, time, location, and any
-  alternative occasions the image offers.
+- A vision model extracts the event details: title, date, time, location, the link
+  to join an online meeting, and any alternative occasions the image offers.
 - One image can describe several events. Each becomes its own proposal with its
   own notification and its own decision, sharing the original screenshot.
 - Proposals arrive as a notification with Add and Discard buttons. Nothing

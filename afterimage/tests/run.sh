@@ -117,6 +117,27 @@ out="$(mut 'del(.is_event, .needs_human, .alternatives)' | render)"
 has "renders a bare event object" "$out" "DTSTART:20260726T050000Z"
 hasnt "no is_event complaint"     "$out" "not an event"
 
+# A meeting link goes in CONFERENCE. The model had no field for one and wrote
+# "Online (Google Meet): https://..." into location, where no calendar app looks for
+# a link, so no Join button ever appeared (capture ce4fe4ad, 2026-09-15).
+MEET="https://meet.google.com/svm-reve-grt"
+out="$(mut ".conference=\"${MEET}\"" | render)"
+has   "meeting link becomes CONFERENCE" "$out" "CONFERENCE;VALUE=URI:${MEET}"
+hasnt "and stays out of LOCATION"       "$out" "LOCATION:"
+# A URI is not TEXT: esc() would put a backslash in front of every comma in the link.
+out="$(mut '.conference="https://x.example/j/1?a=1,2;b"' | render)"
+has "link is not TEXT-escaped" "$out" 'CONFERENCE;VALUE=URI:https://x.example/j/1?a=1,2;b'
+out="$(mut '.conference=null' | render)"
+is "no link, no CONFERENCE" "$(grep -c '^CONFERENCE' <<<"$out")" "0"
+for c in "http://meet.google.com/abc" "javascript:alert(1)" "Google Meet" "https://x.example/a b"; do
+    out="$(jq -c --arg c "$c" '.conference=$c' <<<"$BASE" | render)"
+    is "renderer refuses link '${c}'" "$(grep -c '^CONFERENCE' <<<"$out")" "0"
+done
+# Not escaped means a CR would start a property of its own, so the pattern is the guard.
+out="$(jq -c --arg c "https://x.example${CR}BEGIN:VALARM" '.conference=$c' <<<"$BASE" | render)"
+hasnt "CR in a link cannot inject"  "$out" "${CR}BEGIN:VALARM"
+is    "and the link is dropped"     "$(grep -c '^CONFERENCE' <<<"$out")" "0"
+
 # ------------------------------------------------------------------- spans
 # end_date makes an event ONE thing running across days. Before it existed the
 # model had nowhere to put "Runs 29-30 August", so it put day two in
@@ -404,6 +425,16 @@ is  "with an alternative still works" "$rc" 0
 has  "and offers the other time"      "$out" "/ 20:15"
 hasnt "with no 'or' in the body"      "$out" " or "
 
+# The link came off a screenshot and Add makes it tappable, so it is shown first.
+ONLINE='{"calendar":"general","title":"Consultation","date":"'"$FUT1"'","start_time":"20:00",
+         "end_time":"20:15","all_day":false,"timezone":"Asia/Singapore","recurrence":"none",
+         "location":null,"conference":"https://meet.google.com/svm-reve-grt",
+         "description":null,"alternatives":[]}'
+out="$(ne_run "$ONLINE")"; rc=$?
+is    "online event does not abort"   "$rc" 0
+has   "body shows the meeting link"   "$out" "https://meet.google.com/svm-reve-grt"
+hasnt "no link line without a link"   "$(ne_run "$NOALT")" "meet.google.com"
+
 # The alt tap writes proposal.alt.json, and its end_time must be the OCCASION'S
 # own: the primary's end must never leak across (shipped once as a 23-hour
 # event), and an end the poster printed for that session must not be blanked
@@ -577,6 +608,18 @@ is "nulls stay null" "$(jq -r '[.events[0].location,.events[0].description]|map(
 out="$(clean_proposal "$(jq -cn --arg r "line1${CR}line2" '{reason:$r, events:[]}')")"
 hasnt "control chars stripped from reason" "$(jq -r .reason <<<"$out")" "$CR"
 
+# conference is a LINK, so it is kept whole or dropped. Stripping or truncating it the
+# way clean does to text would turn it into a different link.
+cf() { clean_proposal "$(jq -cn --arg c "$1" '{reason:null, events:[{title:"t", location:null,
+        conference:$c, description:null, alternatives:[]}]}')" | jq -r '.events[0].conference'; }
+is "meeting link kept"             "$(cf 'https://meet.google.com/svm-reve-grt')" "https://meet.google.com/svm-reve-grt"
+is "not https -> null"             "$(cf 'http://meet.google.com/abc')" "null"
+is "a label, not a link -> null"   "$(cf 'Google Meet')" "null"
+is "space inside -> null"          "$(cf 'https://meet.google.com/abc (Meet)')" "null"
+is "CR inside -> null, not stripped" "$(cf "https://x.example/a${CR}b")" "null"
+is "over 500 -> null, not cut"     "$(cf "https://x.example/$(printf 'a%.0s' {1..500})")" "null"
+is "missing key -> null"           "$(clean_proposal "$(ev t)" | jq -r '.events[0].conference')" "null"
+
 # ------------------------------------------------------------- prompt contract
 # These assert the SCHEMA and the prompt's rules, not the model's judgement — the
 # rules landed on 2026-07-27 after seven live captures exposed each gap, and a
@@ -590,6 +633,12 @@ hasnt "schema no longer asks for a button label" "$CAPTURE_SCHEMA" '"label"'
 # Saturday tap lost its 4am when alternatives could not carry one).
 is "alternatives carry their own end_time" \
    "$(jq -r '.properties.events.items.properties.alternatives.items | (.properties | has("end_time")) and (.required | index("end_time") != null)' <<<"$CAPTURE_SCHEMA")" \
+   "true"
+# A meeting link had nowhere to go but location (capture ce4fe4ad, 2026-09-15).
+# Alternatives do not carry one: an alternative keeps the primary's link, as it keeps
+# every field it does not override.
+is "events carry a required conference" \
+   "$(jq -r '.properties.events.items | (.properties | has("conference")) and (.required | index("conference") != null)' <<<"$CAPTURE_SCHEMA")" \
    "true"
 
 PROMPT="$(bash -c 'source "$1"; source_only=1
@@ -635,6 +684,10 @@ has "past check includes the time"   "$PROMPT" "ALREADY PAST"
 # asserted against the PROMPT. They are now properties of event_is_past and tested
 # directly above — a computed guarantee rather than a wording the model might read
 # differently. Deliberately not re-asserted here.
+
+# Both halves of the meeting-link fix: a link is not a venue, and it has its own field.
+has "a link is never a venue"        "$PROMPT" "A link is never a venue"
+has "meeting links go in conference" "$PROMPT" "conference: the link to JOIN"
 
 # Multi-event: pick the soonest and say how many there were.
 # Backticks in this prompt are command substitution — see the note on the heredoc.
