@@ -199,6 +199,7 @@ services:
       PIGEONHOLE_REVERSE_PROXY_PORT: ${PIGEONHOLE_REVERSE_PROXY_PORT}
       KARAKEEP_REVERSE_PROXY_PORT: ${KARAKEEP_REVERSE_PROXY_PORT}
       HITOME_DAV_B64: ${HITOME_DAV_B64}
+      SHARE_AUTH_HASH: ${SHARE_AUTH_HASH}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
       # userspace-tailscaled→127.0.0.1 forward, so loopback still serves the
@@ -1000,6 +1001,31 @@ services:
       start_period: 10s
     labels:
       - com.centurylinklabs.watchtower.enable=true
+
+  # Public read-only file share at share.catallenya.com (cloudflared -> Caddy,
+  # which holds the password). No port and no auth of its own: only Caddy's
+  # basic_auth stands in front of it. Pinned and not watchtower-labelled.
+  dufs:
+    container_name: dufs
+    image: sigoden/dufs:v0.46.0
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    # --assets: the Material theme with the fuwafuwa.akarin.dev maimai layer, copied
+    # from that site and kept UNTRACKED in dufs/assets (third-party art and code must
+    # not reach this public repo). Built for dufs v0.46.0 — re-check before bumping.
+    command: /share --assets /assets --allow-archive --allow-search
+    volumes:
+      - ${ZPOOL_VOLUME}/dufs/assets:/assets:ro
+      - ${ZPOOL_VOLUME}/syncthing/data/master/liquidroom:/share/stems:ro
 
   zipline_postgresql:
     container_name: zipline-postgres

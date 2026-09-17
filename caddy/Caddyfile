@@ -154,6 +154,22 @@ http://img.catallenya.com {
 	reverse_proxy immich-public-proxy:3000
 }
 
+# Public read-only file share behind the catallenya-tunnel (TLS at the CF edge).
+# One shared login; dufs has no auth of its own, so this block is the only lock.
+# The hash lives in .env (single-quoted — compose would expand its `$`s).
+http://share.catallenya.com {
+	import security_headers
+	basic_auth {
+		admin {$SHARE_AUTH_HASH}
+	}
+	# The zone has Rocket Loader on; it defers dufs's script past the DOMContentLoaded
+	# it waits for, and the listing renders blank. no-transform opts this site out.
+	header Cache-Control "no-cache, no-transform" {
+		defer
+	}
+	reverse_proxy dufs:5000
+}
+
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$FLAME_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy flame:5005
