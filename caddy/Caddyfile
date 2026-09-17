@@ -71,10 +71,11 @@ http://catallenya.com {
 	# 404 and the templates block above drops the nav link. Writings is the home
 	# page, so hide-writings.on also covers /posts and /tagged, and "/" gets the
 	# blog's /home-redirect.html: a 302 to the first visible section (404 if none).
+	# /index.html is the same page under its file name, so it is matched with "/".
 	# Sections and their order live in the blog repo's site.config.js; adding one
 	# needs no change here.
 	@home_hidden {
-		path /
+		path / /index.html
 		file {
 			root /flags
 			try_files hide-writings.on
@@ -95,15 +96,30 @@ http://catallenya.com {
 		import blog_page /404.html 404
 	}
 
-	@section_hidden {
+	# The section name comes from path_regexp, never {path.0}. {path.0} is split
+	# from the RAW path, so //gallery/ or /image/..%2fgallery/ looked up the wrong
+	# flag and nginx then tidied the path and served the hidden section anyway.
+	# path matchers clean the path before matching, so they see /gallery/.
+	# The flag check is nested one level down on purpose: matchers inside one set
+	# run in no fixed order, and a flat version read an empty {re.section.1} on
+	# 3 of 8 starts.
+	@section_path {
 		not path /image/* /assets/* /styles/*
-		file {
-			root /flags
-			try_files hide-{path.0}.on
-		}
+		path_regexp section ^/([^/]+)
 	}
-	handle @section_hidden {
-		import blog_page /404.html 404
+	handle @section_path {
+		@section_hidden {
+			file {
+				root /flags
+				try_files hide-{re.section.1}.on
+			}
+		}
+		handle @section_hidden {
+			import blog_page /404.html 404
+		}
+		handle {
+			reverse_proxy carrein-blog:80
+		}
 	}
 
 	handle {
