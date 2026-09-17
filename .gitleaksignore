@@ -1,3 +1,6 @@
+# REWRITTEN AGAIN ON 2026-09-17, to scrub the tailnet name and a mock AWS secret from
+# history; all three ids moved a second time, remapped from commit-map the same way.
+#
 # ALL THREE COMMIT IDS BELOW WERE REWRITTEN ON 2026-08-24 and are not the ones this
 # file carried before that date. The history was rewritten to purge personal data that
 # had been committed into the document pipeline's vocabulary (see pigeonhole/README.md
@@ -19,7 +22,8 @@
 # ("GITLEAKS TEST" comment in the commit; removed by the next commit, 38c0757).
 # The value is the literal string THISISAFANTASTICALLYFAKETESTKEYFOR... — not a secret.
 # Was 5fd0bfcf571dc74b4832c15d0cb65af696ba3cff before the 2026-08-24 rewrite.
-c7b5a3e26ddbeda15d9e523c4cda4ea64d199b3b:archivebox.Dockerfile:private-key:5
+# Was c7b5a3e26ddbeda15d9e523c4cda4ea64d199b3b before the 2026-09-17 rewrite.
+46558901315249458471eb7e54c2c7ae89830efd:archivebox.Dockerfile:private-key:5
 
 # False positive, 2026-07-27. A prose COMMENT in what is now afterimage.lib.sh,
 # explaining why the triage stopped sourcing the whole .env, happened to name two
@@ -43,7 +47,8 @@ c7b5a3e26ddbeda15d9e523c4cda4ea64d199b3b:archivebox.Dockerfile:private-key:5
 # find-and-replace rewrote this line that day, the fingerprint stopped matching, and
 # gitleaks failed CI on a finding that had been suppressed for three weeks.
 # Was ae6f3cd8036ee0947d276557a327e5e77bd5be9a before the 2026-08-24 rewrite.
-085cf59d6d7cacae75d6446a25415114430c1e3a:capture/scripts/capture.lib.sh:generic-api-key:230
+# Was 085cf59d6d7cacae75d6446a25415114430c1e3a before the 2026-09-17 rewrite.
+40392ec7295eb7c450ba35949ecb633aa0147387:capture/scripts/capture.lib.sh:generic-api-key:230
 
 # host/zed-functions.sh is VENDORED from /etc/zfs/zed.d/ and kept byte-close to
 # upstream so that a diff against .dpkg-dist stays readable after a zfs-zed upgrade.
@@ -52,4 +57,5 @@ c7b5a3e26ddbeda15d9e523c4cda4ea64d199b3b:archivebox.Dockerfile:private-key:5
 # alternative was deleting the unused notifiers, which would mean editing zed_notify()
 # too (it calls each one) and diverging much further from the file we have to diff.
 # Was b2f438953b98e112d6da0f34c9de40f5e3a9de21 before the 2026-08-24 rewrite.
-b1ec64cc19f3d3f3ea129b8f3da5dfa7961ef5fa:host/zed-functions.sh:curl-auth-user:403
+# Was b1ec64cc19f3d3f3ea129b8f3da5dfa7961ef5fa before the 2026-09-17 rewrite.
+611aca03c9d4c977c218aa917bf911752913a647:host/zed-functions.sh:curl-auth-user:403
