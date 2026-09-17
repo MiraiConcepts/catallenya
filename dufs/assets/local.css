@@ -1,0 +1,10 @@
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-Thin.woff2) format("woff2");font-weight:100;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-ExtraLight.woff2) format("woff2");font-weight:200;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-Light.woff2) format("woff2");font-weight:300;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-Regular.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-Medium.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-SemiBold.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Keiner";src:url(fonts/Keiner-Bold.woff2) format("woff2");font-weight:700;font-display:swap}
+:root{--v-font-body:"Keiner",sans-serif;--v-font-heading:"Keiner",sans-serif}
+/* The theme appends a "Powered by" credit to the footer in code; hide the footer. */
+.v-application__wrap > footer{display:none!important}
