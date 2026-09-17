@@ -23,7 +23,18 @@ scp catallenya:/zpool/catallenya/afterimage/client/afterimage.sh ~/.local/bin/ca
 chmod +x ~/.local/bin/capture
 ```
 
-**3. Bind a hotkey**
+**3. Tell it where the server is**
+
+```bash
+mkdir -p ~/.config/afterimage
+echo 'https://catallenya.<tailnet>.ts.net:10000/afterimage' > ~/.config/afterimage/url
+```
+
+The address is not in the script because this repo is public. `AFTERIMAGE_URL`
+overrides the file when set, but a hotkey does not see your shell's environment,
+so the file is what the hotkey uses. Without either, the script exits with an error.
+
+**4. Bind a hotkey**
 
 - **GNOME** — Settings → Keyboard → Custom Shortcuts → `~/.local/bin/capture`
 - **sway/Hyprland** — `bindsym $mod+Shift+c exec ~/.local/bin/capture`
@@ -31,7 +42,7 @@ chmod +x ~/.local/bin/capture
 - **macOS** — Automator "Quick Action" running the script, then assign a shortcut
   in System Settings → Keyboard Shortcuts → Services
 
-**4. Subscribe to the notifications**
+**5. Subscribe to the notifications**
 
 Open the ntfy app and subscribe to the **`afterimage`** topic on the tailnet server.
 Without this the pipeline works but you never see the proposals.

@@ -10,16 +10,21 @@
 # happens server-side, and the result arrives as an ntfy push.
 set -euo pipefail
 
-# The capture service on your tailnet. Port matches AFTERIMAGE_REVERSE_PROXY_PORT in
-# the server's .env; the host must be reachable over Tailscale.
+# The capture service on your tailnet: https://<host>.<tailnet>.ts.net:<port>/afterimage,
+# where <port> is AFTERIMAGE_REVERSE_PROXY_PORT in the server's .env.
 #
-# The literal default is a deliberate exception to the repo's no-hardcoded-hosts
-# rule, which exists so SERVER config comes from .env. This script runs on a
-# laptop, which cannot read the server's .env, so the host has to live somewhere —
-# and requiring an env var would leave the hotkey silently broken until it is set.
-# Override with AFTERIMAGE_URL if you run it from elsewhere. The name is not a secret:
-# .ts.net certificates are published in Certificate Transparency logs.
-AFTERIMAGE_URL="${AFTERIMAGE_URL:-https://catallenya.REDACTED.ts.net:10000/afterimage}"
+# There is no built-in default: the hostname names the tailnet, and this repo is
+# public. AFTERIMAGE_URL wins when set; otherwise the address comes from a one-line
+# file on this laptop. The file is what a hotkey uses — a hotkey launches the script
+# without your shell's environment, so an env var alone would leave it silently broken.
+url_file="${XDG_CONFIG_HOME:-$HOME/.config}/afterimage/url"
+if [[ -z "${AFTERIMAGE_URL:-}" && -r "$url_file" ]]; then
+    AFTERIMAGE_URL="$(head -n 1 "$url_file" | tr -d '[:space:]')"
+fi
+if [[ -z "${AFTERIMAGE_URL:-}" ]]; then
+    echo "capture: no server address — set AFTERIMAGE_URL or write it to $url_file" >&2
+    exit 1
+fi
 
 shot="$(mktemp --suffix=.png 2>/dev/null || mktemp -t capture)"
 # Whatever happens next, don't leave the screenshot lying around.
