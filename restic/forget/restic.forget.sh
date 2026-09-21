@@ -47,8 +47,14 @@ _repacked="$(first_match "$RESTIC_CAPTURE"  's/^to repack: +([0-9]+) packs$/\1/p
 # restic.staleness made when `--latest 1` returned the oldest group's newest and
 # called the repo 17186h stale. `remove` blocks are absent entirely on a run that
 # drops nothing, hence the +0.
-_kept="$(grep -oE '^keep [0-9]+ snapshots:$' "$RESTIC_CAPTURE" | awk '{s+=$2} END {print s+0}')"
-_removed="$(grep -oE '^remove [0-9]+ snapshots?:?$' "$RESTIC_CAPTURE" | awk '{s+=$2} END {print s+0}')"
+#
+# awk MATCHES as well as sums — never `grep … | awk`. grep exits 1 on no match,
+# pipefail carries that out of the substitution and set -e kills the job, so the +0
+# never ran: 2026-09-21 was the first run to remove nothing (the 09-14 and 09-17
+# target edits had left every live group under 5 dailies), restic succeeded, and
+# the receipt failed the unit.
+_kept="$(awk '/^keep [0-9]+ snapshots:$/ {s+=$2} END {print s+0}' "$RESTIC_CAPTURE")"
+_removed="$(awk '/^remove [0-9]+ snapshots?:?$/ {s+=$2} END {print s+0}' "$RESTIC_CAPTURE")"
 
 [[ -n "$_pruned"    ]] && fact "${_pruned} pruned"
 [[ -n "$_remaining" ]] && fact "${_remaining} remaining"
