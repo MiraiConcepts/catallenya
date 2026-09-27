@@ -821,18 +821,32 @@ services:
         limits:
           memory: 2G # Archiving spawns headless Chromium (singlefile/screenshot/pdf/dom); 256M OOM-killed mid-archive.
     shm_size: 1gb # Chrome uses /dev/shm heavily; the 64M default crashes the renderer on heavy pages.
+    # 0.9 listens on 5797 by default; binding 8000 keeps Caddy's upstream unchanged.
+    # `server` also runs the scheduler (daily maintenance lives in the DB, created
+    # once with `archivebox schedule --every=day`) and its own Sonic, so the old
+    # archivebox_scheduler and archivebox_sonic containers are gone.
+    command: server --init 0.0.0.0:8000
+    healthcheck:
+      # The image's own check hardcodes :5797, so it fails forever once we bind
+      # 8000 and host/containers.sh reports the container unhealthy. Same probe,
+      # our port; the interval/timeout/retries are left to the image.
+      test: ["CMD-SHELL", "curl --fail --silent --show-error --max-time 5 --connect-timeout 2 'http://admin.archivebox.localhost:8000/health/' | grep -q 'OK'"]
     volumes:
       - ${ARCHIVEBOX_VOLUME}:/data
     environment:
-      - ALLOWED_HOSTS=${TAILNET_DOMAIN}.${TAILNET_DNS_NAME}
+      # Replaces ALLOWED_HOSTS: 0.9 derives allowed hosts and CSRF origins from it,
+      # and rejects form POSTs on any other host.
+      - BASE_URL=${ARCHIVEBOX_URL}
       - PUBLIC_INDEX=False # Disable public listing.
-      - PUBLIC_SNAPSHOTS=False # Disable public snapshot access.
+      - PUBLIC_SNAPSHOTS=False # Disable public snapshot access (0.9 maps this to PERMISSIONS=private).
       - PUBLIC_ADD_VIEW=True # Enable anonymous link submissions.
-      - SEARCH_BACKEND_ENGINE=sonic # Search backend (uses Sonic container below).
-      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-      - SAVE_ARCHIVE_DOT_ORG=False # Don't submit to archive.org.
-      - MAX_MEDIA_SIZE=5000m # Allow up to 5 GB media (YouTube videos, etc.).
+      - SEARCH_BACKEND_ENGINE=sonic # Built-in Sonic; index lives in /data/sonic/store.
+      # 0.9 renamed both of these and silently ignores the old names. The old
+      # SAVE_ARCHIVE_DOT_ORG=False would have turned archive.org submission back on,
+      # and the old MAX_MEDIA_SIZE was a typo that never worked on 0.7 either (the
+      # real cap was the 750m default until 2026-09-27).
+      - ARCHIVEDOTORG_ENABLED=False # Don't submit to archive.org.
+      - YTDLP_MAX_SIZE=5000m # Allow up to 5 GB media (YouTube videos, etc.).
       - TIMEOUT=120 # Allow slow pages up to 120s.
       - CHECK_SSL_VALIDITY=False
     labels:
@@ -841,67 +855,6 @@ services:
       - flame.url=${ARCHIVEBOX_URL}
       - flame.icon=custom
     # No Watchtower pull as we use a local Dockerfile instead of a registry reference.
-
-  archivebox_scheduler:
-    container_name: archivebox_scheduler
-    image: archivebox/archivebox:latest
-    restart: unless-stopped
-    # NO no-new-privileges: `crontab` is setuid and archivebox_schedule.py calls
-    # CronTab(user=True) at startup. Under NNP that read fails with
-    #   OSError: Read crontab archivebox: crontabs/archivebox/: fopen: Permission denied
-    # and the container crash-loops. Tried and reverted 2026-08-10. The main
-    # archivebox service shares this image, so it is left unhardened too.
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - FOWNER
-      - DAC_OVERRIDE
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    command: schedule --foreground --update --every=day
-    volumes:
-      - ${ARCHIVEBOX_VOLUME}:/data
-    environment:
-      - SEARCH_BACKEND_ENGINE=sonic
-      - SEARCH_BACKEND_HOST_NAME=archivebox_sonic
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-      - TIMEOUT=120
-    secrets:
-      - sonic-secret
-    depends_on:
-      - archivebox
-      - archivebox_sonic
-    # No watchtower label: the main archivebox container is built from a local
-    # Dockerfile, so auto-updating the scheduler would let a newer ArchiveBox
-    # migrate the shared index.sqlite3 ahead of it. Pull a matching image when
-    # rebuilding archivebox instead.
-
-  archivebox_sonic:
-    container_name: archivebox_sonic
-    image: archivebox/sonic:latest
-    restart: unless-stopped
-    user: "1000:1000" # Match store ownership; root + cap_drop ALL (no DAC_OVERRIDE) can't write the 1000-owned KV dir.
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-    environment:
-      - SEARCH_BACKEND_PASSWORD=/run/secrets/sonic-secret
-    secrets:
-      - sonic-secret
-    volumes:
-      - ${SONIC_VOLUME}:/var/lib/sonic/store
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
 
   watchtower:
     container_name: watchtower
@@ -1165,7 +1118,7 @@ services:
     # index (admin -> Reindex all bookmarks).
     image: getmeili/meilisearch@sha256:860fa4baed04ae1c235de870edab0c8006227546dea1bbb6411fbfc5e27cf1db
     restart: unless-stopped
-    user: "1000:1000" # Same as archivebox_sonic: root + cap_drop ALL can't write the 1000-owned store.
+    user: "1000:1000" # root + cap_drop ALL (no DAC_OVERRIDE) can't write the 1000-owned store.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -1189,8 +1142,6 @@ services:
 secrets:
   cloudflared-secret:
     file: cloudflared/token.json
-  sonic-secret:
-    file: archivebox/password.txt
   postgres-secret:
     file: postgres/password.txt
   afterimage-dav-secret: # base64(carrein:<radicale app pw>) — same value as HITOME_DAV_B64
