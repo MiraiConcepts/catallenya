@@ -142,6 +142,44 @@ async function retractResolved(id: string): Promise<void> {
   await retract(id);
   setTimeout(() => { void retract(id); }, REDRAW_GRACE_MS);
 }
+
+// A tap is decided, not final: for CORRECT_WINDOW_S after an Add the owner can still
+// change their mind. The other variant swaps the event for its twin, and Discard takes
+// it back out of the calendar. Before this a second tap found no pending record and was
+// answered 404 — a tap that did nothing, on a notification that was still on screen
+// because the ntfy app repaints it after a tap (see retractResolved). The owner tapped
+// 18:00 for a 19:00 meeting and the correction was silently thrown away.
+//
+// This partly reverses the 2026-08-09 removal of undo, deliberately and only inside
+// the window: past it a resolved record answers exactly as it did, so the old rule
+// ("deleting the event in the calendar app") still holds for everything older.
+// The clock is decision.json's decided_at, which a swap restamps, so a swap can itself
+// be swapped back.
+const CORRECT_WINDOW_S = Number(process.env.CORRECT_WINDOW_S ?? 120);
+
+type Recent = { outcome: "add" | "add_alt"; dir: string; calendar?: string };
+
+async function recentAdd(id: string): Promise<Recent | null> {
+  const dir = spool("archive", id);
+  try {
+    const d = JSON.parse(await readFile(`${dir}/decision.json`, "utf8"));
+    if (d.outcome !== "add" && d.outcome !== "add_alt") return null;
+    if (Date.now() - Date.parse(d.decided_at) > CORRECT_WINDOW_S * 1000) return null;
+    const p = JSON.parse(await readFile(`${dir}/proposal.json`, "utf8"));
+    return { outcome: d.outcome, dir, calendar: p.calendar };
+  } catch {
+    return null; // not archived, no decision, or unreadable: nothing to correct
+  }
+}
+
+async function restamp(dir: string, outcome: string, note: string): Promise<void> {
+  const f = `${dir}/decision.json`;
+  const d = JSON.parse(await readFile(f, "utf8"));
+  await Bun.write(f, JSON.stringify({ ...d, outcome, note, decided_at: new Date().toISOString() }));
+}
+
+const itemUrl = (calendar: string | undefined, id: string) =>
+  `${RADICALE}/${DAV_USER}/${calendar === "birthday" ? CAL.birthday : CAL.general}/${id}.ics`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Full 8-byte signature, not just the first four: the trailing \r\n\x1a\n is what
 // makes it a PNG rather than any file that happens to start with those bytes.
@@ -225,6 +263,31 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
     // Only THIS branch may retract. The 409s below are pending records missing a
     // file, and the 502 leaves the record pending for a retry — in both the buttons
     // are still the way to act, and taking them away would strand the capture.
+    const prior = await recentAdd(id);
+    if (prior) {
+      const want = alt ? "add_alt" : "add";
+      if (prior.outcome === want) {
+        // Same button again: the event is already in the calendar as asked.
+        await retractResolved(id);
+        return json({ ok: true, status: "already" });
+      }
+      try {
+        const ics = await readFile(`${prior.dir}/${alt ? "event.alt.ics" : "event.ics"}`, "utf8");
+        // No If-None-Match: replacing the item is the point. Same href as the first
+        // Add, so this overwrites it rather than creating a second event.
+        const res = await fetch(itemUrl(prior.calendar, id), {
+          method: "PUT",
+          headers: { authorization: `Basic ${DAV_B64}`, "content-type": "text/calendar" },
+          body: ics,
+        });
+        if (res.status !== 201 && res.status !== 204) return json({ error: "caldav put failed", status: res.status }, 502);
+        await restamp(prior.dir, want, `swapped, caldav ${res.status}`);
+        await retractResolved(id);
+        return json({ ok: true, status: res.status, swapped: true });
+      } catch {
+        return json({ error: "no alternative on this record" }, 409);
+      }
+    }
     await retractResolved(id);
     return json({ error: "no pending record" }, 404);
   }
@@ -276,11 +339,10 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
 // example as an acceptance ("the model proposed this and I said no"), so the
 // record is archived with the verdict rather than deleted.
 //
-// Discard used to double as UNDO: on an already-added record it deleted the event
-// back out of Radicale and restamped the outcome as `undone`. That went with the
-// undo (2026-08-09) — Add now withdraws its own notification, taking the Discard
-// button with it, so nothing could reach that branch from a phone. The ordinary
-// undo for a wrong Add is deleting the event in the calendar app.
+// Discard doubles as UNDO again, but only inside CORRECT_WINDOW_S of an Add (see
+// recentAdd): it deletes the event back out of Radicale and restamps the outcome as
+// `undone`. Outside the window the 2026-08-09 rule stands — the ordinary undo for a
+// wrong Add is deleting the event in the calendar app.
 //
 // A drop on a record that is no longer pending answers 409, NOT {ok:true}. The
 // difference matters: answering ok while doing nothing is precisely the bug fixed
@@ -288,6 +350,21 @@ async function handleAdd(id: string, alt: boolean): Promise<Response> {
 // Removing undoAdd must not quietly reintroduce it.
 async function handleDrop(id: string): Promise<Response> {
   if (!existsSync(spool("pending", id))) {
+    const prior = await recentAdd(id);
+    if (prior) {
+      // Discard inside the correction window: take the event back out. A 404 from
+      // Radicale means it is already gone, which is the state the owner asked for.
+      const res = await fetch(itemUrl(prior.calendar, id), {
+        method: "DELETE",
+        headers: { authorization: `Basic ${DAV_B64}` },
+      });
+      if (res.status !== 200 && res.status !== 204 && res.status !== 404) {
+        return json({ error: "caldav delete failed", status: res.status }, 502);
+      }
+      await restamp(prior.dir, "undone", `caldav ${res.status}`);
+      await retractResolved(id);
+      return json({ ok: true, undone: true });
+    }
     // Resolved already, so the notification is a leftover: withdraw it. The 409 is
     // unchanged and still means "this tap did nothing" — answering ok here is the
     // 2026-07-27 bug, and clearing the message is not the same claim.

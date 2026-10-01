@@ -271,6 +271,7 @@ ntfy/.env
 !afterimage/client/afterimage.sh
 !afterimage/tests/
 !afterimage/tests/run.sh
+!afterimage/tests/correction.test.ts
 
 # Explicit includes inside the shared AI layer. Same per-file discipline as capture
 # above — no `**` globs, so a stray key or scratch file landing in ai/ stays untracked

@@ -1072,9 +1072,10 @@ is "sweep sets no clear=true"  "$(grep -c 'clear=true' "${SCRIPT_DIR}/afterimage
 srv="$(cat "${SELF_DIR}/../src/server.ts")"
 has "the container retracts on archive" "$srv" "await retract(id);"
 has "and addresses ntfy directly"       "$srv" 'method: "DELETE"'
-# undoAdd went with the undo (2026-08-09). What must NOT come back with its removal
-# is the 2026-07-27 bug underneath it: a drop on a record that is no longer pending
-# answering {ok:true} while doing nothing at all.
+# undoAdd went with the undo (2026-08-09) and the in-window correction is a different
+# code path (see "correction window" below). What must stay gone is the 2026-07-27
+# bug: a drop on a record that is no longer pending answering {ok:true} while doing
+# nothing at all.
 hasnt "undoAdd is gone"                 "$srv" "async function undoAdd"
 has   "and a resolved drop 409s"        "$srv" '"already resolved"'
 
@@ -1170,21 +1171,23 @@ paused_sync_reached() {
 is "the sweep ends by syncing the summary" "$(paused_sync_reached)" "would sync the paused summary"
 
 # ------------------------------------------------------- container integration
-# The undo path this section used to document is GONE (2026-08-09). Discard on an
-# already-added record used to delete the event back out of Radicale and restamp
-# the outcome as `undone`; Add now withdraws its own notification and takes the
-# Discard button with it, so nothing could reach that branch from a phone.
-#
-# What replaced it is asserted above where it can be: the container retracts on
-# archive, and a drop on a non-pending record answers 409 rather than {ok:true} —
-# that distinction is the 2026-07-27 bug (a tap reporting success while the event
-# stayed in the calendar), and removing undoAdd must not reintroduce it.
-#
-# Still not automated: the Add path itself writes to the live calendar, so it is
-# exercised by using the pipeline. The retract half WAS verified end to end on
-# 2026-08-09 — seed a pending record, publish a notification carrying
-# `X-Sequence-ID: <id>`, POST /capture/<id>/drop, and confirm both that the record
-# moved to archive/ and that a message_delete for that id appears on the topic.
+# The correction window (2026-10-01). Undo went on 2026-08-09, but a tap is not final
+# for CORRECT_WINDOW_S: the other variant swaps the event, Discard removes it, and past
+# the window a resolved record answers 404/409 exactly as before — a drop must never
+# answer {ok:true} while doing nothing (the 2026-07-27 bug). Those are BEHAVIOURS, so
+# they are run, not grepped: the real server.ts against a stub Radicale, inside the
+# afterimage image (bun is not on the host). Skipped, loudly, if docker or the image
+# is missing — a check that reports nothing because it never ran is a dropped alert.
+echo "correction window (runs the real server)"
+if docker image inspect catallenya-afterimage:latest >/dev/null 2>&1; then
+  cw="$(docker run --rm --network none -u 1000:1000 -v "${SELF_DIR}/../src:/app/src:ro" \
+        -v "${SELF_DIR}/correction.test.ts:/app/t.ts:ro" --tmpfs /tmp:uid=1000 \
+        --entrypoint bun catallenya-afterimage:latest run /app/t.ts 2>&1)"; cw_rc=$?
+  is "the correction-window cases all pass" "$cw_rc" "0"
+  [[ $cw_rc -eq 0 ]] || printf '%s\n' "$cw"
+else
+  bad "the correction-window cases ran" "docker + catallenya-afterimage image" "not available"
+fi
 
 # ------------------------------------------------- the sweep, actually RUN
 #
