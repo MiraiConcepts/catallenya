@@ -187,6 +187,13 @@ http://archive.catallenya.com {
 		Content-Security-Policy "sandbox"
 		defer
 	}
+	# The viewer page itself is revalidated on every visit, so a phone holding an
+	# old copy can't keep asking for an old viewer.js?v=; the script stays cached.
+	@viewerpage path /view/
+	header @viewerpage {
+		Cache-Control "no-cache"
+		defer
+	}
 	@viewer path /view /view/*
 	header @viewer {
 		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; media-src 'self' data: https:; connect-src 'self'; base-uri 'none'; form-action 'none'"
