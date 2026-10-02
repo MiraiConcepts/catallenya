@@ -13,8 +13,10 @@
 //   7. layout the copy lost by being saved at desktop width is put back for a
 //      phone (fixed-width tables, a hidden mobile art box, a crop-sized frame);
 //   8. what only works on the live site goes: comment threads, "read more"
-//      lists, app banners, save buttons, and email addresses Cloudflare hid
-//      behind a script are written back out.
+//      lists, app banners, save, share, sign-in and support buttons, and email
+//      addresses Cloudflare hid behind a script are written back out.
+// The copy lays out under the loading cover and is shown once it has loaded,
+// fonts included, so it never appears half-drawn.
 // Scripts, frames, plugins, inline handlers and javascript: links are stripped too.
 (async () => {
   const status = document.getElementById("status");
@@ -225,9 +227,25 @@
     ".duet--layout--rail", // The Verge: "Most popular" and the newsletter box beside the article
     ".duet--layout--article-recirc-color-container", // The Verge: "More in …"
     "#sticky-nav", // The Verge: a second nav bar that only slides in once you scroll
+    ".duet--article--share-buttons", "a.duet--article--comments-link", // The Verge
+    ".nav__right__profile", ".social-buttons", "section.zone--bottomRecirc", // HuffPost: support/log in, share and comment buttons, more stories
+    '[data-component="topbar"]', 'gu-island[name="ShareButton"]', // the Guardian: support pitch and sign-in bar, share buttons
+    'a[data-link-name="meta-syndication-article"]', 'gu-island[name="FooterReaderRevenueLinks"]',
     ".grecaptcha-badge",
   ];
   doc.querySelectorAll(furniture.join(",")).forEach((e) => e.remove());
+  // WIRED: "related stories" boxes set into the article text.
+  doc.querySelectorAll('[data-testid="SidebarEmbed"]').forEach((e) => {
+    const box = e.closest('[data-testid="GenericCallout"]');
+    e.remove();
+    if (box && !box.textContent.trim()) box.remove();
+  });
+  // The Verge: "Follow topics and authors" under the article.
+  doc.querySelectorAll("strong").forEach((e) => { if (/^Follow topics and authors/i.test(e.textContent.trim())) e.closest("div")?.remove(); });
+  // Account and comment controls on any site, matched by their whole label so
+  // an article's own words can't match: log in, subscribe, "106 comments"…
+  const dead = /^(log in|sign in|sign up|subscribe|support us|view comments|read less|\d+ comments?)$/i;
+  doc.querySelectorAll("a, button").forEach((e) => { if (dead.test(e.textContent.trim().replace(/\s+/g, " "))) e.remove(); });
   // An audio player whose player never loaded, which leaves an empty box.
   doc.querySelectorAll('[data-testid="cne-audio-embed-figure"]').forEach((e) => { if (!e.textContent.trim()) e.remove(); });
   // HuffPost's AMP page leaves "-- --" from an unfilled template after the footer.
@@ -303,5 +321,5 @@
 
   document.title = doc.title || "Archived copy";
   frame.srcdoc = "<!doctype html>" + doc.documentElement.outerHTML;
-  frame.addEventListener("load", () => { status.remove(); frame.style.display = "block"; }, { once: true });
+  frame.addEventListener("load", () => { status.remove(); frame.style.visibility = "visible"; }, { once: true });
 })();

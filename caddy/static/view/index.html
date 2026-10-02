@@ -7,13 +7,16 @@
 <title>Archived copy</title>
 <style>
   html, body { margin: 0; height: 100%; background: #fff; }
-  #status { font: 15px/1.5 system-ui, sans-serif; color: #2D383A; padding: 3rem 1rem; text-align: center; }
-  #page { display: none; border: 0; width: 100%; height: 100%; }
+  /* The copy lays out under this cover, not hidden away: a frame that isn't
+     rendered never asks for its fonts, so it used to appear in a fallback font
+     and reflow a moment later. The cover lifts once everything has loaded. */
+  #status { position: fixed; inset: 0; z-index: 1; margin: 0; background: #fff; font: 15px/1.5 system-ui, sans-serif; color: #2D383A; padding: 3rem 1rem; text-align: center; }
+  #page { display: block; visibility: hidden; border: 0; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
 <p id="status">Loading archived copy…</p>
 <iframe id="page" title="Archived copy" sandbox="allow-popups allow-popups-to-escape-sandbox"></iframe>
-<script src="viewer.js?v=10"></script>
+<script src="viewer.js?v=11"></script>
 </body>
 </html>
