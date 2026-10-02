@@ -25,6 +25,10 @@
   if (!/^[0-9a-fA-F-]{8,36}$/.test(id)) return fail("No archived copy here.");
   const base = `/snapshot/${id}`;
 
+  // Both files are fetched at once: one after the other, every copy waited two
+  // round trips through the tunnel before showing anything.
+  // ArchiveBox serves the index as immutable for a year; revalidate, since it can grow.
+  const indexed = fetch(`${base}/responses/index.jsonl`, { cache: "no-cache" }).then((r) => (r.ok ? r.text() : "")).catch(() => "");
   let html, index;
   try {
     // raw=1: without it ArchiveBox may serve a "preview" instead of the file. It
@@ -33,8 +37,7 @@
     const res = await fetch(`${base}/singlefile/singlefile.html?raw=1`);
     if (!res.ok) throw new Error(res.status);
     html = await res.text();
-    // ArchiveBox serves this as immutable for a year; revalidate, since it can grow.
-    index = await fetch(`${base}/responses/index.jsonl`, { cache: "no-cache" }).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+    index = await indexed;
   } catch {
     return fail("This archived copy isn't available.");
   }
