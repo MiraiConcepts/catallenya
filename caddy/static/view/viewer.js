@@ -6,11 +6,15 @@
 //      (or, failing that, their real address);
 //   2. pop-up layers (role="dialog", aria-modal, <dialog>) are removed;
 //   3. scrolling is unlocked;
-//   4. footers stay at the end instead of floating over the article;
+//   4. footers stay at the end and headers at the top, instead of floating over
+//      the article;
 //   5. a Wayback Machine link loses archive.org's toolbar and the gap it leaves;
 //   6. empty ad slots, which only reserve space for an ad that never loads, go;
 //   7. layout the copy lost by being saved at desktop width is put back for a
-//      phone (fixed-width tables, a hidden mobile art box, a crop-sized frame).
+//      phone (fixed-width tables, a hidden mobile art box, a crop-sized frame);
+//   8. what only works on the live site goes: comment threads, "read more"
+//      lists, app banners, save buttons, and email addresses Cloudflare hid
+//      behind a script are written back out.
 // Scripts, frames, plugins, inline handlers and javascript: links are stripped too.
 (async () => {
   const status = document.getElementById("status");
@@ -119,6 +123,28 @@
       }
     }
   }
+  // Any clip still without a source can't play. Chrome draws its own controls
+  // on a video when scripts are off, so it shows as a dead player: a still of
+  // its poster replaces it, and with no poster it goes. The Verge's inline clips
+  // repeat the picture placed just above each one, so those go whole.
+  for (const v of doc.querySelectorAll("video")) {
+    if (v.getAttribute("src") || v.querySelector("source")) continue;
+    const inline = v.closest("figure.vrg-video-inline");
+    const poster = v.getAttribute("poster");
+    if (inline) { inline.remove(); continue; }
+    if (!poster) { v.remove(); continue; }
+    const img = doc.createElement("img");
+    img.setAttribute("src", poster);
+    img.setAttribute("alt", v.getAttribute("aria-label") || "");
+    img.setAttribute("style", "display:block;width:100%;height:100%;object-fit:cover");
+    v.parentElement?.querySelectorAll("button").forEach((b) => b.remove());
+    v.replaceWith(img);
+  }
+  // The save left an "open the clip" link icon pinned to the corner of each
+  // video, pointing at the original file; with no player under it, it goes too.
+  for (const a of doc.querySelectorAll('a[href$=".mp4"], a[href$=".webm"]')) {
+    if (!a.textContent.trim() && /position:\s*absolute/.test(a.getAttribute("style") || "")) a.remove();
+  }
 
   // 2. Pop-up layers, then any wrapper they leave empty.
   // Popovers too: nothing can open one here, and a closed one is often parked
@@ -180,6 +206,50 @@
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   for (let n; (n = walker.nextNode());) if (n.nodeValue.includes(ssi)) n.nodeValue = n.nodeValue.replaceAll(ssi, "");
 
+  // 8. What only works on the live site. A reader of the copy can't log in,
+  // comment, save or subscribe, and what a site recommends next is whatever it
+  // was promoting the day the page was saved (WIRED: coupon codes).
+  const furniture = [
+    // cohost: the thread under the post, 166 replies long
+    '[data-testid^="post-"] > #comments', '[data-testid^="post-"] > #comments ~ *',
+    '[data-testid="promotion-banner"]', // WIRED: "the WIRED app is here", pinned to every screen
+    '[data-testid="action-bar-wrapper"]', // Condé Nast: save / comment buttons in the margin
+    '[data-testid="ContentFooterBottom"]', // Condé Nast: "Read more"
+    '[data-testid="LinkStack"]', // Condé Nast: "You might also like", newsletter and Google pitches
+    '[data-testid="sticky-hero-ad"]',
+    '[class*="ResponsiveCartoonCTAWrapper"]', // The New Yorker: copy-link and shop buttons under each cartoon
+    ".CommentingMainContent", // WIRED: "Join the discussion"
+    ".duet--layout--rail", // The Verge: "Most popular" and the newsletter box beside the article
+    ".duet--layout--article-recirc-color-container", // The Verge: "More in …"
+    "#sticky-nav", // The Verge: a second nav bar that only slides in once you scroll
+    ".grecaptcha-badge",
+  ];
+  doc.querySelectorAll(furniture.join(",")).forEach((e) => e.remove());
+  // An audio player whose player never loaded, which leaves an empty box.
+  doc.querySelectorAll('[data-testid="cne-audio-embed-figure"]').forEach((e) => { if (!e.textContent.trim()) e.remove(); });
+  // HuffPost's AMP page leaves "-- --" from an unfilled template after the footer.
+  for (const e of doc.body.children) if (e.tagName === "DIV" && e.textContent.trim() === "-- --") e.remove();
+  // Cloudflare hides email addresses until a script decodes them; without it the
+  // page reads "[email protected]". The address is XOR-ed with its first byte.
+  const unmask = (hex) => {
+    if (!/^(?:[0-9a-f]{2}){2,}$/i.test(hex)) return null;
+    const key = parseInt(hex.slice(0, 2), 16);
+    let s = "";
+    for (let i = 2; i < hex.length; i += 2) s += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+    return /^[^\s@<>"]+@[^\s@<>"]+$/.test(s) ? s : null;
+  };
+  for (const el of doc.querySelectorAll("[data-cfemail]")) {
+    const email = unmask(el.getAttribute("data-cfemail"));
+    if (!email) continue;
+    const a = el.closest("a");
+    if (a && /\/cdn-cgi\/l\/email-protection/.test(a.getAttribute("href") || "")) a.setAttribute("href", `mailto:${email}`);
+    el.replaceWith(doc.createTextNode(email));
+  }
+  for (const a of doc.querySelectorAll('a[href*="/cdn-cgi/l/email-protection#"]')) {
+    const email = unmask(a.getAttribute("href").split("#")[1] || "");
+    if (email) a.setAttribute("href", `mailto:${email}`);
+  }
+
   // Nothing that can run code survives.
   doc.querySelectorAll("script, noscript, iframe, frame, frameset, object, embed, applet, base, meta[http-equiv]").forEach((e) => e.remove());
   for (const el of doc.querySelectorAll("*")) {
@@ -188,16 +258,40 @@
     }
   }
 
-  // 3 + 4. Unlock scrolling, keep footers in place; links open in a new tab.
-  // The doubled :not(#_) outranks a page's own lock: the Guardian's consent banner
-  // pins the page with `.sp-message-open body { overflow: hidden !important }`.
-  // body stays visible, not auto: an auto body becomes its own scroll box and
-  // swallows the wheel on pages like WIRED's.
+  // A link written out as a bare address (footnotes, references) can't wrap,
+  // and one long enough pushes the whole page sideways on a phone. Only those
+  // may break anywhere; a menu's short links keep their words whole.
+  for (const a of doc.querySelectorAll("a")) {
+    const text = a.textContent.trim();
+    if (text.length > 30 && !/\s/.test(text)) a.setAttribute("style", `${a.getAttribute("style") || ""};overflow-wrap:anywhere`);
+  }
+
+  // 3 + 4. Unlock scrolling, keep footers and headers in place; links open in a
+  // new tab. The doubled :not(#_) outranks a page's own lock: the Guardian's
+  // consent banner pins the page with `.sp-message-open body { overflow: hidden
+  // !important }`. body stays visible, not auto: an auto body becomes its own
+  // scroll box and swallows the wheel on pages like WIRED's.
+  // A header pinned to the top (cohost, HuffPost, The New Yorker) sits over every
+  // screen of a copy that has nothing in it to use, so it scrolls away instead.
+  // The New Yorker's is empty below 1024px (its phone row was saved hidden), so
+  // there it goes rather than leave a blank band at the top.
+  // Text in <pre> that isn't code is an old page's email or letter (the $5000
+  // compression challenge): it wraps rather than running off a phone's edge.
+  // Code keeps its lines and scrolls inside its own box instead.
+  // Two nested quote blocks inset an old page's text 80px a side (Clovis Free
+  // Press), which leaves a phone a 214px column. The Verge's lead clip is 1100px
+  // wide but sits in the 600px text column, so on a wide screen it is moved left
+  // by the column's own 100px indent, over the art it animates.
   const style = doc.createElement("style");
   style.textContent = "html:not(#_):not(#_) { overflow: auto !important; height: auto !important; } html:not(#_):not(#_) body { overflow: visible !important; position: static !important; height: auto !important; }" +
     'footer, [class~="footer"], [class$="-footer"], [id~="footer"] { position: static !important; }' +
+    'header, [data-testid="PersistentTop"] { position: static !important; }' +
+    '@media (max-width: 1023px) { [data-testid="PersistentTop"] { display: none !important; } }' +
+    "pre { max-width: 100%; overflow-x: auto; } pre:not(:has(code)) { white-space: pre-wrap !important; overflow-wrap: anywhere; }" +
     '[data-testid="aspect-ratio-container"][style*="--viewer-crop"]::before { padding-top: var(--viewer-crop) !important; }' +
     "table[style*=table-layout] img { max-width: 100%; height: auto; }" +
+    "@media (max-width: 640px) { table[style*=table-layout] blockquote { margin-left: 0.75em; margin-right: 0.75em; } }" +
+    "@media (min-width: 1180px) { .duet--article--dangerously-set-cms-markup > .video-container { margin-left: -100px; } }" +
     (wayback ? "body { margin-top: 0 !important; }" : "");
   doc.head.append(style);
   const target = doc.createElement("base");
