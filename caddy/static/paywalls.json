@@ -1,9 +1,13 @@
 {
-  "about": "Domains whose links on the blog's /tidings/ page open the archived copy (archive.catallenya.com/view/) instead of the original, because they sit behind a (usually metered) paywall. Edit freely; the blog reads this at build time. A domain also covers its subdomains.",
-  "source": "Started as a copy of https://github.com/MostlyEmre/hn-anti-paywall/blob/main/paywalls.json (2026-10-01); cut the same day to the paywalled sites among the blog's own links, checked live: newyorker.com and wired.com are metered, theverge.com is declared paywalled (isAccessibleForFree: false).",
+  "about": "Domains whose links on the blog's /tidings/ page open the archived copy (archive.catallenya.com/view/) instead of the original: because they sit behind a (usually metered) paywall, or because the live page reads badly and the viewer's copy doesn't. Edit freely; the blog reads this at build time. A domain also covers its subdomains.",
+  "source": "Started as a copy of https://github.com/MostlyEmre/hn-anti-paywall/blob/main/paywalls.json (2026-10-01); cut the same day to the paywalled sites among the blog's own links, checked live: newyorker.com and wired.com are metered, theverge.com is declared paywalled (isAccessibleForFree: false). Added 2026-10-01 for how the live page reads, checked at phone and desktop width: huffpost.com (collapsed ad slots leave 15+ blank gaps, and the link was an AMP page), theguardian.com (a full-screen consent wall locks the page), patrickcraig.co.uk (no mobile layout: a phone shows it at 40%), jacquescorbytuech.com (a footnote URL pushes the page sideways on a phone).",
   "license": "MIT License Copyright (c) 2022 Emre - MIT License, see https://github.com/MostlyEmre/hn-anti-paywall/blob/main/LICENSE",
   "domains": [
+    "huffpost.com",
+    "jacquescorbytuech.com",
     "newyorker.com",
+    "patrickcraig.co.uk",
+    "theguardian.com",
     "theverge.com",
     "wired.com"
   ]
