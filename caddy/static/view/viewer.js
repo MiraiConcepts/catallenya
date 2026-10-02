@@ -8,7 +8,9 @@
 //   3. scrolling is unlocked;
 //   4. footers stay at the end instead of floating over the article;
 //   5. a Wayback Machine link loses archive.org's toolbar and the gap it leaves;
-//   6. empty ad slots, which only reserve space for an ad that never loads, go.
+//   6. empty ad slots, which only reserve space for an ad that never loads, go;
+//   7. layout the copy lost by being saved at desktop width is put back for a
+//      phone (fixed-width tables, a hidden mobile art box, a crop-sized frame).
 // Scripts, frames, plugins, inline handlers and javascript: links are stripped too.
 (async () => {
   const status = document.getElementById("status");
@@ -59,6 +61,13 @@
     img.setAttribute("src", local(url) || url);
     img.removeAttribute("srcset"); img.removeAttribute("sizes"); img.removeAttribute("loading");
     img.closest("picture")?.querySelectorAll("source").forEach((s) => s.remove());
+    // The picture's box was sized by CSS for the crop the page would have served
+    // at this width (WIRED: 3:4 on a phone), but the copy kept another (3:2), so
+    // the image sits in a box of the wrong shape with the rest left blank. When
+    // the address names its crop, the box follows it.
+    const crop = url.match(/\/(\d+):(\d+)\//);
+    const box = img.closest('[data-testid="aspect-ratio-container"]');
+    if (crop && box && +crop[1] && +crop[2]) box.style.setProperty("--viewer-crop", `${(crop[2] / crop[1]) * 100}%`);
   }
 
   // 1b. Hero clips: SingleFile saves a <video> with no source. When a page has
@@ -112,7 +121,9 @@
   }
 
   // 2. Pop-up layers, then any wrapper they leave empty.
-  for (const el of doc.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog')) {
+  // Popovers too: nothing can open one here, and a closed one is often parked
+  // off-screen, which made The Verge's page scroll sideways on a phone.
+  for (const el of doc.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog, [id^="popover-"]')) {
     let parent = el.parentElement;
     el.remove();
     for (let i = 0; i < 3 && parent && !parent.matches("body, main, article"); i++) {
@@ -148,6 +159,27 @@
     el.remove();
   }
 
+  // 7. SingleFile saves at desktop width, so what only a phone would see is
+  // marked sf-hidden (display:none for good) and anything sized for a desktop
+  // stays that size.
+  //  - The Verge's feature ledes: the square art box shown on a phone is hidden
+  //    and emptied, while the lead clip below is still pulled up by its height
+  //    and lands on the headline. Unhidden, the empty box holds the space again
+  //    and the page's own CSS still hides it on a wide screen.
+  doc.querySelectorAll(".duet--layout--entry-image .sf-hidden:empty").forEach((e) => e.classList.remove("sf-hidden"));
+  //  - Old fixed-width pages (Clovis Free Press: a 600px table) run off a phone's
+  //    edge mid-word. A pixel width becomes a ceiling instead of a size; fixed
+  //    layout is what lets the cells, and the images in them, shrink with it.
+  for (const el of doc.querySelectorAll("table[width]")) {
+    const w = el.getAttribute("width").trim();
+    if (/^\d+$/.test(w)) el.setAttribute("style", `${el.getAttribute("style") || ""};width:min(100%, ${w}px);table-layout:fixed`);
+  }
+  //  - A server-side include that failed when the page was saved left its error
+  //    text in the copy.
+  const ssi = "[an error occurred while processing this directive]";
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walker.nextNode());) if (n.nodeValue.includes(ssi)) n.nodeValue = n.nodeValue.replaceAll(ssi, "");
+
   // Nothing that can run code survives.
   doc.querySelectorAll("script, noscript, iframe, frame, frameset, object, embed, applet, base, meta[http-equiv]").forEach((e) => e.remove());
   for (const el of doc.querySelectorAll("*")) {
@@ -164,6 +196,8 @@
   const style = doc.createElement("style");
   style.textContent = "html:not(#_):not(#_) { overflow: auto !important; height: auto !important; } html:not(#_):not(#_) body { overflow: visible !important; position: static !important; height: auto !important; }" +
     'footer, [class~="footer"], [class$="-footer"], [id~="footer"] { position: static !important; }' +
+    '[data-testid="aspect-ratio-container"][style*="--viewer-crop"]::before { padding-top: var(--viewer-crop) !important; }' +
+    "table[style*=table-layout] img { max-width: 100%; height: auto; }" +
     (wayback ? "body { margin-top: 0 !important; }" : "");
   doc.head.append(style);
   const target = doc.createElement("base");
