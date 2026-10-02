@@ -41,6 +41,20 @@ http://catallenya.com {
 		reverse_proxy upvotes:8080
 	}
 
+	# The blog's /tidings/ list: one fixed, read-only ArchiveBox query. Caddy adds
+	# the key (ARCHIVEBOX_READING_KEY), so it never reaches the browser, and the
+	# rewrite drops any client query, so no other ArchiveBox endpoint is reachable.
+	@reading {
+		path /api/reading
+		method GET
+	}
+	handle @reading {
+		rewrite * /api/v1/core/snapshots?tag=shared&limit=500
+		reverse_proxy archivebox:8000 {
+			header_up X-ArchiveBox-API-Key {$ARCHIVEBOX_READING_KEY}
+		}
+	}
+
 	# Maintenance toggle: ON whenever /flags/maintenance.on exists (flag file is
 	# bind-mounted read-only at /flags, re-checked per request - touch/rm to flip,
 	# no reload needed). Page URLs get the blog's /maintenance.html as HTTP 503;
@@ -152,6 +166,54 @@ http://img.catallenya.com {
 		defer
 	}
 	reverse_proxy immich-public-proxy:3000
+}
+
+# Public archive for the blog's /tidings/ page, behind the catallenya-tunnel (TLS at
+# the CF edge). Two parts:
+#  - /snapshot/<id>/...: only the files the blog and the viewer need (SingleFile
+#    copy, Defuddle copy, preview image, meta tags, screenshot, response index and
+#    saved images). ArchiveBox still decides per snapshot: only Unlisted/Public open
+#    without login. Served with CSP sandbox, so nothing archived can run.
+#  - /paywalls.json: domains whose tidings links open the viewer (see below).
+#  - /view/?id=<id>: the viewer (caddy/static/view/), the one place a script runs:
+#    our own viewer.js, which fixes up a snapshot's SingleFile copy (lazy images,
+#    pop-ups, footers, Wayback toolbar) and shows it in a sandboxed frame that
+#    can't run any.
+# Admin, API, the add page and everything else 404. The headers sit deferred and
+# BEFORE the import for the same reason as the Karakeep block below.
+http://archive.catallenya.com {
+	@archived not path /view /view/*
+	header @archived {
+		Content-Security-Policy "sandbox"
+		defer
+	}
+	@viewer path /view /view/*
+	header @viewer {
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; media-src 'self' data: https:; connect-src 'self'; base-uri 'none'; form-action 'none'"
+		defer
+	}
+	import security_headers
+	redir /view /view/ 308
+	handle_path /view/* {
+		root * /srv/static/view
+		file_server
+	}
+	# Paywalled domains (caddy/static/paywalls.json): the blog build reads it, and
+	# links from these domains open /view/ instead of the original.
+	handle /paywalls.json {
+		root * /srv/static
+		file_server
+	}
+	@copy {
+		method GET HEAD
+		path_regexp ^/snapshot/[0-9a-fA-F-]{8,36}/((singlefile/)?singlefile\.html|seo/featured-image\.(jpg|png|webp)|seo/seo\.json|(screenshot/)?screenshot\.png|defuddle/content\.html|responses/index\.jsonl|responses/all/[^/]+\.(jpe?g|png|webp|gif|mp4|webm))$
+	}
+	handle @copy {
+		reverse_proxy archivebox:8000
+	}
+	handle {
+		respond 404
+	}
 }
 
 # Public read-only file share behind the catallenya-tunnel (TLS at the CF edge).

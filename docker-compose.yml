@@ -200,6 +200,7 @@ services:
       KARAKEEP_REVERSE_PROXY_PORT: ${KARAKEEP_REVERSE_PROXY_PORT}
       HITOME_DAV_B64: ${HITOME_DAV_B64}
       SHARE_AUTH_HASH: ${SHARE_AUTH_HASH}
+      ARCHIVEBOX_READING_KEY: ${ARCHIVEBOX_READING_KEY}
     ports:
       # All host publishes bound to 127.0.0.1: tailnet reaches caddy via the
       # userspace-tailscaled→127.0.0.1 forward, so loopback still serves the
@@ -221,6 +222,7 @@ services:
     volumes:
       - ${ZPOOL_VOLUME}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${ZPOOL_VOLUME}/caddy/flags:/flags:ro
+      - ${ZPOOL_VOLUME}/caddy/static:/srv/static:ro # Archive viewer for the blog's /tidings/ (archive.catallenya.com/view/).
       - ${ZPOOL_VOLUME}/tailscale/tmp:/var/run/tailscale:ro
       - caddy-data:/data # Persistent volume for certificates.
       - caddy-config:/config # Persistent volume for config cache.
@@ -838,7 +840,7 @@ services:
       # and rejects form POSTs on any other host.
       - BASE_URL=${ARCHIVEBOX_URL}
       - PUBLIC_INDEX=False # Disable public listing.
-      - PUBLIC_SNAPSHOTS=False # Disable public snapshot access (0.9 maps this to PERMISSIONS=private).
+      - PERMISSIONS=private # Default for new snapshots; share one by setting it to Unlisted (blog /tidings/).
       - PUBLIC_ADD_VIEW=True # Enable anonymous link submissions.
       - SEARCH_BACKEND_ENGINE=sonic # Built-in Sonic; index lives in /data/sonic/store.
       # 0.9 renamed both of these and silently ignores the old names. The old

@@ -98,6 +98,13 @@
 
 # Explicit includes inside caddy and cloudflared subfolders
 !caddy/Caddyfile
+# The archive viewer for the blog's /tidings/ (archive.catallenya.com/view/) and the
+# paywall list the blog build reads. Per-file: caddy/static is served as-is.
+!caddy/static/
+!caddy/static/view/
+!caddy/static/view/index.html
+!caddy/static/view/viewer.js
+!caddy/static/paywalls.json
 
 # watchtower's notification body. Per-file, never `!watchtower/**` — this repo is
 # public and watchtower/config.json beside it held a registry token until 2026-06-15.
