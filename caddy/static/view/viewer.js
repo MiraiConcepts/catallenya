@@ -21,7 +21,10 @@
 
   let html, index;
   try {
-    const res = await fetch(`${base}/singlefile/singlefile.html`);
+    // raw=1: without it ArchiveBox may serve a "preview" instead of the file. It
+    // reads SingleFile's tag-light HTML as Markdown and re-renders it, or injects
+    // a stylesheet that shrinks every unsized image to 12rem.
+    const res = await fetch(`${base}/singlefile/singlefile.html?raw=1`);
     if (!res.ok) throw new Error(res.status);
     html = await res.text();
     // ArchiveBox serves this as immutable for a year; revalidate, since it can grow.
