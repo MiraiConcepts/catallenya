@@ -12,9 +12,10 @@
 //   6. empty ad slots, which only reserve space for an ad that never loads, go;
 //   7. layout the copy lost by being saved at desktop width is put back for a
 //      phone (fixed-width tables, a hidden mobile art box, a crop-sized frame);
-//   8. what only works on the live site goes: comment threads, "read more"
-//      lists, app banners, save, share, sign-in and support buttons, and email
-//      addresses Cloudflare hid behind a script are written back out.
+//   8. controls that only work on the live site go (app banners, save, share,
+//      comment, sign-in and support buttons), while comment threads and
+//      related lists stay; email addresses Cloudflare hid behind a script are
+//      written back out.
 // The copy lays out under the loading cover and is shown once it has loaded,
 // fonts included, so it never appears half-drawn.
 // Scripts, frames, plugins, inline handlers and javascript: links are stripped too.
@@ -211,35 +212,24 @@
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   for (let n; (n = walker.nextNode());) if (n.nodeValue.includes(ssi)) n.nodeValue = n.nodeValue.replaceAll(ssi, "");
 
-  // 8. What only works on the live site. A reader of the copy can't log in,
-  // comment, save or subscribe, and what a site recommends next is whatever it
-  // was promoting the day the page was saved (WIRED: coupon codes).
+  // 8. What only works on the live site: a reader of the copy can't log in,
+  // comment, save, share or subscribe, so those controls go. What the page
+  // says around the article stays: a saved comment thread, and the related
+  // and "read more" lists, which show what the page sat among that day.
   const furniture = [
-    // cohost: the thread under the post, 166 replies long
-    '[data-testid^="post-"] > #comments', '[data-testid^="post-"] > #comments ~ *',
     '[data-testid="promotion-banner"]', // WIRED: "the WIRED app is here", pinned to every screen
     '[data-testid="action-bar-wrapper"]', // Condé Nast: save / comment buttons in the margin
-    '[data-testid="ContentFooterBottom"]', // Condé Nast: "Read more"
-    '[data-testid="LinkStack"]', // Condé Nast: "You might also like", newsletter and Google pitches
     '[data-testid="sticky-hero-ad"]',
     '[class*="ResponsiveCartoonCTAWrapper"]', // The New Yorker: copy-link and shop buttons under each cartoon
-    ".CommentingMainContent", // WIRED: "Join the discussion"
-    ".duet--layout--rail", // The Verge: "Most popular" and the newsletter box beside the article
-    ".duet--layout--article-recirc-color-container", // The Verge: "More in …"
+    ".CommentingMainContent", // WIRED: "Join the discussion", a button with no thread behind it
     "#sticky-nav", // The Verge: a second nav bar that only slides in once you scroll
     ".duet--article--share-buttons", "a.duet--article--comments-link", // The Verge
-    ".nav__right__profile", ".social-buttons", "section.zone--bottomRecirc", // HuffPost: support/log in, share and comment buttons, more stories
+    ".nav__right__profile", ".social-buttons", // HuffPost: support/log in, share and comment buttons
     '[data-component="topbar"]', 'gu-island[name="ShareButton"]', // the Guardian: support pitch and sign-in bar, share buttons
     'a[data-link-name="meta-syndication-article"]', 'gu-island[name="FooterReaderRevenueLinks"]',
     ".grecaptcha-badge",
   ];
   doc.querySelectorAll(furniture.join(",")).forEach((e) => e.remove());
-  // WIRED: "related stories" boxes set into the article text.
-  doc.querySelectorAll('[data-testid="SidebarEmbed"]').forEach((e) => {
-    const box = e.closest('[data-testid="GenericCallout"]');
-    e.remove();
-    if (box && !box.textContent.trim()) box.remove();
-  });
   // The Verge: "Follow topics and authors" under the article.
   doc.querySelectorAll("strong").forEach((e) => { if (/^Follow topics and authors/i.test(e.textContent.trim())) e.closest("div")?.remove(); });
   // Account and comment controls on any site, matched by their whole label so
