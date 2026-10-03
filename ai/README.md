@@ -7,8 +7,10 @@ inference is a shared reasoning platform for higher-order systems.
 inference is the single place in the system that talks to a language model,
 shared by every pipeline that needs one.
 
-- One library holds the model choice, the effort setting and the request shape,
-  so moving to a different model is a single edit for every consumer.
+- One library holds the model choice, the effort setting and the request shape.
+  The model is not pinned: each run picks the newest Opus the API lists, and
+  falls back to the last one that worked if that lookup fails or the new model
+  rejects the request.
 - Requests carry no tool definitions. Containment is a property of the endpoint
   rather than something the caller arranges.
 - Responses are classified into four verdicts: proceed, retry, pause and fail.

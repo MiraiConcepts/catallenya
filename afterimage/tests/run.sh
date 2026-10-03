@@ -857,8 +857,10 @@ write_context "${CTXD}/rec" "Monday 2026-07-27 21:50" "${CTXD}/shot.png" "PROMPT
 ctx="${CTXD}/rec/context.json"
 
 is "context.json is valid json" "$(jq -e . "$ctx" >/dev/null 2>&1 && echo yes)" "yes"
-is "records the model"          "$(jq -r .model "$ctx")"             "claude-opus-5"
-is "records the effort"         "$(jq -r .effort "$ctx")"            "high"
+# AI_MODEL, not a literal: the model is resolved per run now (ai_resolve_model),
+# and before that runs it holds AI_MODEL_DEFAULT.
+is "records the model"          "$(jq -r .model "$ctx")"             "$AI_MODEL"
+is "records the effort"         "$(jq -r .effort "$ctx")"            "$AI_EFFORT"
 is "records the local anchor"   "$(jq -r .captured_at_local "$ctx")" "Monday 2026-07-27 21:50"
 is "records the event tz"       "$(jq -r .event_tz "$ctx")"          "Asia/Singapore"
 is "stores the prompt in full"  "$(jq -r .prompt "$ctx")"            "PROMPT ONE"
@@ -879,7 +881,13 @@ is "usage folded in"        "$(jq -r .usage.input_tokens "${CTXD}/rec/context.js
 is "prompt survives merge"  "$(jq -r .prompt "${CTXD}/rec/context.json")"             "PROMPT TWO"
 # A malformed response must not destroy the context that is already there.
 add_usage "${CTXD}/rec" 'not json at all'
-is "bad response leaves context intact" "$(jq -r .model "${CTXD}/rec/context.json")" "claude-opus-5"
+is "bad response leaves context intact" "$(jq -r .model "${CTXD}/rec/context.json")" "$AI_MODEL"
+# After a fallback the reply names a different model than write_context recorded,
+# and the reply is the one that knows. A reply naming none leaves the record alone.
+add_usage "${CTXD}/rec" '{"model":"claude-opus-fallback","usage":{"input_tokens":1}}'
+is "the replying model wins"            "$(jq -r .model "${CTXD}/rec/context.json")" "claude-opus-fallback"
+add_usage "${CTXD}/rec" '{"usage":{"input_tokens":2}}'
+is "a reply with no model changes none" "$(jq -r .model "${CTXD}/rec/context.json")" "claude-opus-fallback"
 rm -rf "$CTXD"
 
 # ------------------------------------------------------------------ sweep args

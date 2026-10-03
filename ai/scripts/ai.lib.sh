@@ -44,13 +44,31 @@ declare -F log >/dev/null || log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M
 declare -F die >/dev/null || die() { log "FATAL: $*"; exit 1; }
 
 # Shared model configuration. Both pipelines converge on one call shape — a batch
-# of images, a prompt, a schema — so they run the same model at the same effort,
-# and a model bump is one edit here rather than a hunt through consumers. opus-5
-# won the 2026-07-24 capture bake-off (and a sonnet-5 replay over 36 archived
-# captures was rejected 2026-07-28); high effort because a misread document or a
-# wrong year costs a human round-trip that dwarfs the token delta.
-AI_MODEL="claude-opus-5"
+# of images, a prompt, a schema — so they run the same model at the same effort.
+#
+# THE MODEL IS RESOLVED, NOT PINNED (owner, 2026-10-03): every run asks the Models
+# API for the newest Opus and uses that, so a release is picked up and a retirement
+# cannot strand the pipelines on a dead name. Opus won the 2026-07-24 capture
+# bake-off over Sonnet, which is why the family is fixed while the version floats.
+# Effort stays high: a misread document or a wrong year costs a human round-trip
+# that dwarfs the token delta. (Briefly medium on 2026-10-03, reverted the same day.)
+#
+# What protects against a new model nobody has tested is ai_resolve_model() and
+# api_post() together, below: the lookup falls back to the last model that worked,
+# and a request the new model rejects is retried once on that model. AI_MODEL holds
+# the default until ai_resolve_model() runs, so a consumer that never calls it
+# still sends a valid request.
+AI_MODEL_DEFAULT="claude-opus-5-5"   # only when nothing is remembered AND the lookup fails
+AI_MODEL_FAMILY="claude-opus-"
+AI_MODEL="$AI_MODEL_DEFAULT"
 AI_EFFORT="high"
+# The last model that answered 200, and the last new model that was rejected. Both
+# under systemd/state/, which 10-base.conf makes writable for every job; dotfiles,
+# like .changedetection-watch-count, because no unit is named after them.
+AI_MODEL_STATE="${AI_MODEL_STATE:-/zpool/catallenya/systemd/state/.ai-model}"
+AI_MODEL_REJECTED_STATE="${AI_MODEL_REJECTED_STATE:-/zpool/catallenya/systemd/state/.ai-model-rejected}"
+# Overridable for the same reason as API_URL below.
+MODELS_URL="${MODELS_URL:-https://api.anthropic.com/v1/models?limit=1000}"
 
 # Transient API failure handling. In-process retries cover a rate limit or a brief
 # 5xx; anything longer (an auth outage, a provider incident) outlives the run and is
@@ -149,6 +167,104 @@ ai_build_request() {
     return "$rc"
 }
 
+# --- model selection --------------------------------------------------------
+
+# ai_known_model -> the last model that answered 200, or nothing.
+ai_known_model() {
+    local m
+    m="$(head -c 100 "$AI_MODEL_STATE" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$m" =~ ^[a-z0-9.-]+$ ]] && printf '%s' "$m"
+    return 0
+}
+
+# _ai_remember <file> <model> — atomic, so two triages finishing together cannot
+# leave a half-written name for the next run to send.
+_ai_remember() {
+    local tmp
+    tmp="$(mktemp "${1}.XXXXXX" 2>/dev/null)" || return 0
+    printf '%s\n' "$2" > "$tmp" && mv -f "$tmp" "$1" || rm -f "$tmp"
+}
+
+# ai_resolve_model — set AI_MODEL to the newest Opus. Call it ONCE per run, in the
+# consumer's own shell and before the first request; ask() runs in a $(...)
+# subshell, so a value set in there would be thrown away after one item. Guarded,
+# so calling it per item costs nothing after the first.
+#
+# Called lazily, before the first item, rather than at source time: a run with
+# nothing to do should not spend a request, and the sweeps source this file with no
+# API key at all.
+#
+# NEWEST MEANS created_at, NOT LIST ORDER. The order of /v1/models is not something
+# this file should depend on. Candidates must also SAY they take images, AI_EFFORT
+# and a JSON schema, because those are the three things every request here
+# uses; a model missing one would fail every item. A model whose capabilities are
+# absent is skipped rather than assumed.
+#
+# Every failure falls back, never dies: the last model that worked, then the default.
+ai_resolve_model() {
+    [[ -n "${_AI_MODEL_RESOLVED:-}" ]] && return 0
+    _AI_MODEL_RESOLVED=1
+    local fallback out newest
+    fallback="$(ai_known_model)"; fallback="${fallback:-$AI_MODEL_DEFAULT}"
+
+    out="$(curl -fsS -K - --max-time 30 2>/dev/null <<CURLRC
+url = "${MODELS_URL}"
+header = "x-api-key: ${ANTHROPIC_API_KEY:-}"
+header = "anthropic-version: 2023-06-01"
+CURLRC
+)" || out=""
+    newest="$(jq -r --arg fam "$AI_MODEL_FAMILY" --arg eff "$AI_EFFORT" '
+        [.data[]?
+         | select((.id // "") | startswith($fam))
+         | select(.capabilities.image_input.supported == true
+                  and .capabilities.effort[$eff].supported == true
+                  and .capabilities.structured_outputs.supported == true)]
+        | sort_by(.created_at) | last | .id // empty' <<<"$out" 2>/dev/null)"
+
+    if [[ "$newest" =~ ^[a-z0-9.-]+$ ]]; then
+        AI_MODEL="$newest"
+        log "  model: ${AI_MODEL} (newest ${AI_MODEL_FAMILY}*)"
+    else
+        AI_MODEL="$fallback"
+        log "  model: ${AI_MODEL} (lookup failed — using the last model that worked)"
+    fi
+}
+
+# _ai_model_answered <model> — called on every 200. Remembers the model and, when
+# it differs from the one remembered before, says so ONCE on the caller's topic.
+# A receipt, not a fault: nothing is wrong and nothing is owed. An empty memory is a
+# first run and is recorded silently — there is nothing to compare against.
+#
+# Runs inside ask()'s subshell; that is fine because the file is the memory.
+# Output goes to stderr only: the caller captures stdout as the model's answer.
+_ai_model_answered() {
+    local model="$1" was
+    was="$(ai_known_model)"
+    [[ "$was" == "$model" ]] && return 0
+    _ai_remember "$AI_MODEL_STATE" "$model"
+    [[ -n "$was" ]] || return 0
+    log "  model changed: ${was} -> ${model}"
+    declare -F notify_receipt >/dev/null || return 0
+    notify_receipt "$(title_state Model Changed)" \
+        "$(body_fact "Now ${model}" "Was ${was}")" >&2
+}
+
+# _ai_model_rejected <rejected> <used> — the newest model refused a request the
+# last-known-good model then accepted, which proves the request was fine and the
+# MODEL was the problem: almost certainly a format change the new model needs.
+# Notified once per rejected model, not once per item; the fallback keeps working
+# meanwhile, and the new model is tried again every run so a fix takes effect alone.
+_ai_model_rejected() {
+    local rejected="$1" used="$2" was
+    was="$(head -c 100 "$AI_MODEL_REJECTED_STATE" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$was" == "$rejected" ]] && return 0
+    _ai_remember "$AI_MODEL_REJECTED_STATE" "$rejected"
+    declare -F notify_fault >/dev/null || return 0
+    notify_fault "$(title_state "$rejected" Rejected)" \
+        "$(body_join "$(body_fact "Using ${used} instead")" \
+            "The new model refused a request the old one accepted, so the request format in the shared AI layer probably needs updating for it.")" >&2
+}
+
 # --- transport -------------------------------------------------------------
 
 # api_class <http-status> [response-body] -> ok | retry | paused | fatal
@@ -216,6 +332,42 @@ api_class() {
 # API key — and a caller that treats both as terminal destroys the input on a single
 # blip. The status code is what decides whether to retry.
 api_post() {
+    local msgf="$1" rc=0 out model known fb
+    out="$(_api_post_once "$msgf")" || rc=$?
+    model="$(jq -r '.model // empty' "$msgf" 2>/dev/null)"
+    if (( rc == 0 )); then
+        [[ -n "$model" ]] && _ai_model_answered "$model"
+        printf '%s' "$out"
+        return 0
+    fi
+
+    # THE FALLBACK. Only on a fatal (rc 1): a parked request is not the model's
+    # fault, and swapping models would not unpark it. Only when the model sent is
+    # not already the last one that worked, so a request that is bad on its own
+    # fails exactly as before, after one extra 400 that bills no tokens.
+    known="$(ai_known_model)"
+    if (( rc == 1 )) && [[ -n "$model" && -n "$known" && "$model" != "$known" ]]; then
+        log "  ${model} rejected the request — retrying once on ${known}"
+        fb="$(mktemp)"
+        if jq -c --arg m "$known" '.model = $m' "$msgf" > "$fb" 2>/dev/null; then
+            rc=0
+            out="$(_api_post_once "$fb")" || rc=$?
+            if (( rc == 0 )); then
+                _ai_model_rejected "$model" "$known"
+                _ai_model_answered "$known"
+                rm -f "$fb"
+                printf '%s' "$out"
+                return 0
+            fi
+        fi
+        rm -f "$fb"
+    fi
+    return "$rc"
+}
+
+# _api_post_once <request-body-file> — one request with in-run retries, no fallback.
+# Same contract as api_post above, which is the only caller.
+_api_post_once() {
     local msgf="$1" out code body attempt=0 delay
     while :; do
         attempt=$((attempt + 1))

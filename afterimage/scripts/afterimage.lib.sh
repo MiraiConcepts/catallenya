@@ -655,12 +655,18 @@ write_context() {
 # add_usage <record-dir> <api-response>
 # Fold the API's token counts into context.json once the call has returned. This is
 # what answers "would a cheaper model do" without re-running anything.
+#
+# The model the RESPONSE names overwrites the one write_context recorded: if the
+# newest model rejected the request, api_post retried on the last one that worked,
+# and only the reply knows which of the two answered.
 add_usage() {
     local rec="$1" resp="$2" tmp
     [[ -f "${rec}/context.json" ]] || return 0
     tmp="$(mktemp)"
     if jq --argjson usage "$(jq -c '.usage // {}' <<<"$resp" 2>/dev/null || echo '{}')" \
-          '. + {usage:$usage}' "${rec}/context.json" > "$tmp" 2>/dev/null; then
+          --arg model "$(jq -r '.model // empty' <<<"$resp" 2>/dev/null)" \
+          '. + {usage:$usage} + (if $model != "" then {model:$model} else {} end)' \
+          "${rec}/context.json" > "$tmp" 2>/dev/null; then
         mv -f "$tmp" "${rec}/context.json"
     else
         rm -f "$tmp"

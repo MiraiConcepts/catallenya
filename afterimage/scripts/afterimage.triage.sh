@@ -364,6 +364,9 @@ for png in "${pngs[@]}"; do
         continue
     fi
     png="${rec}/screenshot.${ext}"
+    # Before write_context, so the record names the model actually asked. Once per
+    # run (guarded), in this shell rather than inside ask()'s subshell.
+    ai_resolve_model
     # Context is written before the call, so a record is attributable even when
     # the API never answers.
     write_context "$rec" "$now_h" "$png" "$(triage_prompt "$now_h")"

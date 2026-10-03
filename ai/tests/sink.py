@@ -14,9 +14,17 @@ reports "sink", which is what every pre-existing case expects.
 Serves every consumer of ai.lib.sh, not just capture: point API_URL at it and the
 same loop that drives a screenshot triage drives a document classification.
 
+Two environment variables cover model selection (ai_resolve_model and api_post's
+fallback), both optional and both inert when unset:
+  SINK_MODELS        JSON body served for GET (the /v1/models listing)
+  SINK_REJECT_MODEL  a POST naming this model gets a 400 that consumes no scripted
+                     code, as a real model that dislikes the request format would
+A 200 echoes the request's model back in "model", as the real API does.
+
 Prints the listening port on stdout, then serves until killed.
 """
 import json
+import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -49,21 +57,46 @@ DEFAULT = {
 PAYLOADS = [json.loads(a) for a in sys.argv[2:]] or [DEFAULT]
 
 
-def ok_body(i):
+def ok_body(i, model):
     p = PAYLOADS[i] if i < len(PAYLOADS) else PAYLOADS[-1]
     return json.dumps({
+        "model": model,
         "stop_reason": "end_turn",
         "content": [{"type": "text", "text": json.dumps(p)}],
     }).encode()
 
 
 class H(BaseHTTPRequestHandler):
+    def reply(self, code, body):
+        self.send_response(code)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        listing = os.environ.get("SINK_MODELS")
+        if listing is None:
+            self.reply(404, b'{"type":"error","error":{"type":"not_found_error"}}')
+        else:
+            self.reply(200, listing.encode())
+
     def do_POST(self):
+        raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+        try:
+            model = json.loads(raw or b"{}").get("model", "")
+        except ValueError:
+            model = ""
+        if model and model == os.environ.get("SINK_REJECT_MODEL"):
+            self.reply(400, json.dumps({"type": "error", "error": {
+                "type": "invalid_request_error",
+                "message": f"{model} does not accept this request"}}).encode())
+            return
         with LOCK:
             i = STATE["n"]
             STATE["n"] += 1
         code, etype = CODES[i] if i < len(CODES) else CODES[-1]
-        body = ok_body(i) if code == 200 else json.dumps(
+        body = ok_body(i, model) if code == 200 else json.dumps(
             {"type": "error", "error": {"type": etype, "message": f"forced {code}"}}
         ).encode()
         self.send_response(code)

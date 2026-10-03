@@ -497,6 +497,19 @@ service that exemplifies it.
 
 Every title the system can emit.
 
+### model selection — on whichever intake topic ran (`ai/scripts/ai.lib.sh`)
+
+The model is resolved per run (2026-10-03): the newest Opus from the Models API,
+falling back to the last model that answered. Two notices come out of that, both
+**once per model** rather than per item, and both on the topic of whichever pipeline
+happened to make the call, since the state they compare is shared. Built with
+`title_state`, so no verb is declared for them.
+
+| When | Kind | Title |
+|---|---|---|
+| a different model answered than last time | receipt | `Model: Changed` |
+| the newest model refused a request the last-working one then accepted | fault | `claude-opus-6: Rejected` |
+
 ### afterimage — topic `afterimage`
 
 | When | Title |

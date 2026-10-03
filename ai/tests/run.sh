@@ -257,6 +257,121 @@ is "body does not disturb a retryable code" \
 is "body does not disturb a success"        \
    "$(api_class 200 '{"stop_reason":"end_turn"}')" "ok"
 
+# ------------------------------------------------------------ model selection
+# The model is resolved per run (owner, 2026-10-03): newest Opus by created_at,
+# falling back to the last model that answered. Every case here drives the REAL
+# ai_resolve_model / api_post against the sink, with the state files in scratch —
+# the defaults point at systemd/state/, which a test must never write.
+echo "model selection"
+
+AI_MODEL_STATE="${TMP}/ai-model"
+AI_MODEL_REJECTED_STATE="${TMP}/ai-model-rejected"
+
+# The real kinds, so the titles and bodies are the ones the phone would get, with
+# notify() replaced by a recorder. Defined after sourcing, so ours wins.
+# shellcheck source=../../ntfy/ntfy.lib.sh
+source "${SELF_DIR}/../../ntfy/ntfy.lib.sh"
+NOTES="${TMP}/notes"
+notify() { printf '%s|%s\n' "$1" "$(tr '\n' ' ' <<<"$2")" >> "$NOTES"; }
+
+# A listing shaped like /v1/models: deliberately NOT in created_at order, plus a
+# newer non-Opus and a newer Opus that cannot take images — neither may be chosen.
+cap() { # $1 images $2 AI_EFFORT $3 schema
+    printf '{"image_input":{"supported":%s},"effort":{"%s":{"supported":%s}},"structured_outputs":{"supported":%s}}' "$1" "$AI_EFFORT" "$2" "$3"
+}
+MODELS="$(jq -nc --argjson y "$(cap true true true)" --argjson noimg "$(cap false true true)" '{data:[
+  {id:"claude-opus-5",      created_at:"2026-05-01T00:00:00Z", capabilities:$y},
+  {id:"claude-opus-5-5",    created_at:"2026-08-01T00:00:00Z", capabilities:$y},
+  {id:"claude-opus-4-8",    created_at:"2026-02-01T00:00:00Z", capabilities:$y},
+  {id:"claude-sonnet-9",    created_at:"2027-01-01T00:00:00Z", capabilities:$y},
+  {id:"claude-opus-text",   created_at:"2027-02-01T00:00:00Z", capabilities:$noimg},
+  {id:"claude-opus-nocaps", created_at:"2027-03-01T00:00:00Z"}]}')"
+
+start_sink() { # $1 = codes; SINK_* come from the caller's environment
+    : > "${TMP}/port"
+    python3 "${SELF_DIR}/sink.py" "$1" > "${TMP}/port" &
+    SINK_PID=$!
+    for _ in $(seq 20); do [[ -s "${TMP}/port" ]] && break; sleep 0.2; done
+    SINK_URL="http://127.0.0.1:$(cat "${TMP}/port")/"
+}
+stop_sink() { kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null; SINK_PID=""; }
+
+resolve() { # -> the model chosen; resets the once-per-run guard
+    unset _AI_MODEL_RESOLVED
+    AI_MODEL="$AI_MODEL_DEFAULT"
+    MODELS_URL="$SINK_URL" ai_resolve_model 2>/dev/null
+    printf '%s' "$AI_MODEL"
+}
+
+SINK_MODELS="$MODELS" start_sink 200
+is "picks the newest capable Opus by created_at" "$(resolve)" "claude-opus-5-5"
+_AI_MODEL_RESOLVED=1; AI_MODEL="sentinel"; MODELS_URL="$SINK_URL" ai_resolve_model 2>/dev/null
+is "resolves once per run"                       "$AI_MODEL" "sentinel"
+stop_sink
+
+start_sink 200   # no SINK_MODELS: the listing answers 404
+rm -f "$AI_MODEL_STATE"
+is "lookup failed, nothing remembered -> default" "$(resolve)" "$AI_MODEL_DEFAULT"
+echo "claude-opus-remembered" > "$AI_MODEL_STATE"
+is "lookup failed -> the last model that worked"  "$(resolve)" "claude-opus-remembered"
+stop_sink
+SINK_MODELS='{"data":[]}' start_sink 200
+is "no candidate at all -> remembered, not empty"  "$(resolve)" "claude-opus-remembered"
+stop_sink
+echo 'bad name; rm -rf /' > "$AI_MODEL_STATE"
+unset _AI_MODEL_RESOLVED; MODELS_URL="http://127.0.0.1:9/" ai_resolve_model 2>/dev/null
+is "a corrupt memory is ignored, never sent"       "$AI_MODEL" "$AI_MODEL_DEFAULT"
+
+post_model() { # $1 model $2 codes, SINK_REJECT_MODEL from env -> "<rc>|<answering model>"
+    local rc=0 out
+    start_sink "$2"
+    jq -nc --arg m "$1" '{model:$m}' > "${TMP}/m.json"
+    out="$(API_URL="$SINK_URL" api_post "${TMP}/m.json" 2>"${TMP}/err")" || rc=$?
+    stop_sink
+    printf '%s|%s' "$rc" "$(jq -r '.model // ""' <<<"$out" 2>/dev/null)"
+}
+
+# First success with nothing remembered: recorded, and silent — nothing to compare.
+rm -f "$AI_MODEL_STATE" "$AI_MODEL_REJECTED_STATE" "$NOTES"
+is "first success answers"              "$(post_model claude-opus-5-5 200)" "0|claude-opus-5-5"
+is "first success is remembered"        "$(cat "$AI_MODEL_STATE")" "claude-opus-5-5"
+is "first success is silent"            "$(cat "$NOTES" 2>/dev/null)" ""
+
+# A different model answering: remembered, and announced once.
+post_model claude-opus-6 200 >/dev/null
+is "a new model is remembered"          "$(cat "$AI_MODEL_STATE")" "claude-opus-6"
+has "and announced"                     "$(cat "$NOTES")" "Model: Changed|• Now claude-opus-6 • Was claude-opus-5-5"
+post_model claude-opus-6 200 >/dev/null
+is "announced once, not per item"       "$(wc -l < "$NOTES")" "1"
+
+# THE FALLBACK. The newest model rejects the format; the remembered one is tried
+# once, answers, and the item survives instead of being archived as failed.
+echo "claude-opus-6" > "$AI_MODEL_STATE"; rm -f "$NOTES"
+r="$(SINK_REJECT_MODEL=claude-opus-7 post_model claude-opus-7 200)"
+is  "rejected by the newest -> answered by the remembered" "$r" "0|claude-opus-6"
+has "the fallback is logged"            "$(cat "${TMP}/err")" "claude-opus-7 rejected the request — retrying once on claude-opus-6"
+has "the rejection is notified"         "$(cat "$NOTES")" "claude-opus-7: Rejected|• Using claude-opus-6 instead"
+is  "the memory stays on the model that works" "$(cat "$AI_MODEL_STATE")" "claude-opus-6"
+SINK_REJECT_MODEL=claude-opus-7 post_model claude-opus-7 200 >/dev/null
+is  "rejection notified once per model" "$(wc -l < "$NOTES")" "1"
+
+# The guards that keep a genuinely bad request failing exactly as before.
+r="$(SINK_REJECT_MODEL=claude-opus-6 post_model claude-opus-6 200)"
+is  "the remembered model itself rejected -> fatal, no retry" "$r" "1|"
+hasnt "and nothing was retried"         "$(cat "${TMP}/err")" "retrying once"
+r="$(post_model claude-opus-7 401)"
+is  "a fatal both models share stays fatal" "${r%%|*}" "1"
+r="$(post_model claude-opus-7 503,503,503)"
+is  "a parked request never falls back" "${r%%|*}" "2"
+hasnt "parked: no fallback attempted"   "$(cat "${TMP}/err")" "retrying once"
+rm -f "$AI_MODEL_STATE"
+r="$(SINK_REJECT_MODEL=claude-opus-7 post_model claude-opus-7 200)"
+is  "nothing remembered -> nothing to fall back to" "$r" "1|"
+
+# High, deliberately: a misread costs a human round-trip.
+is "effort default is high"             "$AI_EFFORT" "high"
+is "default model is an Opus"           "${AI_MODEL_DEFAULT#"$AI_MODEL_FAMILY"}" "5-5"
+
 # ---------------------------------------------------------------- retry config
 echo "retry configuration"
 is "in-run attempts bounded" "$(( API_MAX_ATTEMPTS > 1 && API_MAX_ATTEMPTS <= 5 ))" "1"
