@@ -198,7 +198,6 @@ services:
       AFTERIMAGE_REVERSE_PROXY_PORT: ${AFTERIMAGE_REVERSE_PROXY_PORT}
       PIGEONHOLE_REVERSE_PROXY_PORT: ${PIGEONHOLE_REVERSE_PROXY_PORT}
       KARAKEEP_REVERSE_PROXY_PORT: ${KARAKEEP_REVERSE_PROXY_PORT}
-      HITOME_DAV_B64: ${HITOME_DAV_B64}
       SHARE_AUTH_HASH: ${SHARE_AUTH_HASH}
       ARCHIVEBOX_READING_KEY: ${ARCHIVEBOX_READING_KEY}
     ports:
@@ -587,7 +586,7 @@ services:
     # The Radicale password comes in as a file, not an env var: `docker inspect`
     # and /proc/1/environ both expose environment, and this credential is good for
     # read/write/delete across the whole /carrein/ tree. Same pattern as immich's
-    # DB_PASSWORD_FILE. The value is identical to the HITOME_DAV_B64 Caddy injects.
+    # DB_PASSWORD_FILE.
     secrets:
       - afterimage-dav-secret
     volumes:
@@ -733,16 +732,20 @@ services:
     container_name: hitome
     image: ghcr.io/miraiconcepts/hitome:latest
     restart: unless-stopped
+    read_only: true # writes only to the hitome-data volume
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - NET_BIND_SERVICE # in-container Caddy binds :80
     deploy:
       resources:
         limits:
           memory: 64M
+          pids: 50
+    environment:
+      CALDAV_URL: http://radicale:5232/
+    volumes:
+      - hitome-data:/data
     labels:
       - flame.type=application
       - flame.name=hitome
@@ -1146,11 +1149,12 @@ secrets:
     file: cloudflared/token.json
   postgres-secret:
     file: postgres/password.txt
-  afterimage-dav-secret: # base64(carrein:<radicale app pw>) — same value as HITOME_DAV_B64
+  afterimage-dav-secret: # base64(carrein:<radicale app pw>)
     file: afterimage/dav-secret
 
 volumes:
   model-cache:
+  hitome-data:
   ntfy:
   ntfy-cache:
   caddy-data:

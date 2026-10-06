@@ -328,18 +328,8 @@ http://share.catallenya.com {
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$HITOME_REVERSE_PROXY_PORT} {
-	# CalDAV, same-origin: strip /dav before proxying; X-Script-Name makes
-	# Radicale emit hrefs under /dav so discovery resolves through this block.
-	handle_path /dav/* {
-		reverse_proxy radicale:5232 {
-			header_up X-Script-Name /dav
-			header_up Authorization "Basic {$HITOME_DAV_B64}"
-		}
-	}
-
-	handle {
-		reverse_proxy hitome:80
-	}
+	# hitome (v0.7+) runs its own login and proxies /dav/ to Radicale itself.
+	reverse_proxy hitome:3000
 }
 
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$KARAKEEP_REVERSE_PROXY_PORT} {
