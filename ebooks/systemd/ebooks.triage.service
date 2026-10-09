@@ -1,0 +1,43 @@
+# Class: adhoc      (see systemd/policy/20-adhoc.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the base
+# hardening, the intake sandbox and its three InaccessiblePaths, Environment=PATH, and
+# the 1800/12 start limit — the backstop for the .path unit re-triggering while anything
+# remains in the inbox.
+
+[Unit]
+Description=Ebooks triage (inspect a dropped book, stage a proposal)
+After=network-online.target docker.service
+Wants=network-online.target
+# Also set by the base policy, but stated here because this job is .path-triggered: the
+# service must not be weaker than its watcher.
+Requires=zfs-mount.service
+
+[Service]
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/ebooks/intake-state
+Environment=HOME=/home/carrein
+
+# NO EnvironmentFile. This pipeline talks to no model and holds no secret: the cover lookup
+# uses three free public sources that need no key.
+#
+# Generous. A cover lookup sleeps about 3s per book and a synced batch is drained serially
+# in one invocation; MAX_PER_RUN bounds the worst case.
+TimeoutStartSec=30min
+
+ExecStart=/zpool/catallenya/ebooks/scripts/ebooks.triage.sh
+
+# The shelf (to move the inbox file out and read it for duplicates) and the pipeline's own
+# state. Nothing else.
+ReadWritePaths=/zpool/catallenya/syncthing/data/library/stories
+ReadWritePaths=/zpool/catallenya/ebooks/intake-state
+
+[X-Catallenya]
+Class=adhoc
+Family=intake
+# No MaxAge: event-driven, no cadence. A day with no dropped book is a day with no run.
+Freshness=unit:ebooks.triage.path
+Producer=container:syncthing

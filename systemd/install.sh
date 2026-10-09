@@ -117,6 +117,7 @@ declare -A SYMLINKS=(
     ["afterimage.sweep.timer"]="${REPO_DIR}/afterimage/systemd/afterimage.sweep.timer"
     ["pigeonhole.sweep.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.timer"
     ["pigeonhole.retry.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.retry.timer"
+    ["ebooks.sweep.timer"]="${REPO_DIR}/ebooks/systemd/ebooks.sweep.timer"
     ["catallenya.heartbeat.timer"]="${REPO_DIR}/systemd/catallenya.heartbeat.timer"
     # liquidroom polls rather than watching, and that is forced: a request is an
     # empty FOLDER now and no .path verb can express emptiness. It REPLACED
@@ -131,6 +132,10 @@ declare -A SYMLINKS=(
     # tap, not overnight.
     ["pigeonhole.triage.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.path"
     ["pigeonhole.apply.path"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.path"
+    # ebooks is pigeonhole's shape without the model: one path unit watches the inbox
+    # for a dropped book, the other watches for an approval marker the container wrote.
+    ["ebooks.triage.path"]="${REPO_DIR}/ebooks/systemd/ebooks.triage.path"
+    ["ebooks.apply.path"]="${REPO_DIR}/ebooks/systemd/ebooks.apply.path"
 
     # --- Services ---
     ["disk.service"]="${REPO_DIR}/host/disk.service"
@@ -142,6 +147,9 @@ declare -A SYMLINKS=(
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"
     ["pigeonhole.sweep.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.service"
     ["pigeonhole.retry.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.retry.service"
+    ["ebooks.triage.service"]="${REPO_DIR}/ebooks/systemd/ebooks.triage.service"
+    ["ebooks.apply.service"]="${REPO_DIR}/ebooks/systemd/ebooks.apply.service"
+    ["ebooks.sweep.service"]="${REPO_DIR}/ebooks/systemd/ebooks.sweep.service"
     ["immich.fix-rotations.service"]="${REPO_DIR}/immich/immich.fix-rotations.service"
     ["restic.backup.service"]="${REPO_DIR}/restic/backup/restic.backup.service"
     ["restic.check@.service"]="${REPO_DIR}/restic/check/restic.check@.service"
@@ -587,7 +595,7 @@ tracked_units() {
     else
         local d
         for d in systemd restic host changedetection ntfy afterimage/systemd \
-                 pigeonhole/systemd liquidroom/systemd immich; do
+                 pigeonhole/systemd ebooks/systemd liquidroom/systemd immich; do
             [[ -d "${REPO_DIR}/${d}" ]] || continue
             ( cd "${REPO_DIR}" && find "$d" \
                 \( -name '*.service' -o -name '*.timer' -o -name '*.path' \) )

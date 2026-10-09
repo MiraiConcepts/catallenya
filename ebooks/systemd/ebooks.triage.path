@@ -1,0 +1,48 @@
+[Unit]
+Description=Watch the ebooks inbox for newly dropped books
+After=zfs-mount.service
+Requires=zfs-mount.service
+
+[Path]
+# Fires the moment a book lands in stories/inbox/ — dropped by hand on the server, or
+# synced in from a phone or laptop.
+#
+# WHY THESE ARE EXTENSION GLOBS AND NOT JUST `*`. glob(3) matches DIRECTORIES too, so a
+# bare `inbox/*` would match any folder someone creates in the inbox, and a condition that
+# stays true re-fires the unit forever. The same trap pigeonhole.triage.path documents.
+# The character classes are how glob(3) does case-insensitivity: *.[eE][pP][uU][bB]
+# catches .epub, .EPUB and .Epub alike. A dotfile never matches `*`, so Syncthing's
+# .syncthing.*.tmp transfer files cannot trigger a run mid-transfer.
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[eE][pP][uU][bB]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[pP][dD][fF]
+
+# AND the common ebook-adjacent types the pipeline CANNOT file. A glob here means "wake
+# up", not "I can read this" — the triage stages them as blocked (UNSUPPORTED_TYPE) and
+# tells you. Without these, dropping a .mobi would do nothing at all: no notification, no
+# staging, just a file sitting where you left it looking ignored.
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[mM][oO][bB][iI]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[aA][zZ][wW]3
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[aA][zZ][wW]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[kK][eE][pP][uU][bB]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[cC][bB][zZ]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[cC][bB][rR]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[dD][jJ][vV][uU]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[fF][bB]2
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[lL][iI][tT]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[dD][oO][cC][xX]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[dD][oO][cC]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[rR][tT][fF]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[tT][xX][tT]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[hH][tT][mM][lL]
+PathExistsGlob=/zpool/catallenya/syncthing/data/library/stories/inbox/*.[zZ][iI][pP]
+
+# A file with some other extension does not TRIGGER a run, but a run, once triggered,
+# drains EVERY file in the inbox regardless of extension. The next drop clears it.
+#
+# systemd re-checks after the service exits and re-triggers while a glob still matches.
+# ebooks.triage.sh therefore MUST move every file out of the inbox on every branch —
+# the invariant is asserted at the end of the script, exercised by tests on every failure
+# branch, and backstopped by the start limit this unit inherits from the adhoc class.
+
+[Install]
+WantedBy=paths.target

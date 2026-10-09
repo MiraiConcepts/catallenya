@@ -1,0 +1,39 @@
+# Class: adhoc      (see systemd/policy/20-adhoc.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the base
+# hardening, the intake sandbox and its three InaccessiblePaths, Environment=PATH, and the
+# 1800/12 start limit.
+
+[Unit]
+Description=Ebooks apply (perform the move a button tap asked for)
+Requires=zfs-mount.service
+After=zfs-mount.service
+
+[Service]
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/ebooks/intake-state
+Environment=HOME=/home/carrein
+
+# NO EnvironmentFile and no network use: this step reads a marker, re-verifies a record the
+# triage wrote, optionally rewrites the cover inside the book, and moves a file.
+TimeoutStartSec=5min
+
+ExecStart=/zpool/catallenya/ebooks/scripts/ebooks.apply.sh
+
+# Writes to the shelf happen only here and in no other unit: a oneshot that runs for a
+# second, triggered by a local file, with no network listener. The approve container —
+# long-lived, tailnet-reachable, gated by an unauthenticated ntfy topic — cannot perform a
+# move at all; it can only ask for one that was already proposed. Do not collapse that
+# asymmetry by giving the container a shelf mount.
+ReadWritePaths=/zpool/catallenya/syncthing/data/library/stories
+ReadWritePaths=/zpool/catallenya/ebooks/intake-state
+
+[X-Catallenya]
+Class=adhoc
+Family=intake
+# No MaxAge: it fires on a button tap. A quiet week means you had nothing to file.
+Freshness=unit:ebooks.apply.path
+Producer=container:ebooks-approve

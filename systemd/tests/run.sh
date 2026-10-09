@@ -52,7 +52,7 @@ trap 'rm -rf "$CHECK_TREE" "$PRISTINE_TREE"' EXIT
 # systemd/ on 2026-08-15 (host/, changedetection/, immich/) broke 23 cases exactly
 # that way, and liquidroom/systemd had been missing since it shipped.
 (cd "$REPO" && find systemd restic host changedetection ntfy \
-    afterimage/systemd pigeonhole/systemd liquidroom/systemd immich \
+    afterimage/systemd pigeonhole/systemd ebooks/systemd liquidroom/systemd immich \
     \( -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name '*.conf' \) \
     -exec cp --parents -t "$PRISTINE_TREE" {} +)
 
@@ -115,7 +115,7 @@ gate_says "cancelling OnFailure= without declaring it is refused" \
     "cancels its inherited OnFailure="
 gate_says "and the acknowledgement is what clears it" \
     "${REPO}/host/disk.service" 's/^\[Service\]$/OnFailure=\n[Service]/; s/^Class=monitor$/Class=monitor\nSelfAlerting=acknowledged/' \
-    "40 units satisfy the contract"
+    "46 units satisfy the contract"
 
 gate_says "a missing User= is refused" \
     "${REPO}/host/disk.service" '/^User=/d' "no explicit User="

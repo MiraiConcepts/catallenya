@@ -246,6 +246,36 @@ ntfy/.env
 !pigeonhole/approve/src/
 !pigeonhole/approve/src/server.ts
 
+# ebooks intake pipeline — pigeonhole's shape with no model. Per-file allowlist for the same
+# reason as every block above: a `**` would auto-track whatever lands here later, and this is
+# a public repo. ebooks/intake-state/ is runtime state (proposals, markers, staged books,
+# bin/, cover candidates) and stays ignored by the default `*` deny — a staged book is a
+# whole file. The books themselves live in syncthing/data/library/stories, kept out of git
+# by the top-level `*`.
+!ebooks/
+!ebooks/README.md
+!ebooks/scripts/
+!ebooks/scripts/ebooks.lib.sh
+!ebooks/scripts/ebooks.inspect.py
+!ebooks/scripts/ebooks.cover.py
+!ebooks/scripts/ebooks.triage.sh
+!ebooks/scripts/ebooks.apply.sh
+!ebooks/scripts/ebooks.sweep.sh
+!ebooks/tests/
+!ebooks/tests/run.sh
+!ebooks/systemd/
+!ebooks/systemd/ebooks.triage.path
+!ebooks/systemd/ebooks.triage.service
+!ebooks/systemd/ebooks.apply.path
+!ebooks/systemd/ebooks.apply.service
+!ebooks/systemd/ebooks.sweep.service
+!ebooks/systemd/ebooks.sweep.timer
+!ebooks/approve/
+!ebooks/approve/Dockerfile
+!ebooks/approve/.dockerignore
+!ebooks/approve/src/
+!ebooks/approve/src/server.ts
+
 # Explicit includes inside capture folder — CODE/CONFIG ONLY, never data.
 # afterimage/data/ holds uploaded screenshots (whatever was on screen at capture) plus
 # pending events; the default `*` deny is what keeps it out of git. Do NOT add a

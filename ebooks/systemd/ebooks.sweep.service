@@ -1,0 +1,33 @@
+# Class: scheduled  (see systemd/policy/20-scheduled.conf)
+# Family: intake    (see systemd/policy/30-intake.conf)
+# Base:             (see systemd/policy/10-base.conf)
+#
+# Inherited and therefore NOT repeated here: OnFailure, Type, journal logging, the base
+# hardening, the intake sandbox and its three InaccessiblePaths, and Environment=PATH.
+
+[Unit]
+Description=Ebooks sweep (re-notify stale proposals, bin week-old ones)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=carrein
+Group=carrein
+WorkingDirectory=/zpool/catallenya/ebooks/intake-state
+Environment=HOME=/home/carrein
+TimeoutStartSec=5min
+
+ExecStart=/zpool/catallenya/ebooks/scripts/ebooks.sweep.sh
+
+# Its only writes are staged -> bin/ moves and record stamps, all inside intake-state. The
+# shelf is deliberately NOT writable here. The stamp dir needs no entry of its own: the
+# intake family sets ProtectSystem=strict, and the completion stamp is written by
+# ExecStartPost under the base policy.
+ReadWritePaths=/zpool/catallenya/ebooks/intake-state
+
+[X-Catallenya]
+Class=scheduled
+Family=intake
+# Daily at 07:50 SGT with 5 minutes of jitter. 36h allows one missed run.
+MaxAge=36h
+Freshness=stamp:/zpool/catallenya/systemd/state/ebooks.sweep

@@ -291,6 +291,12 @@ http://share.catallenya.com {
 	reverse_proxy pigeonhole-approve:8080
 }
 
+{$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$EBOOKS_REVERSE_PROXY_PORT} {
+	import security_headers
+	# Every request here is an empty POST from an ntfy button, exactly like pigeonhole's.
+	reverse_proxy ebooks-approve:8080
+}
+
 {$TAILNET_DOMAIN}.{$TAILNET_DNS_NAME}:{$ARCHIVEBOX_REVERSE_PROXY_PORT} {
 	import security_headers
 	reverse_proxy archivebox:8000

@@ -47,6 +47,7 @@ SUITES=(
     liquidroom
     afterimage
     ai
+    ebooks
     pigeonhole
     systemd
 )
