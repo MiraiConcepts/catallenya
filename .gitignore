@@ -585,3 +585,11 @@ ntfy/.env
 !dufs/assets/maimai-themes/universe.js
 !dufs/assets/maimai-themes/universe-plus.css
 !dufs/assets/maimai-themes/universe-plus.js
+
+# Singapore holidays -> Radicale (2026-10-12). radicale/ itself stays untracked:
+# config/users is the htpasswd file. Only the job is allowlisted, per file.
+!radicale/
+!radicale/holidays/
+!radicale/holidays/holidays.sync.py
+!radicale/holidays/holidays.sync.service
+!radicale/holidays/holidays.sync.timer

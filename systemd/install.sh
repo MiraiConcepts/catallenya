@@ -108,6 +108,9 @@ declare -A SYMLINKS=(
     # Not a schedule for the documents pipeline — that is event-driven. This is the
     # once-a-day look for a file type the path unit's globs cannot see.
     ["pigeonhole.backstop.timer"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.backstop.timer"
+    # Singapore public holidays into their own Radicale calendar, weekly, forever:
+    # MOM publishes each year as a new dataset and this finds it on its own.
+    ["holidays.sync.timer"]="${REPO_DIR}/radicale/holidays/holidays.sync.timer"
     ["immich.fix-rotations.timer"]="${REPO_DIR}/immich/immich.fix-rotations.timer"
     ["restic.backup.timer"]="${REPO_DIR}/restic/backup/restic.backup.timer"
     ["restic.check-subset.timer"]="${REPO_DIR}/restic/check/restic.check-subset.timer"
@@ -143,6 +146,7 @@ declare -A SYMLINKS=(
     ["containers.service"]="${REPO_DIR}/host/containers.service"
     ["deadman.service"]="${REPO_DIR}/host/deadman.service"
     ["changedetection.health.service"]="${REPO_DIR}/changedetection/changedetection.health.service"
+    ["holidays.sync.service"]="${REPO_DIR}/radicale/holidays/holidays.sync.service"
     ["pigeonhole.triage.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.triage.service"
     ["pigeonhole.apply.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.apply.service"
     ["pigeonhole.sweep.service"]="${REPO_DIR}/pigeonhole/systemd/pigeonhole.sweep.service"
@@ -595,7 +599,8 @@ tracked_units() {
     else
         local d
         for d in systemd restic host changedetection ntfy afterimage/systemd \
-                 pigeonhole/systemd ebooks/systemd liquidroom/systemd immich; do
+                 pigeonhole/systemd ebooks/systemd liquidroom/systemd immich \
+                 radicale/holidays; do
             [[ -d "${REPO_DIR}/${d}" ]] || continue
             ( cd "${REPO_DIR}" && find "$d" \
                 \( -name '*.service' -o -name '*.timer' -o -name '*.path' \) )

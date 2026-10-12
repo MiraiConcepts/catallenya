@@ -1,0 +1,11 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Sync Singapore public holidays weekly
+
+[Timer]
+# Weekly is plenty: MOM publishes the next year once, around July to September,
+# and amends a published year rarely (a polling-day holiday is announced weeks
+# ahead). Monday morning SGT, clear of the 04:00-08:15 job cluster.
+OnCalendar=Mon *-*-* 10:30:00 Asia/Singapore
+RandomizedDelaySec=5min
