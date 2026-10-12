@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the "Singapore holidays" calendar in Radicale in step with MOM's list.
+"""Keep the "Carrein's Holidays" calendar in Radicale in step with MOM's list.
 
 Source: the Ministry of Manpower's public-holiday datasets on data.gov.sg (Open
 Data Licence). Every year MOM publishes a NEW dataset; all of them hang off one
@@ -46,7 +46,7 @@ REPO = "/zpool/catallenya"
 DAV_SECRET = f"{REPO}/afterimage/dav-secret"
 DAV_USER = "carrein"
 COLLECTION = "singapore-holidays"
-DISPLAY_NAME = "Singapore holidays"
+DISPLAY_NAME = "Carrein's Holidays"
 COLOR = "#D0021BFF"  # red, the colour paper calendars print public holidays in
 UID_PREFIX = "sg-holiday-"
 UID_SUFFIX = "@hitome"
