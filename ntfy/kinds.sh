@@ -52,7 +52,7 @@
 # that difference visible on a lock screen.
 NTFY_MODEL_VERBS=("Model Failed" "Model Paused")
 
-# Every verb in a feature's NTFY_VERBS must be a past participle, and 21 of the 22
+# Every verb in a feature's NTFY_VERBS must be a past participle, and 22 of the 23
 # verbs in the repo end in "ed" — so the gate can check the rule rather than trust it.
 # This list is the escape hatch for the one that does not, and it should grow roughly
 # never. The friction is the point: `Stray` and `Unclear` were both proposed during

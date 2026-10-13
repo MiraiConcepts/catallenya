@@ -5,9 +5,10 @@
 # the base hardening. The script prints one line per run; on failure that line is
 # what the courier quotes (topic falls through to `host`, by design).
 #
-# Writes ONE Radicale collection, carrein/singapore-holidays, over CalDAV to
-# radicale:5232 on the docker network — never Radicale's files on disk, so no
-# container restart is needed and nothing else in /data is reachable from here.
+# Writes ONE Radicale collection, carrein/singapore-holidays, through the shared
+# feeds sink (feeds_sink.py) over CalDAV to radicale:5232 on the docker network —
+# never Radicale's files on disk, so no container restart is needed and nothing
+# else in /data is reachable from here.
 # The credential is the host-only afterimage/dav-secret; nothing is in git, CI or
 # an image.
 
@@ -23,7 +24,7 @@ Group=carrein
 # Worst case is the anonymous data.gov.sg rate limit on a walk of every dataset:
 # ~10 calls with 10s+ back-offs. Two minutes in practice; ten is the hang bound.
 TimeoutStartSec=10min
-ExecStart=/usr/bin/python3 -I /zpool/catallenya/radicale/holidays/holidays.sync.py
+ExecStart=/usr/bin/python3 -I /zpool/catallenya/radicale/feeds/holidays.sync.py
 
 [X-Catallenya]
 Class=scheduled

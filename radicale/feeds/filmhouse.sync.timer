@@ -1,0 +1,11 @@
+# Timer policy: Persistent=true and [Install] WantedBy=timers.target are
+# inherited from systemd/policy/10-base-timer.conf. `systemctl cat` shows them.
+[Unit]
+Description=Sync Filmhouse showtimes daily
+
+[Timer]
+# Daily is enough: the programme is published a few weeks ahead and changes a few
+# times a week. Late morning SGT, clear of the 04:00-08:15 job cluster and of
+# holidays.sync on Mondays at 10:30.
+OnCalendar=*-*-* 10:45:00 Asia/Singapore
+RandomizedDelaySec=5min

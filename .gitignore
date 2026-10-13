@@ -586,10 +586,21 @@ ntfy/.env
 !dufs/assets/maimai-themes/universe-plus.css
 !dufs/assets/maimai-themes/universe-plus.js
 
-# Singapore holidays -> Radicale (2026-10-12). radicale/ itself stays untracked:
-# config/users is the htpasswd file. Only the job is allowlisted, per file.
+# Calendar feeds -> Radicale (holidays 2026-10-12, moved here and joined by
+# Filmhouse the same day). radicale/ itself stays untracked: config/users is the
+# htpasswd file. Only the feeds are allowlisted, per file.
 !radicale/
-!radicale/holidays/
-!radicale/holidays/holidays.sync.py
-!radicale/holidays/holidays.sync.service
-!radicale/holidays/holidays.sync.timer
+!radicale/feeds/
+!radicale/feeds/feeds_sink.py
+!radicale/feeds/feeds.notify.sh
+!radicale/feeds/holidays.sync.py
+!radicale/feeds/holidays.sync.service
+!radicale/feeds/holidays.sync.timer
+!radicale/feeds/filmhouse.sync.py
+!radicale/feeds/filmhouse.sync.service
+!radicale/feeds/filmhouse.sync.timer
+!radicale/feeds/tests/
+!radicale/feeds/tests/run.sh
+!radicale/feeds/tests/test_feeds.py
+!radicale/feeds/tests/fixtures/
+!radicale/feeds/tests/fixtures/filmhouse.films.html

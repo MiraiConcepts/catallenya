@@ -48,6 +48,7 @@ SUITES=(
     afterimage
     ai
     ebooks
+    radicale/feeds
     pigeonhole
     systemd
 )
@@ -59,7 +60,7 @@ SUITES=(
 # the contract".
 shopt -s nullglob
 declare -a found=()
-for f in */tests/run.sh; do found+=("${f%%/*}"); done
+for f in */tests/run.sh */*/tests/run.sh; do found+=("${f%/tests/run.sh}"); done
 shopt -u nullglob
 for f in "${found[@]}"; do
     for s in "${SUITES[@]}"; do [[ "$f" == "$s" ]] && continue 2; done
@@ -72,7 +73,7 @@ done
 start=$(date +%s)
 fail=0
 for s in "${SUITES[@]}"; do
-    printf '  %-12s' "$s"
+    printf '  %-15s' "$s"
     t0=$(date +%s)
     if out="$(bash "${s}/tests/run.sh" 2>&1)"; then
         printf '%s  (%ss)\n' "$(tail -1 <<<"$out")" "$(( $(date +%s) - t0 ))"
@@ -89,5 +90,5 @@ for s in "${SUITES[@]}"; do
     fi
 done
 
-printf '  %-12s%ss total\n' "" "$(( $(date +%s) - start ))"
+printf '  %-15s%ss total\n' "" "$(( $(date +%s) - start ))"
 exit "$fail"

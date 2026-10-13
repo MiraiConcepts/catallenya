@@ -64,7 +64,7 @@ missing prefix is what makes that difference readable on a lock screen.
 
 ---
 
-## 2. The vocabulary — 22 verbs
+## 2. The vocabulary — 23 verbs
 
 | Verb | Class | Means |
 |---|---|---|
@@ -89,9 +89,10 @@ missing prefix is what makes that difference readable on a lock screen.
 | `Raced` | liquidroom | the destination appeared mid-run |
 | `Unpublished` | liquidroom | the atomic rename failed |
 | `Baked` | immich | rotations written into originals |
+| `Cancelled` | feeds | an event marked "going" vanished from its source |
 | `Still ` | prefix | a nudge |
 
-**Every one is a past participle.** 21 end in `-ed`; `Stuck` is the single irregular and
+**Every one is a past participle.** 22 end in `-ed`; `Stuck` is the single irregular and
 is listed in `NTFY_IRREGULAR_VERBS`. The gate checks this (§9).
 
 ---
@@ -602,6 +603,19 @@ a year and supersedes it). Both still emit through the courier when run by hand,
 branches that spell those out are in `system-ntfy.sh`, which is why a manual run does
 not title itself `Check@meta`. They are listed here because this file is the record
 of *every* title the system can produce, not only the scheduled ones.
+
+### calendar feeds — topic `hitome` (`radicale/feeds/feeds.notify.sh`)
+
+| When | Title |
+|---|---|
+| one event marked "going" in hitome was cancelled at its source | `Cancelled: The Violinist` |
+| several in one run | `Cancelled: 2 Events` |
+
+A **receipt**: the calendar already shows the event crossed out (`STATUS:CANCELLED`)
+and there is nothing to tap, so no buttons and no id, and it is never withdrawn.
+Each item's detail is when it was (`Tue 13 Oct, 16:45`). Only MARKED events notify;
+an unmarked event that vanishes is simply deleted. The feeds are Python, so the sink
+shells out to this one bash script rather than growing a second transport.
 
 ### host / disk / changedetection / watchdog
 
