@@ -696,5 +696,5 @@ contract_clean "and so does an age bracket"
 
 rm -rf "$FIX"
 
-printf 'systemd factory: %d passed, %d failed\n' "$PASS" "$FAIL"
+printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 (( FAIL == 0 ))
