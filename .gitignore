@@ -35,6 +35,7 @@
 # rescues policy/README.md on its own once the directory itself is un-ignored.
 !policy/
 !policy/readmes.md
+!policy/claude-check.sh
 
 # Explicit exclude audit logs
 !audit/audit.sh
