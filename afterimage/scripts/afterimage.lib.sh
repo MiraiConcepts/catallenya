@@ -102,6 +102,29 @@ DURATION_MIN=60           # default length when only a start time is known
 # listing had six and two were dropped. Truncating is now logged and surfaced in the
 # notification body — silently discarding a user's events is worse than a few pings.
 MAX_EVENTS_PER_CAPTURE=8
+# MEMORY. One file the triage reads before every screenshot and adds a note to after
+# it, so a screenshot that leaves something out ("Sun 2pm, 45 Dunearn Rd") can be read
+# against the ones before it (three house viewings this fortnight). Each note is one
+# sentence the MODEL writes about what the screenshot said of the owner's plans, or
+# nothing at all for an accidental capture, a meme or a receipt. Notes are trimmed on
+# every write, by count and by age, so the file never grows and old themes fade on
+# their own. 30 notes is about a month at the measured rate (31 captures in the month
+# to 2026-10-15), so the two limits arrive together; each note costs ~50 input tokens.
+#
+# The tap is NOT written here — it happens later, in the container, which never
+# touches this file. Each note keeps the ids of the records its screenshot became, and
+# memory_render looks each one up in archive/ or pending/ when the NEXT screenshot
+# arrives, so it always reads the final decision, a correction inside the 120s window
+# included.
+#
+# Lives in data/, so like every screenshot it is never copied off-box (see above).
+MEMORY_FILE="${DATA_DIR}/memory.jsonl"
+MEMORY_MAX_NOTES=30
+MEMORY_MAX_DAYS=30
+# A note is derived from a screenshot, and a screenshot is untrusted: whatever text it
+# plants in a note rides into every prompt for a month. The cap bounds that, and the
+# prompt labels the block as content, never instructions.
+MEMORY_NOTE_MAX=300
 # Longest button label. ntfy imposes no limit of its own — 9, 17, 22 and 43
 # characters were all accepted with HTTP 200 when tested on 2026-07-28 — so this
 # is purely about phone width with three buttons in a row. 12 was the old value
@@ -456,6 +479,111 @@ parked_cause() {
     paused_cause "${reasons[@]:-}"
 }
 
+# --- memory -----------------------------------------------------------------
+# Best-effort by contract, all three: a memory that cannot be read or written costs the
+# next screenshot some context and never costs this one its proposal. Each returns 0.
+
+# _memory_entries -> every well-formed note in the file, one compact object per line
+_memory_entries() {
+    [[ -f "$MEMORY_FILE" ]] || return 0
+    jq -c -R 'fromjson? // empty | select(type == "object" and (.id|type) == "string"
+                                         and (.note|type) == "string" and (.at|type) == "number")' \
+        "$MEMORY_FILE" 2>/dev/null
+}
+
+# _memory_write <jq-filter> [jq args...] — rewrite the file through a filter over the
+# slurped entries, then trim. Atomic (temp file + mv), so a crash leaves the old file.
+_memory_write() {
+    local filter="$1" tmp cutoff; shift
+    cutoff=$(( $(date +%s) - MEMORY_MAX_DAYS * 86400 ))
+    tmp="$(mktemp "${MEMORY_FILE}.XXXXXX" 2>/dev/null)" || { log "  !! memory: cannot write"; return 0; }
+    if _memory_entries | jq -c -s "$@" --argjson cutoff "$cutoff" --argjson max "$MEMORY_MAX_NOTES" \
+           "${filter} | map(select(.at >= \$cutoff)) | sort_by(.at) | .[-\$max:] | .[]" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$MEMORY_FILE"
+    else
+        rm -f "$tmp"; log "  !! memory: update failed, left as it was"
+    fi
+    return 0
+}
+
+# memory_remember <capture-id> <capture-epoch> <capture-local> <note>
+# Add this screenshot's note. An empty note — the model saying "nothing worth keeping"
+# — writes nothing. A note for an id already present replaces it rather than stacking.
+memory_remember() {
+    local id="$1" at="$2" local_h="$3" note="$4"
+    note="$(printf '%s' "$note" | tr -d '\000-\037\177')"
+    note="${note:0:$MEMORY_NOTE_MAX}"
+    [[ -n "${note// /}" && "$note" != "null" ]] || return 0
+    [[ "$at" =~ ^[0-9]+$ ]] || at="$(date +%s)"
+    _memory_write 'map(select(.id != $id)) + [{id:$id, at:$at, at_local:$loc, note:$note, ids:[$id]}]' \
+        --arg id "$id" --argjson at "$at" --arg loc "$local_h" --arg note "$note"
+}
+
+# memory_link <capture-id> <record-id>... — the records a multi-event screenshot fanned
+# out into, so the next render can report every one of its taps.
+memory_link() {
+    local id="$1"; shift
+    (( $# )) || return 0
+    _memory_write 'map(if .id == $id then .ids = $ids else . end)' \
+        --arg id "$id" --argjson ids "$(printf '%s\n' "$@" | jq -R . | jq -cs 'map(select(. != ""))')"
+}
+
+# _record_outcome <record-id> -> added | discarded | waiting | expired | nothing | failed | ""
+# What became of one record, read where the record lives NOW. Empty for a record that
+# is gone, which says nothing rather than something wrong.
+_record_outcome() {
+    local id="$1" o=""
+    if [[ -f "${ARCHIVE_DIR}/${id}/decision.json" ]]; then
+        o="$(jq -r '.outcome // ""' "${ARCHIVE_DIR}/${id}/decision.json" 2>/dev/null)"
+    elif [[ -d "${PENDING_DIR}/${id}" ]]; then
+        o=pending
+    fi
+    case "$o" in
+        add|add_alt)       echo added ;;
+        discard|undone)    echo discarded ;;
+        pending)           echo waiting ;;
+        ignored)           echo expired ;;
+        not_event)         echo nothing ;;
+        failed)            echo failed ;;
+        *)                 echo "" ;;
+    esac
+}
+
+# memory_render <exclude-id> -> the notes as prompt lines, oldest first; empty if none
+# "- Thu 15 Oct 14:02: <note> (added)". The outcome is looked up per record now, not
+# stored, which is the whole reason the tap needs no writer of its own.
+memory_render() {
+    local exclude="$1" e id at_local note outcomes o tag
+    local -A n
+    while IFS= read -r e; do
+        id="$(jq -r .id <<<"$e")"
+        [[ "$id" == "$exclude" ]] && continue
+        at_local="$(jq -r '.at_local // ""' <<<"$e")"
+        note="$(jq -r .note <<<"$e")"
+        n=()
+        while IFS= read -r o; do
+            o="$(_record_outcome "$o")"
+            [[ -n "$o" ]] && n[$o]=$(( ${n[$o]:-0} + 1 ))
+        done < <(jq -r '(.ids // [.id])[]' <<<"$e")
+        outcomes=""
+        for o in added discarded waiting expired nothing failed; do
+            [[ -n "${n[$o]:-}" ]] || continue
+            case "$o" in
+                added)     tag="added by the user" ;;
+                discarded) tag="discarded by the user" ;;
+                waiting)   tag="not tapped yet" ;;
+                expired)   tag="never tapped, expired" ;;
+                nothing)   tag="nothing to add" ;;
+                failed)    tag="could not be read" ;;
+            esac
+            (( ${#n[@]} > 1 || n[$o] > 1 )) && tag="${n[$o]} ${tag}"
+            outcomes+="${outcomes:+, }${tag}"
+        done
+        printf -- '- %s: %s%s\n' "$at_local" "$note" "${outcomes:+ (${outcomes})}"
+    done < <(_memory_entries)
+    return 0
+}
+
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
 
@@ -499,6 +627,7 @@ clean_proposal() {
                  then (explode | map(select(. >= 32 and . != 127)) | implode | .[0:500])
                  else . end;
         .reason |= clean
+      | .memory |= clean
       | .events = [ .events[]?
                     | .title       |= clean
                     | .location    |= clean
@@ -626,22 +755,28 @@ triage_route() {
 # 2026-07-27 alone, so a difference between two records could be the prompt, the
 # model, or the screenshot, with no way to tell which.
 write_context() {
-    local rec="$1" now_local="$2" img="$3" prompt="$4"
-    local psha ssha bytes
+    local rec="$1" now_local="$2" img="$3" prompt="$4" memory="${5:-}"
+    local psha ssha bytes tmpl
     # Hash the TEMPLATE, not the rendered prompt. The prompt embeds the capture
     # time, so hashing the rendered text gave every capture a unique digest — seven
     # captures produced five hashes on 2026-07-27 — which defeats the only thing the
     # field is for: grouping records by prompt version. Substituting the timestamp
     # back out makes the digest stable across captures and change only when the
     # wording does.
-    psha="$(printf '%s' "${prompt//${now_local}/<NOW>}" | sha256sum | cut -d' ' -f1)"
+    #
+    # The MEMORY block comes out the same way and for the same reason: it is different
+    # on every capture by design. It is kept in full beside the prompt, so a strange
+    # proposal can be traced to the note that steered it.
+    tmpl="$prompt"
+    [[ -n "$memory" ]] && tmpl="${tmpl//"${memory}"/<MEMORY>}"
+    psha="$(printf '%s' "${tmpl//${now_local}/<NOW>}" | sha256sum | cut -d' ' -f1)"
     ssha="$(printf '%s' "$CAPTURE_SCHEMA" | sha256sum | cut -d' ' -f1)"
     bytes="$(stat -c %s "$img" 2>/dev/null || echo 0)"
 
     jq -n --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           --arg captured_at_local "$now_local" --arg event_tz "$EVENT_TZ" \
           --arg model "$AI_MODEL" --arg effort "$AI_EFFORT" \
-          --arg prompt "$prompt" --arg prompt_sha256 "$psha" \
+          --arg prompt "$prompt" --arg prompt_sha256 "$psha" --arg memory "$memory" \
           --arg schema_sha256 "$ssha" --arg mime "$(image_mime "$img")" \
           --argjson bytes "$bytes" --argjson duration_min "$DURATION_MIN" \
         '{captured_at:$captured_at, captured_at_local:$captured_at_local,
@@ -649,7 +784,7 @@ write_context() {
           model:$model, effort:$effort, duration_min:$duration_min,
           prompt_sha256:$prompt_sha256, schema_sha256:$schema_sha256,
           image:{mime:$mime, bytes:$bytes},
-          prompt:$prompt}' > "${rec}/context.json"
+          memory:$memory, prompt:$prompt}' > "${rec}/context.json"
 }
 
 # add_usage <record-dir> <api-response>
@@ -739,6 +874,7 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
     "needs_human": {"type": "boolean"},
     "events_seen": {"type": "integer"},
     "reason":      {"type": ["string", "null"]},
+    "memory":      {"type": ["string", "null"]},
     "events": {
       "type": "array",
       "items": {
@@ -777,6 +913,6 @@ read -r -d '' CAPTURE_SCHEMA <<'JSON' || true
       }
     }
   },
-  "required": ["is_event","needs_human","events_seen","reason","events"]
+  "required": ["is_event","needs_human","events_seen","reason","memory","events"]
 }
 JSON

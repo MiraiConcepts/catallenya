@@ -15,6 +15,10 @@ writes the approved ones to a private calendar server.
   own notification and its own decision, sharing the original screenshot.
 - Proposals arrive as a notification with Add and Discard buttons. Nothing
   reaches the calendar without a tap.
+- Each screenshot is read alongside short notes on the ones before it, with what
+  was decided about each, so a screenshot that leaves something out can be
+  recognised as part of something larger. A screenshot with nothing to do with
+  plans leaves no note, and notes fade after a month.
 - Events that have already passed are detected in code rather than by the model,
   and collapsed into a single note.
 - A proposal left untouched is re-notified the following day and archived after a
