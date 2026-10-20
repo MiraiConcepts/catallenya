@@ -376,7 +376,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 256M # 128M OOM-killed the main node process 3x (2026-09-29, 10-14) at 90-118M RSS.
     environment:
       # PRIVATE internal address — must NEVER be public. IPP needs no Immich API
       # key; it authenticates to shared albums with each album's public share key.
